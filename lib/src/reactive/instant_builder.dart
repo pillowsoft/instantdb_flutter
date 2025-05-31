@@ -24,19 +24,26 @@ class InstantBuilder extends StatefulWidget {
 }
 
 class _InstantBuilderState extends State<InstantBuilder> {
-  late final Signal<QueryResult> _querySignal;
+  Signal<QueryResult>? _querySignal;
 
   @override
   void initState() {
     super.initState();
-    final db = InstantProvider.of(context);
-    _querySignal = db.query(widget.query);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_querySignal == null) {
+      final db = InstantProvider.of(context);
+      _querySignal = db.query(widget.query);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Watch((context) {
-      final result = _querySignal.value;
+      final result = _querySignal?.value ?? QueryResult.loading();
 
       if (result.isLoading) {
         return widget.loadingBuilder?.call(context) ??
@@ -79,19 +86,26 @@ class InstantBuilderTyped<T> extends StatefulWidget {
 }
 
 class _InstantBuilderTypedState<T> extends State<InstantBuilderTyped<T>> {
-  late final Signal<QueryResult> _querySignal;
+  Signal<QueryResult>? _querySignal;
 
   @override
   void initState() {
     super.initState();
-    final db = InstantProvider.of(context);
-    _querySignal = db.query(widget.query);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_querySignal == null) {
+      final db = InstantProvider.of(context);
+      _querySignal = db.query(widget.query);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Watch((context) {
-      final result = _querySignal.value;
+      final result = _querySignal?.value ?? QueryResult.loading();
 
       if (result.isLoading) {
         return widget.loadingBuilder?.call(context) ??
