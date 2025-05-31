@@ -143,11 +143,13 @@ Map<String, dynamic> _$TransactionResultToJson(TransactionResult instance) =>
 AuthUser _$AuthUserFromJson(Map<String, dynamic> json) => AuthUser(
   id: json['id'] as String,
   email: json['email'] as String,
+  refreshToken: json['refreshToken'] as String?,
   metadata: json['metadata'] as Map<String, dynamic>? ?? const {},
 );
 
 Map<String, dynamic> _$AuthUserToJson(AuthUser instance) => <String, dynamic>{
   'id': instance.id,
   'email': instance.email,
+  'refreshToken': instance.refreshToken,
   'metadata': instance.metadata,
 };

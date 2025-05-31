@@ -227,11 +227,13 @@ class TransactionResult {
 class AuthUser {
   final String id;
   final String email;
+  final String? refreshToken;
   final Map<String, dynamic> metadata;
 
   const AuthUser({
     required this.id,
     required this.email,
+    this.refreshToken,
     this.metadata = const {},
   });
 

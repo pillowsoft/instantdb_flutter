@@ -52,7 +52,7 @@ class _TodoAppScreenState extends State<TodoAppScreen> {
       _db = await InstantDB.init(
         appId: appId,
         config: const InstantConfig(
-          syncEnabled: false, // Disable sync for now to test local functionality
+          syncEnabled: true, // Enable real-time sync
         ),
       );
 

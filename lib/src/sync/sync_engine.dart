@@ -67,16 +67,14 @@ class SyncEngine {
 
   Future<void> _connectWebSocket() async {
     try {
-      // Parse the base URL to extract components
+      // Construct WebSocket URL with app_id as query parameter
       final baseUri = Uri.parse(config.baseUrl!);
-      
-      // Construct WebSocket URL with proper scheme and default port
       final wsScheme = baseUri.scheme == 'https' ? 'wss' : 'ws';
       final wsUri = Uri(
         scheme: wsScheme,
         host: baseUri.host,
-        port: baseUri.hasPort ? baseUri.port : null, // Let WebSocket use default ports
-        path: '/v1/sync',
+        path: '/runtime/session',
+        queryParameters: {'app_id': appId},
       );
       
       // Log connection attempt for debugging
@@ -84,13 +82,24 @@ class SyncEngine {
       
       _channel = WebSocketChannel.connect(wsUri);
 
-      // Send authentication
-      final authData = {
-        'type': 'auth',
-        'appId': appId,
-        'token': _authManager.authToken,
-      };
-      _channel!.sink.add(jsonEncode(authData));
+      // Wait for connection to be established
+      _channel!.ready.then((_) {
+        print('InstantDB: WebSocket connected, sending init message');
+        
+        // Send init message according to InstantDB protocol
+        final initMessage = {
+          'op': 'init',
+          'app-id': appId,
+          'refresh-token': _authManager.currentUser.value?.refreshToken,
+          'client-event-id': _generateEventId(),
+        };
+        
+        _channel!.sink.add(jsonEncode(initMessage));
+        print('InstantDB: Sent init message: ${initMessage['op']}');
+      }).catchError((error) {
+        print('InstantDB: WebSocket ready error: $error');
+        _handleWebSocketError(error);
+      });
 
       // Listen for messages
       _channel!.stream.listen(
@@ -98,39 +107,61 @@ class SyncEngine {
         onError: _handleWebSocketError,
         onDone: _handleWebSocketClose,
       );
-
-      _connectionStatus.value = true;
     } catch (e) {
       print('InstantDB: WebSocket connection error: $e');
       _connectionStatus.value = false;
       _scheduleReconnect();
     }
   }
+  
+  String _generateEventId() {
+    return 'client-${DateTime.now().millisecondsSinceEpoch}-${DateTime.now().microsecondsSinceEpoch}';
+  }
 
   void _handleRemoteMessage(dynamic message) {
     try {
       final data = jsonDecode(message as String) as Map<String, dynamic>;
+      print('InstantDB: Received message: ${data['op']}');
 
-      switch (data['type']) {
-        case 'auth_success':
+      switch (data['op']) {
+        case 'init-ok':
+          print('InstantDB: WebSocket authenticated successfully');
           _connectionStatus.value = true;
+          // Store session ID if needed
+          final sessionId = data['session-id'];
+          print('InstantDB: Session ID: $sessionId');
           break;
-        case 'auth_error':
+          
+        case 'init-error':
+          print('InstantDB: WebSocket authentication failed: ${data['error']}');
           _connectionStatus.value = false;
+          _handleAuthError(data['error']);
           break;
+          
         case 'transaction':
           _applyRemoteTransaction(Transaction.fromJson(data['data']));
           break;
-        case 'transaction_ack':
-          _handleTransactionAck(data['txId'] as String);
+          
+        case 'transaction-ack':
+          _handleTransactionAck(data['tx-id'] as String);
           break;
+          
         case 'error':
           _handleRemoteError(data['error'] as String);
           break;
+          
+        default:
+          print('InstantDB: Unknown message op: ${data['op']}');
       }
     } catch (e) {
-      // Handle JSON parsing errors
+      print('InstantDB: Error parsing message: $e');
     }
+  }
+  
+  void _handleAuthError(dynamic error) {
+    print('InstantDB: Authentication error: $error');
+    _connectionStatus.value = false;
+    // Could implement retry logic or user notification here
   }
 
   void _handleWebSocketError(error) {
