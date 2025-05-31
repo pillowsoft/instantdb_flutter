@@ -24,11 +24,13 @@ void main() {
     });
 
     setUp(() async {
-      // Initialize InstantDB instance
+      // Initialize InstantDB instance with unique persistence dir for each test
+      final testId = DateTime.now().millisecondsSinceEpoch.toString();
       db = await InstantDB.init(
         appId: appId,
-        config: const InstantConfig(
+        config: InstantConfig(
           syncEnabled: false, // Disable sync for unit tests
+          persistenceDir: 'test_db_$testId',
         ),
       );
     });

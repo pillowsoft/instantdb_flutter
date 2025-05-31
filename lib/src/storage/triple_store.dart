@@ -341,6 +341,13 @@ class TripleStore {
         break;
 
       case OperationType.delete:
+        // Get all triples for this entity before deletion (use txn for consistency)
+        final triplesToDelete = await txn.query(
+          'triples',
+          where: 'entity_id = ? AND retracted = FALSE',
+          whereArgs: [operation.entityId],
+        );
+        
         // Retract all triples for this entity
         await txn.update(
           'triples',
@@ -348,6 +355,21 @@ class TripleStore {
           where: 'entity_id = ? AND retracted = FALSE',
           whereArgs: [operation.entityId],
         );
+        
+        // Emit change events for each retracted triple
+        for (final tripleData in triplesToDelete) {
+          _changeController.add(TripleChange(
+            type: ChangeType.retract,
+            triple: Triple(
+              entityId: tripleData['entity_id'] as String,
+              attribute: tripleData['attribute'] as String,
+              value: jsonDecode(tripleData['value'] as String),
+              txId: txId,
+              createdAt: DateTime.fromMillisecondsSinceEpoch(tripleData['created_at'] as int),
+              retracted: true,
+            ),
+          ));
+        }
         break;
 
       case OperationType.retract:

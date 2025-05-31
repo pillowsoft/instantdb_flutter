@@ -10,6 +10,8 @@ class QueryEngine {
   final TripleStore _store;
   final Map<String, Signal<QueryResult>> _queryCache = {};
   late final StreamSubscription _storeSubscription;
+  Timer? _batchTimer;
+  final Set<String> _pendingQueryUpdates = {};
 
   QueryEngine(this._store) {
     // Listen to store changes and invalidate affected queries
@@ -141,27 +143,36 @@ class QueryEngine {
   }
 
   void _handleStoreChange(TripleChange change) {
-    // Simple invalidation - invalidate all queries for now
-    // In production, this would be more sophisticated
+    // Collect queries that need updating
     for (final entry in _queryCache.entries) {
       final query = _parseQueryKey(entry.key);
       if (_queryAffectedByChange(query, change)) {
-        _executeQuery(query, entry.value);
+        _pendingQueryUpdates.add(entry.key);
       }
     }
+
+    // Batch query updates with a small delay to avoid excessive re-queries
+    _batchTimer?.cancel();
+    _batchTimer = Timer(const Duration(milliseconds: 10), () {
+      // Execute all pending query updates
+      for (final queryKey in _pendingQueryUpdates) {
+        final query = _parseQueryKey(queryKey);
+        final resultSignal = _queryCache[queryKey];
+        if (resultSignal != null) {
+          _executeQuery(query, resultSignal);
+        }
+      }
+      _pendingQueryUpdates.clear();
+    });
   }
 
   bool _queryAffectedByChange(Map<String, dynamic> query, TripleChange change) {
-    // Check if the change affects this query
-    final entityType = change.triple.value.toString();
-    
-    // If the triple is setting entity type
-    if (change.triple.attribute == '__type') {
-      return query.containsKey(entityType);
-    }
-
-    // For other attributes, check if any queried entity type could be affected
-    // This is a simple implementation - production would be more precise
+    // For now, invalidate all queries when any change happens
+    // This ensures reactivity works correctly
+    // In a production implementation, this would be more sophisticated:
+    // - Check if the changed entity's type matches any queried types
+    // - Check if the changed attributes affect WHERE clauses
+    // - Check if related entities are affected via JOINs
     return true;
   }
 
@@ -180,6 +191,7 @@ class QueryEngine {
 
   /// Dispose query engine
   void dispose() {
+    _batchTimer?.cancel();
     _storeSubscription.cancel();
     _queryCache.clear();
   }
