@@ -5,11 +5,13 @@ This example demonstrates how to build a real-time, collaborative todo app using
 ## Features
 
 - ✅ Real-time synchronization between multiple app instances
+- ✅ Works without user authentication (anonymous mode)
 - ✅ Offline-first with local persistence
 - ✅ Reactive UI that updates automatically when data changes
 - ✅ Add, complete, and delete todos
 - ✅ Connection status indicator
 - ✅ Clean Material Design UI
+- ✅ Optional authentication example included
 
 ## Getting Started
 
@@ -46,6 +48,23 @@ You can also:
 - Run multiple instances in different browser tabs (with `flutter run -d chrome`)
 - Use physical devices and emulators side by side
 - Open the app while someone else has it open to see collaborative editing
+
+## How It Works
+
+### Anonymous Mode (Default)
+
+The todo app works immediately without any login:
+- InstantDB automatically creates an anonymous session
+- Todos sync across all devices/browsers using the same app ID
+- No user accounts needed - perfect for demos and simple apps
+
+### Optional Authentication
+
+If you want user-specific todos, you can add authentication:
+- See `auth_example.dart` for a complete implementation
+- Users can sign up/sign in with email and password
+- Each user gets their own private todo list
+- The app gracefully handles both anonymous and authenticated states
 
 ## Key Code Concepts
 

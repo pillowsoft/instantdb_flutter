@@ -87,10 +87,12 @@ class SyncEngine {
         print('InstantDB: WebSocket connected, sending init message');
         
         // Send init message according to InstantDB protocol
+        // refresh-token can be null for anonymous users
         final initMessage = {
           'op': 'init',
           'app-id': appId,
-          'refresh-token': _authManager.currentUser.value?.refreshToken,
+          if (_authManager.currentUser.value?.refreshToken != null)
+            'refresh-token': _authManager.currentUser.value!.refreshToken,
           'client-event-id': _generateEventId(),
         };
         
