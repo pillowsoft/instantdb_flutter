@@ -146,7 +146,7 @@ class InstantDB {
     final entityId = data['id'] as String? ?? id();
     final operations = <Operation>[];
 
-    // Add entity type
+    // Add entity type as __type attribute
     operations.add(Operation(
       type: OperationType.add,
       entityId: entityId,

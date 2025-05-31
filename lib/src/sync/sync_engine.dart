@@ -2,12 +2,17 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:collection';
 import 'package:dio/dio.dart';
-import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:signals_flutter/signals_flutter.dart';
+import 'package:uuid/uuid.dart';
 
 import '../core/types.dart';
 import '../storage/triple_store.dart';
 import '../auth/auth_manager.dart';
+
+// Platform-specific WebSocket imports
+import 'web_socket_stub.dart'
+    if (dart.library.io) 'web_socket_io.dart'
+    if (dart.library.html) 'web_socket_web.dart';
 
 /// Sync engine for real-time communication with InstantDB server
 class SyncEngine {
@@ -17,7 +22,8 @@ class SyncEngine {
   final InstantConfig config;
   final Dio _dio;
 
-  WebSocketChannel? _channel;
+  dynamic _webSocket; // WebSocketAdapter
+  StreamSubscription? _messageSubscription;
   StreamSubscription? _storeSubscription;
   StreamSubscription? _authSubscription;
   Timer? _reconnectTimer;
@@ -25,6 +31,7 @@ class SyncEngine {
   final Signal<bool> _connectionStatus = signal(false);
   final Queue<Transaction> _syncQueue = Queue<Transaction>();
   bool _isProcessingQueue = false;
+  final _uuid = const Uuid();
 
   /// Connection status signal
   ReadonlySignal<bool> get connectionStatus => _connectionStatus.readonly();
@@ -61,7 +68,10 @@ class SyncEngine {
     _reconnectTimer?.cancel();
     await _storeSubscription?.cancel();
     await _authSubscription?.cancel();
-    await _channel?.sink.close();
+    await _messageSubscription?.cancel();
+    if (_webSocket != null) {
+      await _webSocket.close();
+    }
     _connectionStatus.value = false;
   }
 
@@ -80,34 +90,30 @@ class SyncEngine {
       // Log connection attempt for debugging
       print('InstantDB: Connecting to WebSocket at $wsUri');
       
-      _channel = WebSocketChannel.connect(wsUri);
-
-      // Wait for connection to be established
-      _channel!.ready.then((_) {
-        print('InstantDB: WebSocket connected, sending init message');
-        
-        // Send init message according to InstantDB protocol
-        // refresh-token can be null for anonymous users
-        final initMessage = {
-          'op': 'init',
-          'app-id': appId,
-          if (_authManager.currentUser.value?.refreshToken != null)
-            'refresh-token': _authManager.currentUser.value!.refreshToken,
-          'client-event-id': _generateEventId(),
-        };
-        
-        _channel!.sink.add(jsonEncode(initMessage));
-        print('InstantDB: Sent init message: ${initMessage['op']}');
-      }).catchError((error) {
-        print('InstantDB: WebSocket ready error: $error');
-        _handleWebSocketError(error);
-      });
+      // Use platform-specific WebSocket implementation
+      _webSocket = await WebSocketManager.connect(wsUri.toString());
+      
+      print('InstantDB: WebSocket connected, sending init message');
+      
+      // Send init message according to InstantDB protocol
+      // refresh-token can be null for anonymous users
+      final initMessage = {
+        'op': 'init',
+        'app-id': appId,
+        if (_authManager.currentUser.value?.refreshToken != null)
+          'refresh-token': _authManager.currentUser.value!.refreshToken,
+        'client-event-id': _generateEventId(),
+      };
+      
+      _webSocket.send(jsonEncode(initMessage));
+      print('InstantDB: Sent init message: ${initMessage['op']}');
 
       // Listen for messages
-      _channel!.stream.listen(
+      _messageSubscription = _webSocket.stream.listen(
         _handleRemoteMessage,
         onError: _handleWebSocketError,
         onDone: _handleWebSocketClose,
+        cancelOnError: false,
       );
     } catch (e) {
       print('InstantDB: WebSocket connection error: $e');
@@ -149,7 +155,21 @@ class SyncEngine {
           break;
           
         case 'error':
-          _handleRemoteError(data['error'] as String);
+          // Log the full error data for debugging
+          print('InstantDB: Error message data: $data');
+          final errorMessage = data['message'] ?? data['error'];
+          if (errorMessage != null) {
+            _handleRemoteError(errorMessage.toString());
+          } else {
+            print('InstantDB: Received error with no message or error field');
+          }
+          break;
+          
+        case 'transact-ok':
+          print('InstantDB: Transaction successful: ${data['tx-id']}');
+          if (data['tx-id'] != null) {
+            _handleTransactionAck(data['tx-id'].toString());
+          }
           break;
           
         default:
@@ -157,6 +177,7 @@ class SyncEngine {
       }
     } catch (e) {
       print('InstantDB: Error parsing message: $e');
+      print('InstantDB: Raw message was: $message');
     }
   }
   
@@ -188,14 +209,15 @@ class SyncEngine {
   }
 
   void _handleAuthChange(AuthUser? user) {
-    if (user != null && _channel != null) {
+    if (user != null && _webSocket != null && _webSocket.isOpen) {
       // Re-authenticate with new token
       final authData = {
-        'type': 'auth',
-        'appId': appId,
-        'token': _authManager.authToken,
+        'op': 'auth',
+        'app-id': appId,
+        'refresh-token': user.refreshToken,
+        'client-event-id': _generateEventId(),
       };
-      _channel!.sink.add(jsonEncode(authData));
+      _webSocket.send(jsonEncode(authData));
     }
   }
 
@@ -219,7 +241,9 @@ class SyncEngine {
   }
 
   void _handleRemoteError(String error) {
-    // Handle remote errors
+    print('InstantDB: Remote error: $error');
+    // Handle specific error types if needed
+    // For now, just log the error
   }
 
   /// Send a transaction to the server
@@ -247,13 +271,61 @@ class SyncEngine {
       while (_syncQueue.isNotEmpty) {
         final transaction = _syncQueue.removeFirst();
 
-        if (_connectionStatus.value && _channel != null) {
+        if (_connectionStatus.value && _webSocket != null && _webSocket.isOpen) {
           // Send via WebSocket
           try {
-            _channel!.sink.add(jsonEncode({
-              'type': 'transaction',
-              'data': transaction.toJson(),
-            }));
+            // Transform to InstantDB's expected format
+            // Based on validation errors, InstantDB expects a specific format
+            final txSteps = <dynamic>[];
+            
+            // Group operations by entity to determine namespace
+            String? namespace;
+            
+            for (final op in transaction.operations) {
+              // Try to determine namespace from __type attribute
+              if (op.attribute == '__type' && op.value is String) {
+                namespace = op.value as String;
+              }
+              
+              if (op.type == OperationType.add) {
+                // Add each attribute as a separate step
+                // Try simpler format without namespace prefix
+                if (op.attribute != '__type') {  // Skip __type itself
+                  txSteps.add([
+                    'add-triple',
+                    op.entityId,
+                    op.attribute ?? '',  // Just the attribute name
+                    op.value ?? '',
+                    transaction.id,  // tx-id for this triple
+                  ]);
+                }
+              } else if (op.type == OperationType.update) {
+                // For updates, try a different operation name
+                txSteps.add([
+                  'retract-attr',  // Try this instead of retract-add-triple-for-e
+                  op.entityId,
+                  op.attribute ?? '',  // Just the attribute name
+                  op.value ?? '',
+                  transaction.id,
+                ]);
+              } else if (op.type == OperationType.delete) {
+                // For deletes, include namespace
+                txSteps.add([
+                  'delete-entity',
+                  op.entityId,
+                  namespace ?? 'todos',  // Include namespace
+                ]);
+              }
+            }
+            
+            final transactionMessage = {
+              'op': 'transact',
+              'tx-id': transaction.id,
+              'tx-steps': txSteps,
+            };
+            
+            print('InstantDB: Sending transaction: ${jsonEncode(transactionMessage)}');
+            _webSocket.send(jsonEncode(transactionMessage));
           } catch (e) {
             // Re-queue on WebSocket error
             _syncQueue.addFirst(transaction);
