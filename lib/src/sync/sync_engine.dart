@@ -32,6 +32,9 @@ class SyncEngine {
   final Queue<Transaction> _syncQueue = Queue<Transaction>();
   bool _isProcessingQueue = false;
   final _uuid = const Uuid();
+  
+  // Cache attribute UUIDs from InstantDB
+  final Map<String, Map<String, String>> _attributeCache = {};
 
   /// Connection status signal
   ReadonlySignal<bool> get connectionStatus => _connectionStatus.readonly();
@@ -103,6 +106,9 @@ class SyncEngine {
         if (_authManager.currentUser.value?.refreshToken != null)
           'refresh-token': _authManager.currentUser.value!.refreshToken,
         'client-event-id': _generateEventId(),
+        'versions': {
+          '@instantdb/flutter': 'v0.1.0',
+        },
       };
       
       _webSocket.send(jsonEncode(initMessage));
@@ -123,7 +129,7 @@ class SyncEngine {
   }
   
   String _generateEventId() {
-    return 'client-${DateTime.now().millisecondsSinceEpoch}-${DateTime.now().microsecondsSinceEpoch}';
+    return _uuid.v4();
   }
 
   void _handleRemoteMessage(dynamic message) {
@@ -138,6 +144,26 @@ class SyncEngine {
           // Store session ID if needed
           final sessionId = data['session-id'];
           print('InstantDB: Session ID: $sessionId');
+          
+          // Parse and cache attribute UUIDs from the response
+          if (data['attrs'] is List) {
+            for (final attr in data['attrs'] as List) {
+              if (attr is Map<String, dynamic> && 
+                  attr['forward-identity'] is List &&
+                  (attr['forward-identity'] as List).length >= 3) {
+                final forwardIdentity = attr['forward-identity'] as List;
+                final namespace = forwardIdentity[1].toString();
+                final attrName = forwardIdentity[2].toString();
+                final attrId = attr['id'].toString();
+                
+                // Cache the attribute UUID
+                _attributeCache.putIfAbsent(namespace, () => {});
+                _attributeCache[namespace]![attrName] = attrId;
+                
+                print('InstantDB: Cached attribute $namespace.$attrName = $attrId');
+              }
+            }
+          }
           break;
           
         case 'init-error':
@@ -275,53 +301,112 @@ class SyncEngine {
           // Send via WebSocket
           try {
             // Transform to InstantDB's expected format
-            // Based on validation errors, InstantDB expects a specific format
+            // InstantDB requires UUIDs for attributes, not simple names
             final txSteps = <dynamic>[];
             
-            // Group operations by entity to determine namespace
+            // Track namespace and attributes we need to register
             String? namespace;
+            final attributesToRegister = <String, Map<String, dynamic>>{};
             
+            // First pass: collect unique attributes and namespace
             for (final op in transaction.operations) {
-              // Try to determine namespace from __type attribute
               if (op.attribute == '__type' && op.value is String) {
                 namespace = op.value as String;
               }
               
+              if (op.attribute != null && op.attribute != '__type') {
+                final ns = namespace ?? 'todos';
+                
+                // Check if we already have this attribute cached
+                if (_attributeCache[ns]?.containsKey(op.attribute) == true) {
+                  // Use cached UUID
+                  attributesToRegister[op.attribute!] = {
+                    'id': _attributeCache[ns]![op.attribute!],
+                    'namespace': ns,
+                    'cached': true,
+                  };
+                } else if (!attributesToRegister.containsKey(op.attribute)) {
+                  // Generate a new UUID for unknown attributes
+                  final attrId = _uuid.v4();
+                  attributesToRegister[op.attribute!] = {
+                    'id': attrId,
+                    'namespace': ns,
+                    'cached': false,
+                  };
+                }
+              }
+            }
+            
+            // Add attribute registration steps only for uncached attributes
+            attributesToRegister.forEach((attrName, attrInfo) {
+              if (attrInfo['cached'] != true) {
+                txSteps.add([
+                  'add-attr',
+                  {
+                    'id': attrInfo['id'],
+                    'forward-identity': [
+                      _uuid.v4(), // Random UUID for the forward identity
+                      attrInfo['namespace'],
+                      attrName,
+                    ],
+                    'value-type': 'blob',
+                    'cardinality': 'one',
+                    'unique?': attrName == 'id',
+                    'index?': false,
+                    'isUnsynced': true,
+                  }
+                ]);
+                
+                // Cache the new attribute
+                _attributeCache.putIfAbsent(attrInfo['namespace'], () => {});
+                _attributeCache[attrInfo['namespace']]![attrName] = attrInfo['id'];
+              }
+            });
+            
+            // Second pass: add the actual operations using attribute UUIDs
+            for (final op in transaction.operations) {
               if (op.type == OperationType.add) {
-                // Add each attribute as a separate step
-                // Try simpler format without namespace prefix
-                if (op.attribute != '__type') {  // Skip __type itself
-                  txSteps.add([
-                    'add-triple',
-                    op.entityId,
-                    op.attribute ?? '',  // Just the attribute name
-                    op.value ?? '',
-                    transaction.id,  // tx-id for this triple
-                  ]);
+                if (op.attribute != null && op.attribute != '__type') {
+                  final attrId = attributesToRegister[op.attribute]?['id'];
+                  if (attrId != null) {
+                    txSteps.add([
+                      'add-triple',
+                      op.entityId,
+                      attrId,
+                      op.value ?? '',
+                    ]);
+                  }
                 }
               } else if (op.type == OperationType.update) {
-                // For updates, try a different operation name
-                txSteps.add([
-                  'retract-attr',  // Try this instead of retract-add-triple-for-e
-                  op.entityId,
-                  op.attribute ?? '',  // Just the attribute name
-                  op.value ?? '',
-                  transaction.id,
-                ]);
+                if (op.attribute != null) {
+                  final attrId = attributesToRegister[op.attribute]?['id'];
+                  if (attrId != null) {
+                    // For updates, just add the new triple
+                    // InstantDB will handle replacing the old value
+                    txSteps.add([
+                      'add-triple',
+                      op.entityId,
+                      attrId,
+                      op.value ?? '',
+                    ]);
+                  }
+                }
               } else if (op.type == OperationType.delete) {
-                // For deletes, include namespace
+                // For deletes, we still use entity ID and namespace
                 txSteps.add([
                   'delete-entity',
                   op.entityId,
-                  namespace ?? 'todos',  // Include namespace
+                  namespace ?? 'todos',
                 ]);
               }
             }
             
             final transactionMessage = {
               'op': 'transact',
-              'tx-id': transaction.id,
               'tx-steps': txSteps,
+              'created': DateTime.now().millisecondsSinceEpoch,
+              'order': 1,
+              'client-event-id': _generateEventId(),
             };
             
             print('InstantDB: Sending transaction: ${jsonEncode(transactionMessage)}');

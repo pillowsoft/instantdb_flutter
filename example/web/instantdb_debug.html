@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>InstantDB Debug</title>
+    <script type="module">
+        import { init, tx, id } from 'https://unpkg.com/@instantdb/core/dist/index.js';
+        window.InstantDB = { init, tx, id };
+    </script>
+    <style>
+        body {
+            font-family: monospace;
+            padding: 20px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .section {
+            margin: 20px 0;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+        }
+        #logs {
+            background: #f5f5f5;
+            padding: 10px;
+            height: 400px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            font-size: 12px;
+        }
+        .log-entry {
+            margin: 5px 0;
+            padding: 5px;
+            border-bottom: 1px solid #ddd;
+        }
+        .sent { background: #e3f2fd; }
+        .received { background: #f3e5f5; }
+        button {
+            margin: 5px;
+            padding: 10px;
+            cursor: pointer;
+        }
+        #todos {
+            margin: 20px 0;
+        }
+        .todo {
+            padding: 5px;
+            margin: 5px 0;
+            background: #fff;
+            border: 1px solid #ddd;
+        }
+    </style>
+</head>
+<body>
+    <h1>InstantDB Protocol Debugger</h1>
+    
+    <div class="section">
+        <h2>Controls</h2>
+        <button onclick="addTodo()">Add Todo</button>
+        <button onclick="clearLogs()">Clear Logs</button>
+        <button onclick="queryTodos()">Query Todos</button>
+        <input type="text" id="todoText" placeholder="Todo text" value="Test todo">
+    </div>
+
+    <div class="section">
+        <h2>Todos</h2>
+        <div id="todos"></div>
+    </div>
+
+    <div class="section">
+        <h2>WebSocket Logs</h2>
+        <div id="logs"></div>
+    </div>
+
+    <script type="module">
+        // Wait for InstantDB to be available
+        setTimeout(() => {
+            if (!window.InstantDB) {
+                console.error('InstantDB not loaded!');
+                return;
+            }
+            
+            // Initialize InstantDB with the same app ID
+            const APP_ID = '82100963-e4c0-4f02-b49b-b6fa92d64a17';
+            
+            // Store the original WebSocket
+            const OriginalWebSocket = window.WebSocket;
+            let wsInstance = null;
+            
+            // Override WebSocket to intercept messages
+            window.WebSocket = function(url, protocols) {
+            console.log('WebSocket URL:', url);
+            addLog('CONNECT', `Connecting to: ${url}`);
+            
+            const ws = new OriginalWebSocket(url, protocols);
+            wsInstance = ws;
+            
+            // Store original send
+            const originalSend = ws.send.bind(ws);
+            
+            // Override send to log outgoing messages
+            ws.send = function(data) {
+                addLog('SENT', data);
+                console.log('WS SEND:', data);
+                try {
+                    const parsed = JSON.parse(data);
+                    console.log('WS SEND (parsed):', parsed);
+                } catch (e) {}
+                return originalSend(data);
+            };
+            
+            // Listen for incoming messages
+            ws.addEventListener('message', function(event) {
+                addLog('RECEIVED', event.data);
+                console.log('WS RECEIVE:', event.data);
+                try {
+                    const parsed = JSON.parse(event.data);
+                    console.log('WS RECEIVE (parsed):', parsed);
+                    
+                    // Log transaction details
+                    if (parsed.op === 'transact' || parsed['tx-steps']) {
+                        console.log('TRANSACTION DETAILS:', parsed);
+                    }
+                } catch (e) {}
+            });
+            
+            ws.addEventListener('open', function() {
+                addLog('OPEN', 'WebSocket connected');
+            });
+            
+            ws.addEventListener('close', function() {
+                addLog('CLOSE', 'WebSocket disconnected');
+            });
+            
+            ws.addEventListener('error', function(error) {
+                addLog('ERROR', error.toString());
+            });
+            
+            return ws;
+            };
+            
+            // Initialize InstantDB
+            const db = window.InstantDB.init({ appId: APP_ID });
+            
+            // Make functions available globally
+            window.db = db;
+            window.queryTodos = queryTodos;
+            window.addTodo = addTodo;
+            window.updateTodo = updateTodo;
+            window.deleteTodo = deleteTodo;
+            window.clearLogs = clearLogs;
+            
+            // Query todos
+            function queryTodos() {
+            const query = { todos: {} };
+            db.subscribeQuery(query, (response) => {
+                console.log('Query response:', response);
+                if (response.error) {
+                    console.error('Query error:', response.error);
+                    return;
+                }
+                if (response.data) {
+                    displayTodos(response.data.todos || []);
+                }
+            });
+        }
+        
+        // Add a todo
+        async function addTodo() {
+            const text = document.getElementById('todoText').value || 'Test todo';
+            const todoId = db.id();
+            
+            console.log('Creating todo with ID:', todoId);
+            
+            try {
+                const result = await db.transact([
+                    db.tx.todos[todoId].update({
+                        text: text,
+                        completed: false,
+                        createdAt: Date.now()
+                    })
+                ]);
+                console.log('Transaction result:', result);
+                addLog('TRANSACT RESULT', JSON.stringify(result));
+            } catch (error) {
+                console.error('Transaction error:', error);
+                addLog('TRANSACT ERROR', error.toString());
+            }
+        }
+        
+        // Display todos
+        function displayTodos(todos) {
+            const container = document.getElementById('todos');
+            container.innerHTML = '';
+            
+            todos.forEach(todo => {
+                const div = document.createElement('div');
+                div.className = 'todo';
+                div.innerHTML = `
+                    <strong>ID:</strong> ${todo.id}<br>
+                    <strong>Text:</strong> ${todo.text}<br>
+                    <strong>Completed:</strong> ${todo.completed}<br>
+                    <strong>Created:</strong> ${new Date(todo.createdAt).toLocaleString()}<br>
+                    <button onclick="updateTodo('${todo.id}', ${!todo.completed})">Toggle</button>
+                    <button onclick="deleteTodo('${todo.id}')">Delete</button>
+                `;
+                container.appendChild(div);
+            });
+        }
+        
+        // Update todo
+        async function updateTodo(id, completed) {
+            console.log('Updating todo:', id, 'completed:', completed);
+            try {
+                const result = await db.transact([
+                    db.tx.todos[id].update({ completed: completed })
+                ]);
+                console.log('Update result:', result);
+            } catch (error) {
+                console.error('Update error:', error);
+            }
+        }
+        
+        // Delete todo
+        async function deleteTodo(id) {
+            console.log('Deleting todo:', id);
+            try {
+                const result = await db.transact([
+                    db.tx.todos[id].delete()
+                ]);
+                console.log('Delete result:', result);
+            } catch (error) {
+                console.error('Delete error:', error);
+            }
+        }
+        
+        // Add log entry
+        function addLog(type, message) {
+            const logs = document.getElementById('logs');
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type.toLowerCase()}`;
+            
+            const timestamp = new Date().toISOString();
+            entry.textContent = `[${timestamp}] ${type}: ${message}`;
+            
+            logs.appendChild(entry);
+            logs.scrollTop = logs.scrollHeight;
+        }
+        
+        // Clear logs
+        function clearLogs() {
+            document.getElementById('logs').innerHTML = '';
+        }
+        
+        // Start querying todos
+        queryTodos();
+        
+        // Also log the db.tx proxy to understand its structure
+        console.log('db.tx:', db.tx);
+        console.log('db.tx.todos:', db.tx.todos);
+        
+            // Try to inspect the transaction builder
+            const todoId = db.id();
+            const txBuilder = db.tx.todos[todoId];
+            console.log('Transaction builder:', txBuilder);
+            console.log('Transaction builder update:', txBuilder.update);
+            
+        }, 1000); // Wait 1 second for module to load
+    </script>
+</body>
+</html>

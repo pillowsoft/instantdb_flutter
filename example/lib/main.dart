@@ -204,6 +204,86 @@ class _TodoListScreenState extends State<TodoListScreen> {
       }
     }
   }
+  
+  Future<void> _clearAllTodos() async {
+    final db = InstantProvider.of(context);
+    
+    try {
+      // Show loading
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Row(
+              children: [
+                SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                  ),
+                ),
+                SizedBox(width: 16),
+                Text('Clearing todos...'),
+              ],
+            ),
+            duration: Duration(seconds: 10),
+          ),
+        );
+      }
+      
+      // Get a fresh query result
+      final queryResult = await db.queryOnce({'todos': {}});
+      
+      if (queryResult.data != null && queryResult.data!['todos'] is List) {
+        final todos = (queryResult.data!['todos'] as List)
+            .cast<Map<String, dynamic>>();
+        
+        if (todos.isEmpty) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).clearSnackBars();
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('No todos to delete')),
+            );
+          }
+          return;
+        }
+        
+        // Create delete operations for all todos
+        final deleteOps = <Operation>[];
+        for (final todo in todos) {
+          if (todo['id'] != null) {
+            deleteOps.add(db.delete(todo['id']));
+          }
+        }
+        
+        // Execute transaction
+        if (deleteOps.isNotEmpty) {
+          await db.transact(deleteOps);
+          
+          if (mounted) {
+            ScaffoldMessenger.of(context).clearSnackBars();
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Deleted ${todos.length} todo${todos.length > 1 ? 's' : ''}'),
+                backgroundColor: Colors.green,
+              ),
+            );
+          }
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).clearSnackBars();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to clear todos: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -213,6 +293,38 @@ class _TodoListScreenState extends State<TodoListScreen> {
         backgroundColor: Colors.blue[600],
         foregroundColor: Colors.white,
         actions: [
+          IconButton(
+            icon: const Icon(Icons.delete_sweep),
+            tooltip: 'Clear Database',
+            onPressed: () async {
+              final confirmed = await showDialog<bool>(
+                context: context,
+                builder: (context) => AlertDialog(
+                  title: const Text('Clear Database'),
+                  content: const Text(
+                    'This will delete all todos. This action cannot be undone.',
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.of(context).pop(false),
+                      child: const Text('Cancel'),
+                    ),
+                    TextButton(
+                      onPressed: () => Navigator.of(context).pop(true),
+                      style: TextButton.styleFrom(
+                        foregroundColor: Colors.red,
+                      ),
+                      child: const Text('Clear All'),
+                    ),
+                  ],
+                ),
+              );
+              
+              if (confirmed == true) {
+                await _clearAllTodos();
+              }
+            },
+          ),
           ConnectionStatusBuilder(
             builder: (context, isOnline) {
               return Padding(

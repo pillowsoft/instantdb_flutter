@@ -112,6 +112,23 @@ class InstantDB {
     }
     return _queryEngine.query(query);
   }
+  
+  /// Execute a query once and return the current result
+  Future<QueryResult> queryOnce(Map<String, dynamic> query) async {
+    if (!_isReady.value) {
+      throw InstantException(message: 'InstantDB not ready. Call init() first.');
+    }
+    
+    // Execute the query and get the current value
+    final querySignal = _queryEngine.query(query);
+    
+    // Wait a bit for the query to execute if it's loading
+    if (querySignal.value.isLoading) {
+      await Future.delayed(const Duration(milliseconds: 100));
+    }
+    
+    return querySignal.value;
+  }
 
   /// Execute a transaction with multiple operations
   Future<TransactionResult> transact(List<Operation> operations) async {

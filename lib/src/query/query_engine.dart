@@ -55,10 +55,15 @@ class QueryEngine {
 
     for (final entry in query.entries) {
       final entityType = entry.key;
-      final entityQuery = entry.value as Map<String, dynamic>?;
+      
+      // Handle different types of query values
+      Map<String, dynamic> entityQuery = {};
+      if (entry.value is Map) {
+        entityQuery = Map<String, dynamic>.from(entry.value as Map);
+      }
 
       // Execute entity query
-      final entities = await _queryEntities(entityType, entityQuery ?? {});
+      final entities = await _queryEntities(entityType, entityQuery);
       results[entityType] = entities;
     }
 

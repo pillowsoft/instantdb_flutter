@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>InstantDB Protocol Test</title>
+    <style>
+        body {
+            font-family: monospace;
+            padding: 20px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .section {
+            margin: 20px 0;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+        }
+        #logs {
+            background: #f5f5f5;
+            padding: 10px;
+            height: 400px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            font-size: 12px;
+        }
+        .log-entry {
+            margin: 5px 0;
+            padding: 5px;
+            border-bottom: 1px solid #ddd;
+        }
+        .sent { background: #e3f2fd; }
+        .received { background: #f3e5f5; }
+        button {
+            margin: 5px;
+            padding: 10px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <h1>InstantDB Protocol Test</h1>
+    
+    <div class="section">
+        <h2>Controls</h2>
+        <button id="addBtn">Add Todo</button>
+        <button id="clearBtn">Clear Logs</button>
+        <button id="queryBtn">Query Todos</button>
+        <input type="text" id="todoText" placeholder="Todo text" value="Test todo">
+    </div>
+
+    <div class="section">
+        <h2>Todos</h2>
+        <div id="todos"></div>
+    </div>
+
+    <div class="section">
+        <h2>WebSocket Logs</h2>
+        <div id="logs"></div>
+    </div>
+
+    <script type="module">
+        import { init, id, tx } from 'https://esm.sh/@instantdb/core';
+        
+        const APP_ID = '82100963-e4c0-4f02-b49b-b6fa92d64a17';
+        
+        // Store original WebSocket
+        const OriginalWebSocket = window.WebSocket;
+        let wsInstance = null;
+        let db = null;
+        
+        // Override WebSocket to intercept messages
+        window.WebSocket = new Proxy(window.WebSocket, {
+            construct(target, args) {
+                console.log('WebSocket constructor called with:', args);
+                const [url, protocols] = args;
+                
+                addLog('CONNECT', `URL: ${url}`);
+                
+                const ws = new OriginalWebSocket(url, protocols);
+                wsInstance = ws;
+                
+                // Override send
+                const originalSend = ws.send.bind(ws);
+                ws.send = function(data) {
+                    addLog('SENT', data);
+                    console.log('=== SENT ===', data);
+                    try {
+                        const parsed = JSON.parse(data);
+                        console.log('SENT (parsed):', parsed);
+                        
+                        // Special logging for transactions
+                        if (parsed['tx-steps']) {
+                            console.log('TX-STEPS:', parsed['tx-steps']);
+                            parsed['tx-steps'].forEach((step, i) => {
+                                console.log(`  Step ${i}:`, step);
+                            });
+                        }
+                    } catch (e) {}
+                    return originalSend(data);
+                };
+                
+                // Listen for messages
+                ws.addEventListener('message', (event) => {
+                    addLog('RECEIVED', event.data);
+                    console.log('=== RECEIVED ===', event.data);
+                    try {
+                        const parsed = JSON.parse(event.data);
+                        console.log('RECEIVED (parsed):', parsed);
+                    } catch (e) {}
+                });
+                
+                ws.addEventListener('open', () => {
+                    addLog('OPEN', 'Connected');
+                });
+                
+                ws.addEventListener('close', () => {
+                    addLog('CLOSE', 'Disconnected');
+                });
+                
+                return ws;
+            }
+        });
+        
+        // Initialize InstantDB
+        db = init({ appId: APP_ID });
+        console.log('DB initialized:', db);
+        
+        // Subscribe to todos
+        const { isLoading, error, data } = db.useQuery({ todos: {} });
+        
+        // Log the subscription
+        db.subscribeQuery({ todos: {} }, (response) => {
+            console.log('Query response:', response);
+            if (response.data?.todos) {
+                displayTodos(response.data.todos);
+            }
+        });
+        
+        // Button handlers
+        document.getElementById('addBtn').addEventListener('click', async () => {
+            const text = document.getElementById('todoText').value || 'Test todo';
+            const todoId = id();
+            
+            console.log('Creating todo with ID:', todoId);
+            console.log('tx object:', tx);
+            console.log('tx.todos:', tx.todos);
+            
+            try {
+                const result = await db.transact([
+                    tx.todos[todoId].update({
+                        text: text,
+                        completed: false,
+                        createdAt: Date.now()
+                    })
+                ]);
+                console.log('Transaction result:', result);
+                addLog('RESULT', JSON.stringify(result));
+            } catch (error) {
+                console.error('Transaction error:', error);
+                addLog('ERROR', error.toString());
+            }
+        });
+        
+        document.getElementById('clearBtn').addEventListener('click', () => {
+            document.getElementById('logs').innerHTML = '';
+        });
+        
+        document.getElementById('queryBtn').addEventListener('click', () => {
+            db.subscribeQuery({ todos: {} }, (response) => {
+                console.log('Manual query response:', response);
+                addLog('QUERY', JSON.stringify(response));
+            });
+        });
+        
+        // Display todos
+        function displayTodos(todos) {
+            const container = document.getElementById('todos');
+            container.innerHTML = '';
+            
+            todos.forEach(todo => {
+                const div = document.createElement('div');
+                div.className = 'todo';
+                div.innerHTML = `
+                    <strong>ID:</strong> ${todo.id}<br>
+                    <strong>Text:</strong> ${todo.text}<br>
+                    <strong>Completed:</strong> ${todo.completed}<br>
+                    <button onclick="window.updateTodo('${todo.id}', ${!todo.completed})">Toggle</button>
+                    <button onclick="window.deleteTodo('${todo.id}')">Delete</button>
+                `;
+                container.appendChild(div);
+            });
+        }
+        
+        // Global functions for buttons
+        window.updateTodo = async (todoId, completed) => {
+            console.log('Updating todo:', todoId);
+            try {
+                const result = await db.transact([
+                    tx.todos[todoId].update({ completed })
+                ]);
+                console.log('Update result:', result);
+            } catch (error) {
+                console.error('Update error:', error);
+            }
+        };
+        
+        window.deleteTodo = async (todoId) => {
+            console.log('Deleting todo:', todoId);
+            try {
+                const result = await db.transact([
+                    tx.todos[todoId].delete()
+                ]);
+                console.log('Delete result:', result);
+            } catch (error) {
+                console.error('Delete error:', error);
+            }
+        };
+        
+        // Add log entry
+        function addLog(type, message) {
+            const logs = document.getElementById('logs');
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type.toLowerCase()}`;
+            
+            const timestamp = new Date().toISOString().split('T')[1];
+            entry.textContent = `[${timestamp}] ${type}: ${message}`;
+            
+            logs.appendChild(entry);
+            logs.scrollTop = logs.scrollHeight;
+        }
+        
+        // Log some debugging info
+        console.log('tx:', tx);
+        console.log('id function:', id);
+        console.log('init function:', init);
+    </script>
+</body>
+</html>

@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>InstantDB Protocol Capture</title>
+    <style>
+        body {
+            font-family: monospace;
+            padding: 20px;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        .section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+        }
+        #logs {
+            background: #f5f5f5;
+            padding: 10px;
+            height: 500px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            font-size: 11px;
+        }
+        .log-entry {
+            margin: 10px 0;
+            padding: 10px;
+            border-bottom: 2px solid #ddd;
+        }
+        .sent { 
+            background: #e3f2fd; 
+            border-left: 4px solid #2196F3;
+        }
+        .received { 
+            background: #f3e5f5; 
+            border-left: 4px solid #9C27B0;
+        }
+        .error { 
+            background: #ffebee; 
+            border-left: 4px solid #f44336;
+        }
+        button {
+            margin: 5px;
+            padding: 10px 20px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        #todos {
+            margin: 20px 0;
+        }
+        .todo {
+            padding: 10px;
+            margin: 5px 0;
+            background: #fff;
+            border: 1px solid #ddd;
+            border-radius: 3px;
+        }
+        .timestamp {
+            color: #666;
+            font-size: 10px;
+        }
+        .json-pretty {
+            background: #fff;
+            padding: 8px;
+            margin: 5px 0;
+            border: 1px solid #ddd;
+            border-radius: 3px;
+            overflow-x: auto;
+        }
+        .highlight {
+            background: yellow;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <h1>InstantDB Protocol Capture</h1>
+    
+    <div class="section">
+        <h2>Instructions</h2>
+        <p>1. Click "Add Todo" to create a new todo</p>
+        <p>2. Watch the WebSocket logs to see the exact message format</p>
+        <p>3. Pay special attention to the tx-steps array structure</p>
+    </div>
+
+    <div class="section">
+        <h2>Controls</h2>
+        <button id="addBtn">Add Todo</button>
+        <button id="updateBtn">Update First Todo</button>
+        <button id="deleteBtn">Delete First Todo</button>
+        <button id="clearBtn">Clear Logs</button>
+        <input type="text" id="todoText" placeholder="Todo text" value="Test todo from JS SDK">
+    </div>
+
+    <div class="section">
+        <h2>Todos</h2>
+        <div id="todos"></div>
+    </div>
+
+    <div class="section">
+        <h2>WebSocket Logs</h2>
+        <div id="logs"></div>
+    </div>
+
+    <script type="module">
+        import { init, id, tx } from 'https://esm.sh/@instantdb/core';
+        
+        const APP_ID = '82100963-e4c0-4f02-b49b-b6fa92d64a17';
+        
+        // Store original WebSocket
+        const OriginalWebSocket = window.WebSocket;
+        let wsInstance = null;
+        let db = null;
+        let logCounter = 0;
+        
+        // Override WebSocket to intercept messages
+        window.WebSocket = new Proxy(window.WebSocket, {
+            construct(target, args) {
+                console.log('🔌 WebSocket constructor called with:', args);
+                const [url, protocols] = args;
+                
+                addLog('CONNECT', `URL: ${url}`, { url });
+                
+                const ws = new OriginalWebSocket(url, protocols);
+                wsInstance = ws;
+                
+                // Override send
+                const originalSend = ws.send.bind(ws);
+                ws.send = function(data) {
+                    addLog('SENT', data, null, true);
+                    console.log('📤 === SENT ===', data);
+                    
+                    try {
+                        const parsed = JSON.parse(data);
+                        console.log('📤 SENT (parsed):', parsed);
+                        
+                        // Special logging for transactions
+                        if (parsed['tx-steps']) {
+                            console.log('🔍 TX-STEPS Analysis:');
+                            console.log('  Total steps:', parsed['tx-steps'].length);
+                            parsed['tx-steps'].forEach((step, i) => {
+                                console.log(`  Step ${i}: [${step[0]}]`, step);
+                                if (step[0] === 'add-triple') {
+                                    console.log(`    Entity ID: ${step[1]}`);
+                                    console.log(`    Attribute: ${step[2]} (type: ${typeof step[2]})`);
+                                    console.log(`    Value: ${step[3]} (type: ${typeof step[3]})`);
+                                }
+                            });
+                        }
+                    } catch (e) {
+                        console.error('Failed to parse sent data:', e);
+                    }
+                    
+                    return originalSend(data);
+                };
+                
+                // Listen for messages
+                ws.addEventListener('message', (event) => {
+                    addLog('RECEIVED', event.data, null, true);
+                    console.log('📥 === RECEIVED ===', event.data);
+                    
+                    try {
+                        const parsed = JSON.parse(event.data);
+                        console.log('📥 RECEIVED (parsed):', parsed);
+                        
+                        if (parsed.error || parsed.message) {
+                            addLog('ERROR', `${parsed.message || parsed.error}`, parsed);
+                        }
+                    } catch (e) {
+                        console.error('Failed to parse received data:', e);
+                    }
+                });
+                
+                ws.addEventListener('open', () => {
+                    addLog('OPEN', 'WebSocket connected');
+                    console.log('✅ WebSocket opened');
+                });
+                
+                ws.addEventListener('close', (event) => {
+                    addLog('CLOSE', `Disconnected (code: ${event.code}, reason: ${event.reason})`);
+                    console.log('❌ WebSocket closed');
+                });
+                
+                ws.addEventListener('error', (error) => {
+                    addLog('ERROR', 'WebSocket error', error);
+                    console.error('⚠️ WebSocket error:', error);
+                });
+                
+                return ws;
+            }
+        });
+        
+        // Initialize InstantDB
+        console.log('🚀 Initializing InstantDB...');
+        db = init({ appId: APP_ID });
+        window.db = db; // For debugging
+        
+        console.log('📊 DB initialized:', db);
+        console.log('🔧 tx object:', tx);
+        console.log('🆔 id function:', id);
+        
+        // Subscribe to todos
+        const unsubscribe = db.subscribeQuery({ todos: {} }, (response) => {
+            console.log('📦 Query response:', response);
+            if (response.data?.todos) {
+                displayTodos(response.data.todos);
+                addLog('QUERY', `Received ${response.data.todos.length} todos`, response);
+            }
+        });
+        
+        // Button handlers
+        document.getElementById('addBtn').addEventListener('click', async () => {
+            const text = document.getElementById('todoText').value || 'Test todo';
+            const todoId = id();
+            
+            console.log('➕ Creating todo with ID:', todoId);
+            
+            try {
+                // Log the transaction builder
+                const txBuilder = tx.todos[todoId];
+                console.log('🏗️ Transaction builder:', txBuilder);
+                
+                const updateMethod = txBuilder.update({
+                    text: text,
+                    completed: false,
+                    createdAt: Date.now()
+                });
+                console.log('📝 Update method result:', updateMethod);
+                
+                const result = await db.transact([updateMethod]);
+                console.log('✅ Transaction result:', result);
+                addLog('RESULT', 'Transaction completed', result);
+            } catch (error) {
+                console.error('❌ Transaction error:', error);
+                addLog('ERROR', error.toString(), error);
+            }
+        });
+        
+        document.getElementById('updateBtn').addEventListener('click', async () => {
+            const todos = document.querySelectorAll('.todo');
+            if (todos.length === 0) {
+                alert('No todos to update');
+                return;
+            }
+            
+            const todoId = todos[0].dataset.id;
+            console.log('🔄 Updating todo:', todoId);
+            
+            try {
+                const result = await db.transact([
+                    tx.todos[todoId].update({ 
+                        completed: true,
+                        updatedAt: Date.now()
+                    })
+                ]);
+                console.log('✅ Update result:', result);
+                addLog('RESULT', 'Update completed', result);
+            } catch (error) {
+                console.error('❌ Update error:', error);
+                addLog('ERROR', error.toString(), error);
+            }
+        });
+        
+        document.getElementById('deleteBtn').addEventListener('click', async () => {
+            const todos = document.querySelectorAll('.todo');
+            if (todos.length === 0) {
+                alert('No todos to delete');
+                return;
+            }
+            
+            const todoId = todos[0].dataset.id;
+            console.log('🗑️ Deleting todo:', todoId);
+            
+            try {
+                const result = await db.transact([
+                    tx.todos[todoId].delete()
+                ]);
+                console.log('✅ Delete result:', result);
+                addLog('RESULT', 'Delete completed', result);
+            } catch (error) {
+                console.error('❌ Delete error:', error);
+                addLog('ERROR', error.toString(), error);
+            }
+        });
+        
+        document.getElementById('clearBtn').addEventListener('click', () => {
+            document.getElementById('logs').innerHTML = '';
+            logCounter = 0;
+        });
+        
+        // Display todos
+        function displayTodos(todos) {
+            const container = document.getElementById('todos');
+            container.innerHTML = '';
+            
+            if (todos.length === 0) {
+                container.innerHTML = '<p>No todos yet</p>';
+                return;
+            }
+            
+            todos.forEach(todo => {
+                const div = document.createElement('div');
+                div.className = 'todo';
+                div.dataset.id = todo.id;
+                div.innerHTML = `
+                    <strong>ID:</strong> ${todo.id}<br>
+                    <strong>Text:</strong> ${todo.text || 'No text'}<br>
+                    <strong>Completed:</strong> ${todo.completed || false}<br>
+                    ${todo.createdAt ? `<strong>Created:</strong> ${new Date(todo.createdAt).toLocaleString()}<br>` : ''}
+                `;
+                container.appendChild(div);
+            });
+        }
+        
+        // Add log entry with pretty JSON
+        function addLog(type, message, data = null, parseJson = false) {
+            const logs = document.getElementById('logs');
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type.toLowerCase()}`;
+            
+            const timestamp = new Date().toISOString();
+            logCounter++;
+            
+            let content = `<div class="timestamp">[${logCounter}] ${timestamp}</div>`;
+            content += `<strong>${type}:</strong> `;
+            
+            if (parseJson && typeof message === 'string') {
+                try {
+                    const parsed = JSON.parse(message);
+                    content += '<div class="json-pretty">' + syntaxHighlight(parsed) + '</div>';
+                    
+                    // Highlight tx-steps if present
+                    if (parsed['tx-steps']) {
+                        content += '<div class="highlight">TX-STEPS FOUND!</div>';
+                    }
+                } catch (e) {
+                    content += message;
+                }
+            } else {
+                content += message;
+            }
+            
+            if (data) {
+                content += '<div class="json-pretty">' + syntaxHighlight(data) + '</div>';
+            }
+            
+            entry.innerHTML = content;
+            logs.appendChild(entry);
+            logs.scrollTop = logs.scrollHeight;
+        }
+        
+        // JSON syntax highlighting
+        function syntaxHighlight(obj) {
+            let json = JSON.stringify(obj, null, 2);
+            json = json.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            return json.replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, function (match) {
+                let cls = 'number';
+                if (/^"/.test(match)) {
+                    if (/:$/.test(match)) {
+                        cls = 'key';
+                        // Highlight specific keys
+                        if (match.includes('tx-steps')) {
+                            return '<span class="highlight">' + match + '</span>';
+                        }
+                    } else {
+                        cls = 'string';
+                    }
+                } else if (/true|false/.test(match)) {
+                    cls = 'boolean';
+                } else if (/null/.test(match)) {
+                    cls = 'null';
+                }
+                return '<span class="' + cls + '">' + match + '</span>';
+            });
+        }
+        
+        // Initial log
+        addLog('INFO', 'Protocol capture started. Click "Add Todo" to see the transaction format.');
+    </script>
+</body>
+</html>
