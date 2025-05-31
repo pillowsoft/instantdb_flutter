@@ -67,10 +67,22 @@ class SyncEngine {
 
   Future<void> _connectWebSocket() async {
     try {
-      final wsUrl = config.baseUrl!.replaceFirst('https://', 'wss://').replaceFirst('http://', 'ws://');
-      final uri = Uri.parse('$wsUrl/v1/sync');
+      // Parse the base URL to extract components
+      final baseUri = Uri.parse(config.baseUrl!);
       
-      _channel = WebSocketChannel.connect(uri);
+      // Construct WebSocket URL with proper scheme and default port
+      final wsScheme = baseUri.scheme == 'https' ? 'wss' : 'ws';
+      final wsUri = Uri(
+        scheme: wsScheme,
+        host: baseUri.host,
+        port: baseUri.hasPort ? baseUri.port : null, // Let WebSocket use default ports
+        path: '/v1/sync',
+      );
+      
+      // Log connection attempt for debugging
+      print('InstantDB: Connecting to WebSocket at $wsUri');
+      
+      _channel = WebSocketChannel.connect(wsUri);
 
       // Send authentication
       final authData = {
@@ -89,6 +101,7 @@ class SyncEngine {
 
       _connectionStatus.value = true;
     } catch (e) {
+      print('InstantDB: WebSocket connection error: $e');
       _connectionStatus.value = false;
       _scheduleReconnect();
     }
@@ -121,11 +134,13 @@ class SyncEngine {
   }
 
   void _handleWebSocketError(error) {
+    print('InstantDB: WebSocket error: $error');
     _connectionStatus.value = false;
     _scheduleReconnect();
   }
 
   void _handleWebSocketClose() {
+    print('InstantDB: WebSocket connection closed');
     _connectionStatus.value = false;
     _scheduleReconnect();
   }
