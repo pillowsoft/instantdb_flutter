@@ -2,39 +2,49 @@ import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:instantdb_flutter/instantdb_flutter.dart';
 
+// Import all example pages
+import 'pages/todos_page.dart';
+import 'pages/auth_page.dart';
+import 'pages/cursors_page.dart';
+import 'pages/custom_cursors_page.dart';
+import 'pages/reactions_page.dart';
+import 'pages/typing_page.dart';
+import 'pages/avatars_page.dart';
+import 'pages/tile_game_page.dart';
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   
   // Load environment variables
   await dotenv.load(fileName: '.env');
   
-  runApp(const TodoApp());
+  runApp(const InstantDBExamplesApp());
 }
 
-class TodoApp extends StatelessWidget {
-  const TodoApp({super.key});
+class InstantDBExamplesApp extends StatelessWidget {
+  const InstantDBExamplesApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'InstantDB Todo Demo',
+      title: 'InstantDB Examples',
       theme: ThemeData(
         primarySwatch: Colors.blue,
         useMaterial3: true,
       ),
-      home: const TodoAppScreen(),
+      home: const ExamplesRootScreen(),
     );
   }
 }
 
-class TodoAppScreen extends StatefulWidget {
-  const TodoAppScreen({super.key});
+class ExamplesRootScreen extends StatefulWidget {
+  const ExamplesRootScreen({super.key});
 
   @override
-  State<TodoAppScreen> createState() => _TodoAppScreenState();
+  State<ExamplesRootScreen> createState() => _ExamplesRootScreenState();
 }
 
-class _TodoAppScreenState extends State<TodoAppScreen> {
+class _ExamplesRootScreenState extends State<ExamplesRootScreen> {
   InstantDB? _db;
   bool _isLoading = true;
   String? _error;
@@ -124,207 +134,88 @@ class _TodoAppScreenState extends State<TodoAppScreen> {
 
     return InstantProvider(
       db: _db!,
-      child: const TodoListScreen(),
+      child: const ExamplesNavigationScreen(),
     );
   }
 }
 
-class TodoListScreen extends StatefulWidget {
-  const TodoListScreen({super.key});
+class ExamplesNavigationScreen extends StatefulWidget {
+  const ExamplesNavigationScreen({super.key});
 
   @override
-  State<TodoListScreen> createState() => _TodoListScreenState();
+  State<ExamplesNavigationScreen> createState() => _ExamplesNavigationScreenState();
 }
 
-class _TodoListScreenState extends State<TodoListScreen> {
-  final _textController = TextEditingController();
+class _ExamplesNavigationScreenState extends State<ExamplesNavigationScreen> {
+  int _selectedIndex = 0;
 
-  @override
-  void dispose() {
-    _textController.dispose();
-    super.dispose();
-  }
+  static const List<_ExampleConfig> _examples = [
+    _ExampleConfig(
+      title: 'Todos',
+      icon: Icons.checklist,
+      color: Colors.blue,
+      widget: TodosPage(),
+    ),
+    _ExampleConfig(
+      title: 'Auth',
+      icon: Icons.lock_outline,
+      color: Colors.indigo,
+      widget: AuthPage(),
+    ),
+    _ExampleConfig(
+      title: 'Cursors',
+      icon: Icons.mouse_outlined,
+      color: Colors.purple,
+      widget: CursorsPage(),
+    ),
+    _ExampleConfig(
+      title: 'Custom',
+      icon: Icons.edit_location_alt_outlined,
+      color: Colors.deepPurple,
+      widget: CustomCursorsPage(),
+    ),
+    _ExampleConfig(
+      title: 'Reactions',
+      icon: Icons.emoji_emotions_outlined,
+      color: Colors.orange,
+      widget: ReactionsPage(),
+    ),
+    _ExampleConfig(
+      title: 'Typing',
+      icon: Icons.keyboard_outlined,
+      color: Colors.teal,
+      widget: TypingPage(),
+    ),
+    _ExampleConfig(
+      title: 'Avatars',
+      icon: Icons.group_outlined,
+      color: Colors.green,
+      widget: AvatarsPage(),
+    ),
+    _ExampleConfig(
+      title: 'Tiles',
+      icon: Icons.grid_on_outlined,
+      color: Colors.red,
+      widget: TileGamePage(),
+    ),
+  ];
 
-  Future<void> _addTodo() async {
-    final text = _textController.text.trim();
-    if (text.isEmpty) return;
-
-    final db = InstantProvider.of(context);
-    
-    try {
-      await db.transact([
-        ...db.create('todos', {
-          'id': db.id(),
-          'text': text,
-          'completed': false,
-          'createdAt': DateTime.now().millisecondsSinceEpoch,
-        }),
-      ]);
-
-      _textController.clear();
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to add todo: $e')),
-        );
-      }
-    }
-  }
-
-  Future<void> _toggleTodo(Map<String, dynamic> todo) async {
-    final db = InstantProvider.of(context);
-    
-    try {
-      await db.transact([
-        ...db.update(todo['id'], {
-          'completed': !todo['completed'],
-        }),
-      ]);
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to update todo: $e')),
-        );
-      }
-    }
-  }
-
-  Future<void> _deleteTodo(String todoId) async {
-    final db = InstantProvider.of(context);
-    
-    try {
-      await db.transact([
-        db.delete(todoId),
-      ]);
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to delete todo: $e')),
-        );
-      }
-    }
-  }
-  
-  Future<void> _clearAllTodos() async {
-    final db = InstantProvider.of(context);
-    
-    try {
-      // Show loading
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Row(
-              children: [
-                SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                  ),
-                ),
-                SizedBox(width: 16),
-                Text('Clearing todos...'),
-              ],
-            ),
-            duration: Duration(seconds: 10),
-          ),
-        );
-      }
-      
-      // Get a fresh query result
-      final queryResult = await db.queryOnce({'todos': {}});
-      
-      if (queryResult.data != null && queryResult.data!['todos'] is List) {
-        final todos = (queryResult.data!['todos'] as List)
-            .cast<Map<String, dynamic>>();
-        
-        if (todos.isEmpty) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).clearSnackBars();
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('No todos to delete')),
-            );
-          }
-          return;
-        }
-        
-        // Create delete operations for all todos
-        final deleteOps = <Operation>[];
-        for (final todo in todos) {
-          if (todo['id'] != null) {
-            deleteOps.add(db.delete(todo['id']));
-          }
-        }
-        
-        // Execute transaction
-        if (deleteOps.isNotEmpty) {
-          await db.transact(deleteOps);
-          
-          if (mounted) {
-            ScaffoldMessenger.of(context).clearSnackBars();
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('Deleted ${todos.length} todo${todos.length > 1 ? 's' : ''}'),
-                backgroundColor: Colors.green,
-              ),
-            );
-          }
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).clearSnackBars();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to clear todos: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
+  void _onItemTapped(int index) {
+    setState(() {
+      _selectedIndex = index;
+    });
   }
 
   @override
   Widget build(BuildContext context) {
+    final currentExample = _examples[_selectedIndex];
+    
     return Scaffold(
       appBar: AppBar(
-        title: const Text('InstantDB Todo'),
-        backgroundColor: Colors.blue[600],
+        title: Text('InstantDB - ${currentExample.title}'),
+        backgroundColor: currentExample.color,
         foregroundColor: Colors.white,
         actions: [
-          IconButton(
-            icon: const Icon(Icons.delete_sweep),
-            tooltip: 'Clear Database',
-            onPressed: () async {
-              final confirmed = await showDialog<bool>(
-                context: context,
-                builder: (context) => AlertDialog(
-                  title: const Text('Clear Database'),
-                  content: const Text(
-                    'This will delete all todos. This action cannot be undone.',
-                  ),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.of(context).pop(false),
-                      child: const Text('Cancel'),
-                    ),
-                    TextButton(
-                      onPressed: () => Navigator.of(context).pop(true),
-                      style: TextButton.styleFrom(
-                        foregroundColor: Colors.red,
-                      ),
-                      child: const Text('Clear All'),
-                    ),
-                  ],
-                ),
-              );
-              
-              if (confirmed == true) {
-                await _clearAllTodos();
-              }
-            },
-          ),
           ConnectionStatusBuilder(
             builder: (context, isOnline) {
               return Padding(
@@ -334,14 +225,14 @@ class _TodoListScreenState extends State<TodoListScreen> {
                   children: [
                     Icon(
                       isOnline ? Icons.cloud_done : Icons.cloud_off,
-                      color: isOnline ? Colors.green[300] : Colors.red[300],
+                      color: Colors.white70,
                     ),
                     const SizedBox(width: 4),
                     Text(
                       isOnline ? 'Online' : 'Offline',
-                      style: TextStyle(
+                      style: const TextStyle(
                         fontSize: 12,
-                        color: isOnline ? Colors.green[300] : Colors.red[300],
+                        color: Colors.white70,
                       ),
                     ),
                   ],
@@ -351,199 +242,43 @@ class _TodoListScreenState extends State<TodoListScreen> {
           ),
         ],
       ),
-      body: Column(
-        children: [
-          // Add todo input
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.grey[50],
-              border: Border(
-                bottom: BorderSide(color: Colors.grey[300]!),
-              ),
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _textController,
-                    decoration: const InputDecoration(
-                      hintText: 'Add a new todo...',
-                      border: OutlineInputBorder(),
-                      contentPadding: EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 8,
-                      ),
-                    ),
-                    onSubmitted: (_) => _addTodo(),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                ElevatedButton(
-                  onPressed: _addTodo,
-                  child: const Text('Add'),
-                ),
-              ],
-            ),
-          ),
-          
-          // Todo list
-          Expanded(
-            child: InstantBuilderTyped<List<Map<String, dynamic>>>(
-              query: {
-                'todos': {},
-              },
-              transformer: (data) => (data['todos'] as List).cast<Map<String, dynamic>>(),
-              loadingBuilder: (context) => const Center(
-                child: CircularProgressIndicator(),
-              ),
-              errorBuilder: (context, error) => Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(
-                      Icons.error_outline,
-                      size: 64,
-                      color: Colors.red[300],
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      'Error loading todos',
-                      style: Theme.of(context).textTheme.headlineSmall,
-                    ),
-                    const SizedBox(height: 8),
-                    Text(error),
-                  ],
-                ),
-              ),
-              builder: (context, todos) {
-                if (todos.isEmpty) {
-                  return const Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          Icons.check_circle_outline,
-                          size: 64,
-                          color: Colors.grey,
-                        ),
-                        SizedBox(height: 16),
-                        Text(
-                          'No todos yet',
-                          style: TextStyle(
-                            fontSize: 18,
-                            color: Colors.grey,
-                          ),
-                        ),
-                        SizedBox(height: 8),
-                        Text(
-                          'Add your first todo above!',
-                          style: TextStyle(
-                            color: Colors.grey,
-                          ),
-                        ),
-                      ],
-                    ),
-                  );
-                }
-
-                return ListView.builder(
-                  itemCount: todos.length,
-                  itemBuilder: (context, index) {
-                    final todo = todos[index];
-                    return TodoTile(
-                      todo: todo,
-                      onToggle: () => _toggleTodo(todo),
-                      onDelete: () => _deleteTodo(todo['id']),
-                    );
-                  },
-                );
-              },
-            ),
-          ),
-        ],
+      body: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 300),
+        child: KeyedSubtree(
+          key: ValueKey(_selectedIndex),
+          child: currentExample.widget,
+        ),
+      ),
+      bottomNavigationBar: BottomNavigationBar(
+        items: _examples.map((example) {
+          return BottomNavigationBarItem(
+            icon: Icon(example.icon),
+            label: example.title,
+          );
+        }).toList(),
+        currentIndex: _selectedIndex,
+        selectedItemColor: currentExample.color,
+        unselectedItemColor: Colors.grey,
+        onTap: _onItemTapped,
+        type: BottomNavigationBarType.fixed,
+        showUnselectedLabels: true,
+        backgroundColor: Colors.white,
+        elevation: 8,
       ),
     );
   }
 }
 
-class TodoTile extends StatelessWidget {
-  final Map<String, dynamic> todo;
-  final VoidCallback onToggle;
-  final VoidCallback onDelete;
+class _ExampleConfig {
+  final String title;
+  final IconData icon;
+  final Color color;
+  final Widget widget;
 
-  const TodoTile({
-    super.key,
-    required this.todo,
-    required this.onToggle,
-    required this.onDelete,
+  const _ExampleConfig({
+    required this.title,
+    required this.icon,
+    required this.color,
+    required this.widget,
   });
-
-  @override
-  Widget build(BuildContext context) {
-    final isCompleted = todo['completed'] == true;
-    
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(8),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 4,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: ListTile(
-        leading: Checkbox(
-          value: isCompleted,
-          onChanged: (_) => onToggle(),
-          activeColor: Colors.green,
-        ),
-        title: Text(
-          todo['text'] ?? '',
-          style: TextStyle(
-            decoration: isCompleted ? TextDecoration.lineThrough : null,
-            color: isCompleted ? Colors.grey : null,
-          ),
-        ),
-        subtitle: Text(
-          _formatDate(todo['createdAt']),
-          style: TextStyle(
-            fontSize: 12,
-            color: Colors.grey[600],
-          ),
-        ),
-        trailing: IconButton(
-          icon: const Icon(Icons.delete_outline),
-          color: Colors.red[400],
-          onPressed: onDelete,
-        ),
-      ),
-    );
-  }
-
-  String _formatDate(dynamic timestamp) {
-    if (timestamp == null) return '';
-    
-    try {
-      final date = DateTime.fromMillisecondsSinceEpoch(timestamp as int);
-      final now = DateTime.now();
-      final difference = now.difference(date);
-
-      if (difference.inDays > 0) {
-        return '${difference.inDays} day${difference.inDays > 1 ? 's' : ''} ago';
-      } else if (difference.inHours > 0) {
-        return '${difference.inHours} hour${difference.inHours > 1 ? 's' : ''} ago';
-      } else if (difference.inMinutes > 0) {
-        return '${difference.inMinutes} minute${difference.inMinutes > 1 ? 's' : ''} ago';
-      } else {
-        return 'Just now';
-      }
-    } catch (e) {
-      return '';
-    }
-  }
 }
