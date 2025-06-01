@@ -6,6 +6,7 @@ import 'package:signals_flutter/signals_flutter.dart';
 import 'package:uuid/uuid.dart';
 
 import '../core/types.dart';
+import '../core/logging.dart';
 import '../storage/triple_store.dart';
 import '../auth/auth_manager.dart';
 
@@ -93,11 +94,10 @@ class SyncEngine {
   
   /// Send a query to establish subscription
   void sendQuery(Map<String, dynamic> query) {
-    print('InstantDB: sendQuery called with: ${jsonEncode(query)}');
-    print('InstantDB: Connection status: ${_connectionStatus.value}, WebSocket: ${_webSocket != null}, isOpen: ${_webSocket?.isOpen}');
+    InstantLogger.debug('sendQuery called with: ${jsonEncode(query)}');
     
     if (!_connectionStatus.value || _webSocket == null || !_webSocket.isOpen) {
-      print('InstantDB: Cannot send query - not connected, queuing for later');
+      InstantLogger.debug('Cannot send query - not connected, queuing for later');
       _pendingQueries.add(query);
       return;
     }
@@ -126,12 +126,12 @@ class SyncEngine {
       );
       
       // Log connection attempt for debugging
-      print('InstantDB: Connecting to WebSocket at $wsUri');
+      InstantLogger.info('Connecting to WebSocket at $wsUri');
       
       // Use platform-specific WebSocket implementation
       _webSocket = await WebSocketManager.connect(wsUri.toString());
       
-      print('InstantDB: WebSocket connected, sending init message');
+      InstantLogger.info('WebSocket connected, sending init message');
       
       // Send init message according to InstantDB protocol
       // refresh-token can be null for anonymous users
@@ -147,7 +147,7 @@ class SyncEngine {
       };
       
       _webSocket.send(jsonEncode(initMessage));
-      print('InstantDB: Sent init message: ${initMessage['op']}');
+      InstantLogger.debug('Sent init message: ${initMessage['op']}');
 
       // Listen for messages
       _messageSubscription = _webSocket.stream.listen(
@@ -157,7 +157,7 @@ class SyncEngine {
         cancelOnError: false,
       );
     } catch (e) {
-      print('InstantDB: WebSocket connection error: $e');
+      InstantLogger.error('WebSocket connection error', e);
       _connectionStatus.value = false;
       _scheduleReconnect();
     }
@@ -193,11 +193,11 @@ class SyncEngine {
 
       switch (data['op']) {
         case 'init-ok':
-          print('InstantDB: WebSocket authenticated successfully');
+          InstantLogger.info('WebSocket authenticated successfully');
           _connectionStatus.value = true;
           // Store session ID for future messages
           _sessionId = data['session-id']?.toString();
-          print('InstantDB: Session ID: $_sessionId');
+          InstantLogger.debug('Session ID: $_sessionId');
           
           // Parse and cache attribute UUIDs from the response
           if (data['attrs'] is List) {
@@ -216,7 +216,7 @@ class SyncEngine {
                 
                 // Only log first few attributes to avoid spam
                 if (_attributeCache[namespace]!.length <= 3) {
-                  print('InstantDB: Cached attribute $namespace.$attrName = $attrId');
+                  InstantLogger.debug('Cached attribute $namespace.$attrName = $attrId');
                 }
               }
             }
@@ -225,7 +225,7 @@ class SyncEngine {
             // This is a workaround for missing attribute in init-ok response
             if (_attributeCache['todos'] != null && !_attributeCache['todos']!.containsKey('completed')) {
               _attributeCache['todos']!['completed'] = 'd4787d60-b7fe-4dbc-a7cb-683cbdd2c0a9';
-              print('InstantDB: Added hardcoded mapping for todos.completed');
+              InstantLogger.debug('Added hardcoded mapping for todos.completed');
             }
           }
           
@@ -295,7 +295,7 @@ class SyncEngine {
           break;
           
         case 'transact-ok':
-          print('InstantDB: Transaction successful: ${data['tx-id']}');
+          InstantLogger.debug('Transaction successful: ${data['tx-id']}');
           if (data['tx-id'] != null) {
             _handleTransactionAck(data['tx-id'].toString());
           }
@@ -341,8 +341,8 @@ class SyncEngine {
           print('InstantDB: Unknown op: ${data['op']}');
       }
     } catch (e) {
-      print('InstantDB: Error parsing message: $e');
-      print('InstantDB: Raw message was: $message');
+      InstantLogger.error('Error parsing message', e);
+      InstantLogger.debug('Raw message was: $message');
     }
   }
   
@@ -393,17 +393,18 @@ class SyncEngine {
 
   Future<void> _applyRemoteTransaction(Transaction transaction) async {
     try {
-      print('InstantDB: Applying remote transaction ${transaction.id} with ${transaction.operations.length} operations');
-      for (final op in transaction.operations) {
-        print('InstantDB:   Operation: ${op.type} on entity ${op.entityId}, attribute: ${op.attribute}, value: ${op.value}');
+      // Don't log every operation to reduce verbosity
+      if (_refreshOkCount <= 3) {
+        InstantLogger.debug('Applying remote transaction ${transaction.id} with ${transaction.operations.length} operations');
       }
       
-      await _store.applyTransaction(transaction);
+      // Mark transaction as synced BEFORE applying to avoid re-sending
       await _store.markTransactionSynced(transaction.id);
+      await _store.applyTransaction(transaction);
     } catch (e) {
       // Handle conflict resolution here
       // For now, just log the error
-      print('InstantDB: Error applying remote transaction: $e');
+      InstantLogger.error('Error applying remote transaction', e);
     }
   }
   
@@ -770,7 +771,7 @@ class SyncEngine {
             };
             
             // Only log transaction op and step count
-            print('InstantDB: Sending transaction with ${txSteps.length} steps');
+            InstantLogger.debug('Sending transaction with ${txSteps.length} steps');
             _webSocket.send(jsonEncode(transactionMessage));
           } catch (e) {
             // Re-queue on WebSocket error
@@ -853,7 +854,7 @@ class SyncEngine {
           // Direct structure: [[row1], [row2], ...]
           joinRows = joinRowsOuter;
         }
-        print('InstantDB: Found ${joinRows.length} join-rows');
+        InstantLogger.debug('Found ${joinRows.length} join-rows');
         
         // Parse join-rows to reconstruct entities
         // Join-rows format: [[entityId, attributeId, value, timestamp], ...]
@@ -898,7 +899,7 @@ class SyncEngine {
         
         // Now process each entity
         if (!skipDuplicateCheck || _refreshOkCount <= 3) {
-          print('InstantDB: Reconstructed ${entityMap.length} entities from join-rows');
+          InstantLogger.debug('Reconstructed ${entityMap.length} entities from join-rows');
         }
         
         // Check if we've already processed this exact data set

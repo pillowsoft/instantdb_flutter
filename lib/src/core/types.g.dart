@@ -63,6 +63,7 @@ InstantConfig _$InstantConfigFromJson(Map<String, dynamic> json) =>
       reconnectDelay: json['reconnectDelay'] == null
           ? const Duration(seconds: 1)
           : Duration(microseconds: (json['reconnectDelay'] as num).toInt()),
+      verboseLogging: json['verboseLogging'] as bool? ?? false,
     );
 
 Map<String, dynamic> _$InstantConfigToJson(InstantConfig instance) =>
@@ -73,6 +74,7 @@ Map<String, dynamic> _$InstantConfigToJson(InstantConfig instance) =>
       'maxCacheSize': instance.maxCacheSize,
       'maxCachedQueries': instance.maxCachedQueries,
       'reconnectDelay': instance.reconnectDelay.inMicroseconds,
+      'verboseLogging': instance.verboseLogging,
     };
 
 Operation _$OperationFromJson(Map<String, dynamic> json) => Operation(

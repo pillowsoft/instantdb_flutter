@@ -4,6 +4,7 @@ import 'package:sqflite/sqflite.dart' hide Transaction;
 import 'package:path/path.dart';
 
 import '../core/types.dart';
+import '../core/logging.dart';
 
 /// Local triple store implementation using SQLite
 class TripleStore {
@@ -283,9 +284,9 @@ class TripleStore {
     });
     
     // Emit all changes after transaction completes
-    print('TripleStore: Transaction ${transaction.id} complete, emitting ${pendingChanges.length} changes');
+    InstantLogger.debug('TripleStore: Transaction ${transaction.id} complete, emitting ${pendingChanges.length} changes');
     for (final change in pendingChanges) {
-      print('TripleStore: Emitting change - ${change.type} for entity ${change.triple.entityId}, attribute ${change.triple.attribute}');
+      InstantLogger.debug('TripleStore: Emitting change - ${change.type} for entity ${change.triple.entityId}, attribute ${change.triple.attribute}');
       _changeController.add(change);
     }
   }

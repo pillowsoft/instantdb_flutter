@@ -1,6 +1,6 @@
 // GENERATED FILE. DO NOT EDIT.
 class GitStamp {
   static const String branch = 'main';
-  static const String sha = '1e198688e9bdbebf08c739869d4e8470fe292e3d';
-  static const String buildDate = '2025-06-01T00:15:26.715062Z';
+  static const String sha = '15ad1f94ed28dc8e92f6c0176913409f083187ea';
+  static const String buildDate = '2025-06-01T00:29:01.062915Z';
 }

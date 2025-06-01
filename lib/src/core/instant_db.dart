@@ -3,6 +3,7 @@ import 'package:signals_flutter/signals_flutter.dart';
 import 'package:uuid/uuid.dart';
 
 import 'types.dart';
+import 'logging.dart';
 import '../storage/triple_store.dart';
 import '../query/query_engine.dart';
 import '../sync/sync_engine.dart';
@@ -60,6 +61,13 @@ class InstantDB {
 
   Future<void> _initialize() async {
     try {
+      // Configure logging based on config
+      if (config.verboseLogging) {
+        InstantLogger.enableVerbose();
+      } else {
+        InstantLogger.disableVerbose();
+      }
+      
       // Initialize triple store
       _store = await TripleStore.init(
         appId: appId,

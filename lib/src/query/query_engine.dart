@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:signals_flutter/signals_flutter.dart';
 
 import '../core/types.dart';
+import '../core/logging.dart';
 import '../storage/triple_store.dart';
 import '../sync/sync_engine.dart';
 
@@ -27,7 +28,7 @@ class QueryEngine {
     
     // When sync engine is connected, send all queries to establish subscriptions
     if (syncEngine.connectionStatus.value) {
-      print('QueryEngine: Already connected, sending ${_queryCache.length} queries to establish subscriptions');
+      InstantLogger.debug('QueryEngine: Already connected, sending ${_queryCache.length} queries to establish subscriptions');
       for (final queryKey in _queryCache.keys) {
         final query = _parseQueryKey(queryKey);
         syncEngine.sendQuery(query);
@@ -39,11 +40,11 @@ class QueryEngine {
     effect(() {
       final isConnected = syncEngine.connectionStatus.value;
       if (isConnected) {
-        print('QueryEngine: Connection established, checking for unsubscribed queries');
+        InstantLogger.debug('QueryEngine: Connection established, checking for unsubscribed queries');
         // When connected, send any queries that haven't been subscribed yet
         for (final queryKey in _queryCache.keys) {
           if (!_subscribedQueries.contains(queryKey)) {
-            print('QueryEngine: Sending unsubscribed query: $queryKey');
+            InstantLogger.debug('QueryEngine: Sending unsubscribed query: $queryKey');
             final query = _parseQueryKey(queryKey);
             syncEngine.sendQuery(query);
             _subscribedQueries.add(queryKey);
@@ -59,11 +60,11 @@ class QueryEngine {
 
     // Return cached query if exists
     if (_queryCache.containsKey(queryKey)) {
-      print('QueryEngine: Returning cached query: $queryKey');
+      InstantLogger.debug('QueryEngine: Returning cached query: $queryKey');
       return _queryCache[queryKey]!;
     }
 
-    print('QueryEngine: Creating new query: $queryKey');
+    InstantLogger.debug('QueryEngine: Creating new query: $queryKey');
     
     // Create new reactive query
     final resultSignal = signal(QueryResult.loading());
@@ -71,11 +72,11 @@ class QueryEngine {
 
     // Send query to InstantDB to establish subscription
     if (_syncEngine != null && !_subscribedQueries.contains(queryKey)) {
-      print('QueryEngine: Sending query to sync engine for subscription');
+      InstantLogger.debug('QueryEngine: Sending query to sync engine for subscription');
       _syncEngine!.sendQuery(query);
       _subscribedQueries.add(queryKey);
     } else {
-      print('QueryEngine: Not sending query - syncEngine: ${_syncEngine != null}, already subscribed: ${_subscribedQueries.contains(queryKey)}');
+      InstantLogger.debug('QueryEngine: Not sending query - syncEngine: ${_syncEngine != null}, already subscribed: ${_subscribedQueries.contains(queryKey)}');
     }
 
     // Execute query asynchronously
@@ -92,7 +93,7 @@ class QueryEngine {
       final result = await _processQuery(query);
       resultSignal.value = QueryResult.success(result);
     } catch (e, stackTrace) {
-      print('Query execution error: $e\n$stackTrace');
+      InstantLogger.error('Query execution error', e, stackTrace);
       resultSignal.value = QueryResult.error(e.toString());
     }
   }

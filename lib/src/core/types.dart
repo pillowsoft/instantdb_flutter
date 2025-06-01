@@ -125,6 +125,7 @@ class InstantConfig {
   final int maxCacheSize;
   final int maxCachedQueries;
   final Duration reconnectDelay;
+  final bool verboseLogging;
 
   const InstantConfig({
     this.persistenceDir,
@@ -133,6 +134,7 @@ class InstantConfig {
     this.maxCacheSize = 50 * 1024 * 1024, // 50MB
     this.maxCachedQueries = 100,
     this.reconnectDelay = const Duration(seconds: 1),
+    this.verboseLogging = false,
   });
 
   factory InstantConfig.fromJson(Map<String, dynamic> json) => _$InstantConfigFromJson(json);
