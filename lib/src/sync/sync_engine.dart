@@ -73,11 +73,10 @@ class SyncEngine {
     // Listen to auth changes to reconnect with new token
     _authSubscription = _authManager.onAuthStateChange.listen(_handleAuthChange);
 
-    // Process any pending transactions
-    await _processPendingTransactions();
-
-    // Connect WebSocket
+    // Connect WebSocket first
     await _connectWebSocket();
+    
+    // Process pending transactions will be called after init-ok is received
   }
 
   /// Stop the sync engine
@@ -235,6 +234,9 @@ class SyncEngine {
           
           // Process any pending queries now that we're authenticated
           _processPendingQueries();
+          
+          // Process any pending transactions now that we're connected
+          _processPendingTransactions();
           break;
           
         case 'init-error':
@@ -295,9 +297,10 @@ class SyncEngine {
           break;
           
         case 'transact-ok':
-          InstantLogger.debug('Transaction successful: ${data['tx-id']}');
-          if (data['tx-id'] != null) {
-            _handleTransactionAck(data['tx-id'].toString());
+          InstantLogger.info('Transaction successful: server tx-id=${data['tx-id']}, client-event-id=${data['client-event-id']}');
+          // Use client-event-id (which is our transaction ID) to mark as synced
+          if (data['client-event-id'] != null) {
+            _handleTransactionAck(data['client-event-id'].toString());
           }
           break;
           
@@ -398,9 +401,9 @@ class SyncEngine {
         InstantLogger.debug('Applying remote transaction ${transaction.id} with ${transaction.operations.length} operations');
       }
       
-      // Mark transaction as synced BEFORE applying to avoid re-sending
-      await _store.markTransactionSynced(transaction.id);
+      // Apply the transaction with already-synced status to avoid re-sending
       await _store.applyTransaction(transaction);
+      // No need to mark as synced separately since remote transactions have synced status
     } catch (e) {
       // Handle conflict resolution here
       // For now, just log the error
@@ -547,6 +550,7 @@ class SyncEngine {
   }
 
   void _handleTransactionAck(String txId) async {
+    InstantLogger.debug('Marking transaction $txId as synced');
     await _store.markTransactionSynced(txId);
   }
 
@@ -762,16 +766,19 @@ class SyncEngine {
               }
             }
             
+            final clientEventId = transaction.id; // Use transaction ID as client-event-id
+            _sentEventIds.add(clientEventId); // Track for deduplication
+            
             final transactionMessage = {
               'op': 'transact',
               'tx-steps': txSteps,
               'created': DateTime.now().millisecondsSinceEpoch,
               'order': 1,
-              'client-event-id': _generateEventId(),
+              'client-event-id': clientEventId,
             };
             
             // Only log transaction op and step count
-            InstantLogger.debug('Sending transaction with ${txSteps.length} steps');
+            InstantLogger.debug('Sending transaction ${transaction.id} with ${txSteps.length} steps');
             _webSocket.send(jsonEncode(transactionMessage));
           } catch (e) {
             // Re-queue on WebSocket error
@@ -800,8 +807,11 @@ class SyncEngine {
 
   Future<void> _processPendingTransactions() async {
     final pendingTransactions = await _store.getPendingTransactions();
+    InstantLogger.info('Found ${pendingTransactions.length} pending transactions to sync');
+    
     for (final transaction in pendingTransactions) {
       _syncQueue.add(transaction);
+      InstantLogger.debug('Queued transaction ${transaction.id} with ${transaction.operations.length} operations');
     }
 
     if (_syncQueue.isNotEmpty) {
