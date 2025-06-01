@@ -757,10 +757,33 @@ class SyncEngine {
                   }
                 }
               } else if (op.type == OperationType.delete) {
-                // For deletes, we still use entity ID and namespace
+                // For deletes, we need to ensure entity ID is a proper string
+                // Sometimes entity IDs come as stringified arrays from corrupted data
+                String cleanEntityId = op.entityId;
+                
+                // Check if entity ID looks like a stringified array
+                if (cleanEntityId.startsWith('[') && cleanEntityId.endsWith(']')) {
+                  try {
+                    // Try to parse it as JSON array and extract first element
+                    final parsed = jsonDecode(cleanEntityId);
+                    if (parsed is List && parsed.isNotEmpty) {
+                      cleanEntityId = parsed[0].toString();
+                      InstantLogger.debug('Fixed corrupted entity ID from "$op.entityId" to "$cleanEntityId"');
+                    }
+                  } catch (e) {
+                    // If parsing fails, try to extract first UUID-like string
+                    final uuidPattern = RegExp(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}');
+                    final match = uuidPattern.firstMatch(cleanEntityId);
+                    if (match != null) {
+                      cleanEntityId = match.group(0)!;
+                      InstantLogger.debug('Extracted entity ID "$cleanEntityId" from corrupted string');
+                    }
+                  }
+                }
+                
                 txSteps.add([
                   'delete-entity',
-                  op.entityId,
+                  cleanEntityId,
                   namespace ?? 'todos',
                 ]);
               }

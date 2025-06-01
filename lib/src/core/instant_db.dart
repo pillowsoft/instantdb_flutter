@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:signals_flutter/signals_flutter.dart';
 import 'package:uuid/uuid.dart';
 
@@ -213,9 +214,32 @@ class InstantDB {
 
   /// Delete an entity
   Operation delete(String entityId) {
+    // Validate entity ID to prevent corrupted IDs
+    String cleanEntityId = entityId;
+    
+    // Check if entity ID looks like a stringified array
+    if (cleanEntityId.startsWith('[') && cleanEntityId.endsWith(']')) {
+      try {
+        // Try to parse it as JSON array and extract first element
+        final parsed = jsonDecode(cleanEntityId);
+        if (parsed is List && parsed.isNotEmpty) {
+          cleanEntityId = parsed[0].toString();
+          InstantLogger.debug('Fixed corrupted entity ID in delete from "$entityId" to "$cleanEntityId"');
+        }
+      } catch (e) {
+        // If parsing fails, try to extract first UUID-like string
+        final uuidPattern = RegExp(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}');
+        final match = uuidPattern.firstMatch(cleanEntityId);
+        if (match != null) {
+          cleanEntityId = match.group(0)!;
+          InstantLogger.debug('Extracted entity ID "$cleanEntityId" from corrupted string in delete');
+        }
+      }
+    }
+    
     return Operation(
       type: OperationType.delete,
-      entityId: entityId,
+      entityId: cleanEntityId,
     );
   }
 

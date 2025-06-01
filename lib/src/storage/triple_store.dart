@@ -476,10 +476,59 @@ class TripleStore {
       orderBy: 'timestamp ASC',
     );
 
-    return results.map((row) {
-      final data = jsonDecode(row['data'] as String) as Map<String, dynamic>;
-      return Transaction.fromJson(data);
-    }).toList();
+    final transactions = <Transaction>[];
+    final corruptedIds = <String>[];
+    
+    for (final row in results) {
+      try {
+        final data = jsonDecode(row['data'] as String) as Map<String, dynamic>;
+        final transaction = Transaction.fromJson(data);
+        
+        // Check if this transaction has corrupted entity IDs
+        bool hasCorruptedIds = false;
+        for (final op in transaction.operations) {
+          if (op.type == OperationType.delete && 
+              op.entityId.startsWith('[') && 
+              op.entityId.endsWith(']')) {
+            hasCorruptedIds = true;
+            break;
+          }
+        }
+        
+        if (hasCorruptedIds) {
+          // Mark corrupted transactions as failed
+          corruptedIds.add(transaction.id);
+          InstantLogger.debug('Found corrupted transaction ${transaction.id}, marking as failed');
+        } else {
+          transactions.add(transaction);
+        }
+      } catch (e) {
+        InstantLogger.error('Error parsing transaction', e);
+      }
+    }
+    
+    // Mark corrupted transactions as failed so they won't be retried
+    if (corruptedIds.isNotEmpty) {
+      await _markTransactionsAsFailed(corruptedIds);
+    }
+    
+    return transactions;
+  }
+  
+  /// Mark multiple transactions as failed
+  Future<void> _markTransactionsAsFailed(List<String> txIds) async {
+    if (txIds.isEmpty) return;
+    
+    final batch = _db.batch();
+    for (final txId in txIds) {
+      batch.update(
+        'transactions',
+        {'status': TransactionStatus.failed.name, 'synced': 0},
+        where: 'id = ?',
+        whereArgs: [txId],
+      );
+    }
+    await batch.commit();
   }
 
   /// Mark transaction as synced
