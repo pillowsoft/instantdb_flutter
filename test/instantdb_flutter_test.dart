@@ -95,7 +95,7 @@ void main() {
 
       // Update entity
       await db.transact([
-        db.update(entityId, {'name': 'Updated Name'}),
+        ...db.update(entityId, {'name': 'Updated Name'}),
       ]);
 
       // Query updated entity

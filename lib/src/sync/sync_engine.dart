@@ -182,12 +182,12 @@ class SyncEngine {
       if (op == 'refresh-ok') {
         _refreshOkCount++;
         if (_refreshOkCount <= 3) {
-          print('InstantDB: Received: $op (count: $_refreshOkCount)');
+          InstantLogger.debug('Received: $op (count: $_refreshOkCount)');
         } else if (_refreshOkCount == 4) {
-          print('InstantDB: Suppressing further refresh-ok logs...');
+          InstantLogger.debug('Suppressing further refresh-ok logs...');
         }
       } else {
-        print('InstantDB: Received: $op');
+        InstantLogger.debug('Received: $op');
       }
 
       switch (data['op']) {
@@ -240,44 +240,44 @@ class SyncEngine {
           break;
           
         case 'init-error':
-          print('InstantDB: WebSocket authentication failed: ${data['error']}');
+          InstantLogger.error('WebSocket authentication failed: ${data['error']}');
           _connectionStatus.value = false;
           _handleAuthError(data['error']);
           break;
           
         case 'transaction':
-          print('InstantDB: Received transaction message: ${jsonEncode(data)}');
+          InstantLogger.debug('Received transaction message: ${jsonEncode(data)}');
           try {
             // Check various possible data locations
             final txData = data['data'] ?? data['tx'] ?? data;
             
             // If this looks like a transaction with tx-steps, handle it like transact
             if (txData['tx-steps'] != null) {
-              print('InstantDB: Transaction message contains tx-steps, processing as transact');
+              InstantLogger.debug('Transaction message contains tx-steps, processing as transact');
               _handleRemoteTransact(txData);
             } else if (txData['operations'] != null) {
               // This looks like our Transaction format
               _applyRemoteTransaction(Transaction.fromJson(txData));
             } else {
-              print('InstantDB: Transaction message has unexpected format');
-              print('InstantDB: Keys in data: ${txData.keys.toList()}');
+              InstantLogger.warn('Transaction message has unexpected format');
+              InstantLogger.debug('Keys in data: ${txData.keys.toList()}');
             }
           } catch (e, stackTrace) {
-            print('InstantDB: Error processing transaction: $e');
-            print('InstantDB: Stack trace: $stackTrace');
+            InstantLogger.error('Error processing transaction: $e');
+            InstantLogger.debug('Stack trace: $stackTrace');
           }
           break;
           
         case 'transact':
           // Handle incoming transactions from other clients
-          print('InstantDB: Received transact message from another client');
-          print('InstantDB: Message keys: ${data.keys.toList()}');
-          print('InstantDB: Full message: ${jsonEncode(data)}');
+          InstantLogger.debug('Received transact message from another client');
+          InstantLogger.debug('Message keys: ${data.keys.toList()}');
+          InstantLogger.debug('Full message: ${jsonEncode(data)}');
           try {
             _handleRemoteTransact(data);
           } catch (e, stackTrace) {
-            print('InstantDB: Error processing transact: $e');
-            print('InstantDB: Stack trace: $stackTrace');
+            InstantLogger.error('Error processing transact: $e');
+            InstantLogger.debug('Stack trace: $stackTrace');
           }
           break;
           
@@ -287,12 +287,12 @@ class SyncEngine {
           
         case 'error':
           // Log the full error data for debugging
-          print('InstantDB: Error message data: $data');
+          InstantLogger.debug('Error message data: $data');
           final errorMessage = data['message'] ?? data['error'];
           if (errorMessage != null) {
             _handleRemoteError(errorMessage.toString());
           } else {
-            print('InstantDB: Received error with no message or error field');
+            InstantLogger.warn('Received error with no message or error field');
           }
           break;
           
@@ -307,14 +307,14 @@ class SyncEngine {
         case 'query-update':
         case 'invalidate-query':
           // Handle query invalidation messages
-          print('InstantDB: Received query update/invalidation message: ${jsonEncode(data)}');
+          InstantLogger.debug('Received query update/invalidation message: ${jsonEncode(data)}');
           _handleQueryInvalidation(data);
           break;
           
         case 'refresh':
           // Handle refresh messages which contain updated data
-          print('InstantDB: Received refresh message with updated data');
-          print('InstantDB: Refresh data keys: ${data.keys.toList()}');
+          InstantLogger.debug('Received refresh message with updated data');
+          InstantLogger.debug('Refresh data keys: ${data.keys.toList()}');
           _handleRefreshMessage(data);
           break;
           
@@ -322,13 +322,13 @@ class SyncEngine {
         case 'query-response':
         case 'query-result':
           // Handle query response with initial data
-          print('InstantDB: Received query response: ${jsonEncode(data)}');
+          InstantLogger.debug('Received query response: ${jsonEncode(data)}');
           _handleQueryResponse(data);
           break;
           
         case 'refresh-query':
           // Handle refresh-query message which might contain updated data
-          print('InstantDB: Received refresh-query message: ${jsonEncode(data)}');
+          InstantLogger.debug('Received refresh-query message: ${jsonEncode(data)}');
           _handleRefreshQuery(data);
           break;
           
@@ -336,12 +336,12 @@ class SyncEngine {
           
         case 'refresh-ok':
           // Handle refresh-ok messages which contain updated query results
-          print('InstantDB: Processing refresh-ok');
+          InstantLogger.debug('Processing refresh-ok');
           _handleRefreshOk(data);
           break;
           
         default:
-          print('InstantDB: Unknown op: ${data['op']}');
+          InstantLogger.warn('Unknown op: ${data['op']}');
       }
     } catch (e) {
       InstantLogger.error('Error parsing message', e);
@@ -350,19 +350,19 @@ class SyncEngine {
   }
   
   void _handleAuthError(dynamic error) {
-    print('InstantDB: Authentication error: $error');
+    InstantLogger.error('Authentication error: $error');
     _connectionStatus.value = false;
     // Could implement retry logic or user notification here
   }
 
   void _handleWebSocketError(error) {
-    print('InstantDB: WebSocket error: $error');
+    InstantLogger.error('WebSocket error: $error');
     _connectionStatus.value = false;
     _scheduleReconnect();
   }
 
   void _handleWebSocketClose() {
-    print('InstantDB: WebSocket connection closed');
+    InstantLogger.info('WebSocket connection closed');
     _connectionStatus.value = false;
     _scheduleReconnect();
   }
@@ -418,13 +418,13 @@ class SyncEngine {
       // Check if this is our own transaction echoed back
       final clientEventId = data['client-event-id'];
       if (clientEventId != null && _sentEventIds.contains(clientEventId)) {
-        print('InstantDB: Ignoring our own echoed transaction: $clientEventId');
+        InstantLogger.debug('Ignoring our own echoed transaction: $clientEventId');
         return;
       }
       
       final txSteps = data['tx-steps'] as List?;
       if (txSteps == null) {
-        print('InstantDB: No tx-steps in transact message');
+        InstantLogger.warn('No tx-steps in transact message');
         return;
       }
       
@@ -478,7 +478,7 @@ class SyncEngine {
               } else {
                 // If we don't have the attribute cached, try to use common attribute names
                 // This is a workaround for when we receive updates before the attribute cache is fully populated
-                print('InstantDB: Unknown attribute ID: $attrId, trying to infer attribute name');
+                InstantLogger.debug('Unknown attribute ID: $attrId, trying to infer attribute name');
                 
                 // Common attributes we might expect
                 if (value is String && (value == 'todos' || value == 'users')) {
@@ -492,7 +492,7 @@ class SyncEngine {
                   currentNamespace = value;
                 } else {
                   // For now, skip unknown attributes but log them
-                  print('InstantDB: Skipping unknown attribute ID: $attrId with value: $value');
+                  InstantLogger.debug('Skipping unknown attribute ID: $attrId with value: $value');
                 }
               }
             }
@@ -540,12 +540,12 @@ class SyncEngine {
           status: TransactionStatus.synced,
         );
         
-        print('InstantDB: Applying remote transaction with ${operations.length} operations');
+        InstantLogger.debug('Applying remote transaction with ${operations.length} operations');
         await _applyRemoteTransaction(transaction);
       }
     } catch (e, stackTrace) {
-      print('InstantDB: Error handling remote transact: $e');
-      print('InstantDB: Stack trace: $stackTrace');
+      InstantLogger.error('Error handling remote transact: $e');
+      InstantLogger.debug('Stack trace: $stackTrace');
     }
   }
 
@@ -555,14 +555,14 @@ class SyncEngine {
   }
 
   void _handleRemoteError(String error) {
-    print('InstantDB: Remote error: $error');
+    InstantLogger.error('Remote error: $error');
     // Handle specific error types if needed
     // For now, just log the error
   }
   
   void _handleQueryInvalidation(Map<String, dynamic> data) async {
     // When a query is invalidated, we need to re-fetch the data
-    print('InstantDB: Query invalidation received');
+    InstantLogger.debug('Query invalidation received');
     
     // Check if the message contains the actual data update
     if (data['data'] != null || data['result'] != null) {
@@ -592,22 +592,22 @@ class SyncEngine {
   }
   
   void _handleRefreshQuery(Map<String, dynamic> data) async {
-    print('InstantDB: Processing refresh-query message');
+    InstantLogger.debug('Processing refresh-query message');
     
     // Check if this message contains updated data
     final result = data['result'] ?? data['data'] ?? data['r'];
     if (result != null) {
-      print('InstantDB: refresh-query contains data, processing as query response');
+      InstantLogger.debug('refresh-query contains data, processing as query response');
       _handleQueryResponse(data);
     } else {
       // Otherwise treat it as an invalidation
-      print('InstantDB: refresh-query has no data, treating as invalidation');
+      InstantLogger.debug('refresh-query has no data, treating as invalidation');
       _handleQueryInvalidation(data);
     }
   }
   
   void _handleRefreshMessage(Map<String, dynamic> data) async {
-    print('InstantDB: Processing refresh message');
+    InstantLogger.debug('Processing refresh message');
     
     // Refresh messages typically contain the full updated dataset
     // Check various possible data locations
@@ -615,17 +615,17 @@ class SyncEngine {
     
     if (result != null && result is Map) {
       // Process the refresh data similar to a query response
-      print('InstantDB: Refresh contains data, processing updates');
+      InstantLogger.debug('Refresh contains data, processing updates');
       _handleQueryResponse({'result': result});
     } else {
       // If no data, trigger a query invalidation
-      print('InstantDB: Refresh has no data, triggering invalidation');
+      InstantLogger.debug('Refresh has no data, triggering invalidation');
       _handleQueryInvalidation(data);
     }
   }
   
   void _processPendingQueries() {
-    print('InstantDB: Processing ${_pendingQueries.length} pending queries');
+    InstantLogger.debug('Processing pending queries');
     while (_pendingQueries.isNotEmpty) {
       final query = _pendingQueries.removeFirst();
       sendQuery(query);
@@ -719,15 +719,47 @@ class SyncEngine {
               }
             }
             
-            // Don't send attribute registration - InstantDB handles this automatically
-            // The attributes are already registered as seen in the init-ok response
+            // Register new attributes that aren't already cached
+            for (final entry in attributesToRegister.entries) {
+              final attrInfo = entry.value;
+              if (attrInfo['cached'] != true) {
+                // Send attribute registration for new attributes
+                txSteps.add([
+                  'add-attr',
+                  {
+                    'id': attrInfo['id'],
+                    'forward-identity': [
+                      ['db/ident'],
+                      attrInfo['namespace'],
+                      entry.key,
+                    ],
+                    'value-type': 'blob', // Default type for unknown attributes
+                    'cardinality': 'one',
+                    'unique': false,
+                    'index': false,
+                  }
+                ]);
+              }
+            }
             
             // Second pass: add the actual operations using attribute UUIDs
             for (final op in transaction.operations) {
               if (op.type == OperationType.add) {
                 if (op.attribute != null && op.attribute != '__type') {
-                  // Look up the attribute ID from cache
-                  final attrId = _attributeCache[namespace ?? 'todos']?[op.attribute];
+                  // Look up the attribute ID from cache or use generated one
+                  String? attrId = _attributeCache[namespace ?? 'todos']?[op.attribute];
+                  
+                  // If not in cache, check if we generated one for this attribute
+                  if (attrId == null && attributesToRegister.containsKey(op.attribute)) {
+                    final attrInfo = attributesToRegister[op.attribute!]!;
+                    attrId = attrInfo['id'] as String;
+                    
+                    // Cache it for future use
+                    final ns = attrInfo['namespace'] as String;
+                    _attributeCache.putIfAbsent(ns, () => {});
+                    _attributeCache[ns]![op.attribute!] = attrId;
+                  }
+                  
                   if (attrId != null) {
                     txSteps.add([
                       'add-triple',
@@ -736,13 +768,25 @@ class SyncEngine {
                       op.value ?? '',
                     ]);
                   } else {
-                    print('InstantDB: Warning - Unknown attribute ${op.attribute} for namespace ${namespace ?? 'todos'}');
+                    InstantLogger.warn('Unknown attribute ${op.attribute} for namespace ${namespace ?? 'todos'}');
                   }
                 }
               } else if (op.type == OperationType.update) {
                 if (op.attribute != null) {
-                  // Look up the attribute ID from cache
-                  final attrId = _attributeCache[namespace ?? 'todos']?[op.attribute];
+                  // Look up the attribute ID from cache or use generated one
+                  String? attrId = _attributeCache[namespace ?? 'todos']?[op.attribute];
+                  
+                  // If not in cache, check if we generated one for this attribute
+                  if (attrId == null && attributesToRegister.containsKey(op.attribute)) {
+                    final attrInfo = attributesToRegister[op.attribute!]!;
+                    attrId = attrInfo['id'] as String;
+                    
+                    // Cache it for future use
+                    final ns = attrInfo['namespace'] as String;
+                    _attributeCache.putIfAbsent(ns, () => {});
+                    _attributeCache[ns]![op.attribute!] = attrId;
+                  }
+                  
                   if (attrId != null) {
                     // For updates, just add the new triple
                     // InstantDB will handle replacing the old value
@@ -753,7 +797,7 @@ class SyncEngine {
                       op.value ?? '',
                     ]);
                   } else {
-                    print('InstantDB: Warning - Unknown attribute ${op.attribute} for update');
+                    InstantLogger.warn('Unknown attribute ${op.attribute} for update');
                   }
                 }
               } else if (op.type == OperationType.delete) {
@@ -849,7 +893,7 @@ class SyncEngine {
   void _handleQueryResponse(Map<String, dynamic> data, {bool skipDuplicateCheck = false}) async {
     // Only log if not from refresh-ok or if it's one of the first few
     if (!skipDuplicateCheck || _refreshOkCount <= 3) {
-      print('InstantDB: Processing query response');
+      InstantLogger.debug('Processing query response');
     }
     
     // InstantDB returns data in a specific format with nested result structure
@@ -866,14 +910,14 @@ class SyncEngine {
     }
     
     if (resultData == null) {
-      print('InstantDB: Query response has no result data');
+      InstantLogger.warn('Query response has no result data');
       return;
     }
     
     // Check if this is a datalog-result format
     if (resultData['datalog-result'] != null) {
       final datalogResult = resultData['datalog-result'];
-      print('InstantDB: Processing datalog-result format');
+      InstantLogger.debug('Processing datalog-result format');
       
       if (datalogResult['join-rows'] is List) {
         final joinRowsOuter = datalogResult['join-rows'] as List;
@@ -930,9 +974,9 @@ class SyncEngine {
               if (value is bool) {
                 // Boolean values are likely 'completed' for todos
                 entityMap[entityId]!['completed'] = value;
-                print('InstantDB: Inferred attribute "completed" for unknown ID: $attributeId');
+                InstantLogger.debug('Inferred attribute "completed" for unknown ID: $attributeId');
               } else {
-                print('InstantDB: Unknown attribute ID in query response: $attributeId with value: $value');
+                InstantLogger.debug('Unknown attribute ID in query response: $attributeId with value: $value');
               }
             }
           }
@@ -1002,7 +1046,7 @@ class SyncEngine {
     } else if (resultData['todos'] is List) {
       // Fallback to simple format if available
       final todos = resultData['todos'] as List;
-      print('InstantDB: Received ${todos.length} todos from server (simple format)');
+      InstantLogger.debug('Received todos from server (simple format)');
       
       for (final todo in todos) {
         if (todo is Map<String, dynamic>) {
