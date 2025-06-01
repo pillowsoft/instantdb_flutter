@@ -686,59 +686,14 @@ class SyncEngine {
             // InstantDB requires UUIDs for attributes, not simple names
             final txSteps = <dynamic>[];
             
-            // Track namespace and attributes we need to register
+            // Track namespace for operations
             String? namespace;
-            final attributesToRegister = <String, Map<String, dynamic>>{};
             
-            // First pass: collect unique attributes and namespace
+            // First pass: identify namespace from __type attribute
             for (final op in transaction.operations) {
               if (op.attribute == '__type' && op.value is String) {
                 namespace = op.value as String;
-              }
-              
-              if (op.attribute != null && op.attribute != '__type') {
-                final ns = namespace ?? 'todos';
-                
-                // Check if we already have this attribute cached
-                if (_attributeCache[ns]?.containsKey(op.attribute) == true) {
-                  // Use cached UUID
-                  attributesToRegister[op.attribute!] = {
-                    'id': _attributeCache[ns]![op.attribute!],
-                    'namespace': ns,
-                    'cached': true,
-                  };
-                } else if (!attributesToRegister.containsKey(op.attribute)) {
-                  // Generate a new UUID for unknown attributes
-                  final attrId = _uuid.v4();
-                  attributesToRegister[op.attribute!] = {
-                    'id': attrId,
-                    'namespace': ns,
-                    'cached': false,
-                  };
-                }
-              }
-            }
-            
-            // Register new attributes that aren't already cached
-            for (final entry in attributesToRegister.entries) {
-              final attrInfo = entry.value;
-              if (attrInfo['cached'] != true) {
-                // Send attribute registration for new attributes
-                txSteps.add([
-                  'add-attr',
-                  {
-                    'id': attrInfo['id'],
-                    'forward-identity': [
-                      ['db/ident'],
-                      attrInfo['namespace'],
-                      entry.key,
-                    ],
-                    'value-type': 'blob', // Default type for unknown attributes
-                    'cardinality': 'one',
-                    'unique': false,
-                    'index': false,
-                  }
-                ]);
+                break;
               }
             }
             
@@ -746,21 +701,12 @@ class SyncEngine {
             for (final op in transaction.operations) {
               if (op.type == OperationType.add) {
                 if (op.attribute != null && op.attribute != '__type') {
-                  // Look up the attribute ID from cache or use generated one
-                  String? attrId = _attributeCache[namespace ?? 'todos']?[op.attribute];
-                  
-                  // If not in cache, check if we generated one for this attribute
-                  if (attrId == null && attributesToRegister.containsKey(op.attribute)) {
-                    final attrInfo = attributesToRegister[op.attribute!]!;
-                    attrId = attrInfo['id'] as String;
-                    
-                    // Cache it for future use
-                    final ns = attrInfo['namespace'] as String;
-                    _attributeCache.putIfAbsent(ns, () => {});
-                    _attributeCache[ns]![op.attribute!] = attrId;
-                  }
+                  // Look up the attribute ID from cache
+                  final ns = namespace ?? 'todos';
+                  String? attrId = _attributeCache[ns]?[op.attribute];
                   
                   if (attrId != null) {
+                    // Use known attribute UUID
                     txSteps.add([
                       'add-triple',
                       op.entityId,
@@ -768,28 +714,26 @@ class SyncEngine {
                       op.value ?? '',
                     ]);
                   } else {
-                    InstantLogger.warn('Unknown attribute ${op.attribute} for namespace ${namespace ?? 'todos'}');
+                    // For unknown attributes, use namespace.attribute format
+                    // InstantDB will handle the UUID assignment
+                    final attrIdentifier = '${ns}.${op.attribute}';
+                    txSteps.add([
+                      'add-triple',
+                      op.entityId,
+                      attrIdentifier,
+                      op.value ?? '',
+                    ]);
+                    InstantLogger.debug('Using attribute identifier for unknown attribute: $attrIdentifier');
                   }
                 }
               } else if (op.type == OperationType.update) {
                 if (op.attribute != null) {
-                  // Look up the attribute ID from cache or use generated one
-                  String? attrId = _attributeCache[namespace ?? 'todos']?[op.attribute];
-                  
-                  // If not in cache, check if we generated one for this attribute
-                  if (attrId == null && attributesToRegister.containsKey(op.attribute)) {
-                    final attrInfo = attributesToRegister[op.attribute!]!;
-                    attrId = attrInfo['id'] as String;
-                    
-                    // Cache it for future use
-                    final ns = attrInfo['namespace'] as String;
-                    _attributeCache.putIfAbsent(ns, () => {});
-                    _attributeCache[ns]![op.attribute!] = attrId;
-                  }
+                  // Look up the attribute ID from cache
+                  final ns = namespace ?? 'todos';
+                  String? attrId = _attributeCache[ns]?[op.attribute];
                   
                   if (attrId != null) {
-                    // For updates, just add the new triple
-                    // InstantDB will handle replacing the old value
+                    // Use known attribute UUID
                     txSteps.add([
                       'add-triple',
                       op.entityId,
@@ -797,7 +741,15 @@ class SyncEngine {
                       op.value ?? '',
                     ]);
                   } else {
-                    InstantLogger.warn('Unknown attribute ${op.attribute} for update');
+                    // For unknown attributes, use namespace.attribute format
+                    final attrIdentifier = '${ns}.${op.attribute}';
+                    txSteps.add([
+                      'add-triple',
+                      op.entityId,
+                      attrIdentifier,
+                      op.value ?? '',
+                    ]);
+                    InstantLogger.debug('Using attribute identifier for unknown attribute in update: $attrIdentifier');
                   }
                 }
               } else if (op.type == OperationType.delete) {
@@ -844,8 +796,20 @@ class SyncEngine {
               'client-event-id': clientEventId,
             };
             
-            // Only log transaction op and step count
+            // Debug log transaction details
             InstantLogger.debug('Sending transaction ${transaction.id} with ${txSteps.length} steps');
+            if (txSteps.isNotEmpty) {
+              InstantLogger.debug('First tx-step: ${jsonEncode(txSteps.first)}');
+              // Check if we're using namespace.attribute format for unknown attributes
+              for (final step in txSteps) {
+                if (step is List && step.length >= 3 && step[0] == 'add-triple') {
+                  final attrId = step[2].toString();
+                  if (attrId.contains('.')) {
+                    InstantLogger.debug('Using namespace.attribute format: $attrId');
+                  }
+                }
+              }
+            }
             _webSocket.send(jsonEncode(transactionMessage));
           } catch (e) {
             // Re-queue on WebSocket error
