@@ -187,4 +187,68 @@ class AuthManager {
       );
     }
   }
+
+  /// Send magic link email
+  Future<void> sendMagicLink(String email) async {
+    try {
+      await _dio.post('/v1/auth/magic-link', data: {
+        'email': email,
+        'appId': appId,
+      });
+    } on DioException catch (e) {
+      throw InstantException(
+        message: 'Failed to send magic link: ${e.response?.data?['message'] ?? e.message}',
+        code: 'auth_error',
+        originalError: e,
+      );
+    }
+  }
+
+  /// Send magic code email
+  Future<void> sendMagicCode(String email) async {
+    try {
+      await _dio.post('/v1/auth/magic-code', data: {
+        'email': email,
+        'appId': appId,
+      });
+    } on DioException catch (e) {
+      throw InstantException(
+        message: 'Failed to send magic code: ${e.response?.data?['message'] ?? e.message}',
+        code: 'auth_error',
+        originalError: e,
+      );
+    }
+  }
+
+  /// Verify magic code and sign in
+  Future<AuthUser> verifyMagicCode({
+    required String email,
+    required String code,
+  }) async {
+    try {
+      final response = await _dio.post('/v1/auth/verify-magic-code', data: {
+        'email': email,
+        'code': code,
+        'appId': appId,
+      });
+
+      final data = response.data as Map<String, dynamic>;
+      final user = AuthUser.fromJson(data['user']);
+      final token = data['token'] as String;
+
+      _authToken = token;
+      _currentUser.value = user;
+
+      // Update Dio headers
+      _dio.options.headers['Authorization'] = 'Bearer $token';
+
+      return user;
+    } on DioException catch (e) {
+      throw InstantException(
+        message: 'Failed to verify magic code: ${e.response?.data?['message'] ?? e.message}',
+        code: 'auth_error',
+        originalError: e,
+      );
+    }
+  }
 }
