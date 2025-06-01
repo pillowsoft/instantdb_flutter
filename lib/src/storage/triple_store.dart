@@ -263,6 +263,20 @@ class TripleStore {
 
   /// Apply a transaction to the store
   Future<void> applyTransaction(Transaction transaction) async {
+    // Check if transaction already exists
+    final existing = await _db.query(
+      'transactions',
+      where: 'id = ?',
+      whereArgs: [transaction.id],
+      limit: 1,
+    );
+    
+    if (existing.isNotEmpty) {
+      // Transaction already applied, skip
+      InstantLogger.debug('Transaction ${transaction.id} already applied, skipping');
+      return;
+    }
+    
     // Collect change events to emit after the transaction completes
     final pendingChanges = <TripleChange>[];
     
@@ -272,7 +286,7 @@ class TripleStore {
         'id': transaction.id,
         'timestamp': transaction.timestamp.millisecondsSinceEpoch,
         'status': transaction.status.name,
-        'synced': 0, // Use 0 for false
+        'synced': transaction.status == TransactionStatus.synced ? 1 : 0,
         'data': jsonEncode(transaction.toJson()),
       });
 

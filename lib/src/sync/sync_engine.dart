@@ -872,7 +872,15 @@ class SyncEngine {
         
         for (final row in joinRows) {
           if (row is List && row.length >= 3) {
-            final entityId = row[0].toString();
+            // Entity ID might be a string or an array - handle both cases
+            String entityId;
+            if (row[0] is List) {
+              // If entity ID is an array, use the first element as the actual ID
+              entityId = (row[0] as List)[0].toString();
+            } else {
+              entityId = row[0].toString();
+            }
+            
             final attributeId = row[1].toString();
             final value = row[2];
             
@@ -919,11 +927,21 @@ class SyncEngine {
         }
         _lastProcessedData['query-entities'] = entitiesHash;
         
+        // Skip if we've already processed this exact data
+        if (entityMap.isEmpty) {
+          return;
+        }
+        
         // Create a single transaction for all entities
         final allOperations = <Operation>[];
         
         for (final entity in entityMap.values) {
           final entityId = entity['id'] as String;
+          
+          // Skip if this looks like a system entity or invalid ID
+          if (entityId.startsWith('__') || entityId == '__query_invalidation') {
+            continue;
+          }
           
           // Add entity type
           allOperations.add(Operation(
