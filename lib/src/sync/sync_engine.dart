@@ -226,6 +226,12 @@ class SyncEngine {
               _attributeCache['todos']!['completed'] = 'd4787d60-b7fe-4dbc-a7cb-683cbdd2c0a9';
               InstantLogger.debug('Added hardcoded mapping for todos.completed');
             }
+            
+            // Debug: Log all cached attributes
+            InstantLogger.debug('All cached attributes after init-ok:');
+            for (final entry in _attributeCache.entries) {
+              InstantLogger.debug('  Namespace "${entry.key}": ${entry.value.keys.join(', ')}');
+            }
           }
           
           // InstantDB automatically subscribes to queries, so we don't need explicit subscribe operations
@@ -714,16 +720,8 @@ class SyncEngine {
                       op.value ?? '',
                     ]);
                   } else {
-                    // For unknown attributes, use namespace.attribute format
-                    // InstantDB will handle the UUID assignment
-                    final attrIdentifier = '${ns}.${op.attribute}';
-                    txSteps.add([
-                      'add-triple',
-                      op.entityId,
-                      attrIdentifier,
-                      op.value ?? '',
-                    ]);
-                    InstantLogger.debug('Using attribute identifier for unknown attribute: $attrIdentifier');
+                    // Skip unknown attributes for now
+                    InstantLogger.warn('Skipping unknown attribute ${op.attribute} for namespace $ns - not registered with server');
                   }
                 }
               } else if (op.type == OperationType.update) {
@@ -741,15 +739,8 @@ class SyncEngine {
                       op.value ?? '',
                     ]);
                   } else {
-                    // For unknown attributes, use namespace.attribute format
-                    final attrIdentifier = '${ns}.${op.attribute}';
-                    txSteps.add([
-                      'add-triple',
-                      op.entityId,
-                      attrIdentifier,
-                      op.value ?? '',
-                    ]);
-                    InstantLogger.debug('Using attribute identifier for unknown attribute in update: $attrIdentifier');
+                    // Skip unknown attributes for now
+                    InstantLogger.warn('Skipping unknown attribute ${op.attribute} for namespace $ns in update - not registered with server');
                   }
                 }
               } else if (op.type == OperationType.delete) {
@@ -800,15 +791,6 @@ class SyncEngine {
             InstantLogger.debug('Sending transaction ${transaction.id} with ${txSteps.length} steps');
             if (txSteps.isNotEmpty) {
               InstantLogger.debug('First tx-step: ${jsonEncode(txSteps.first)}');
-              // Check if we're using namespace.attribute format for unknown attributes
-              for (final step in txSteps) {
-                if (step is List && step.length >= 3 && step[0] == 'add-triple') {
-                  final attrId = step[2].toString();
-                  if (attrId.contains('.')) {
-                    InstantLogger.debug('Using namespace.attribute format: $attrId');
-                  }
-                }
-              }
             }
             _webSocket.send(jsonEncode(transactionMessage));
           } catch (e) {
