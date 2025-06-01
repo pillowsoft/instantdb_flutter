@@ -206,11 +206,6 @@ class AuthGuardExample extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return AuthGuard(
-      child: const Scaffold(
-        body: Center(
-          child: Text('This content is only visible to authenticated users'),
-        ),
-      ),
       fallback: const Scaffold(
         body: Center(
           child: Column(
@@ -221,6 +216,11 @@ class AuthGuardExample extends StatelessWidget {
               Text('Please sign in to view this content'),
             ],
           ),
+        ),
+      ),
+      child: const Scaffold(
+        body: Center(
+          child: Text('This content is only visible to authenticated users'),
         ),
       ),
     );

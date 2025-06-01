@@ -1,17 +1,71 @@
-# InstantDB Flutter Todo Example
+# InstantDB Flutter Examples
 
-This example demonstrates how to build a real-time, collaborative todo app using InstantDB Flutter.
+This example app demonstrates various real-time, collaborative features using InstantDB Flutter. The app includes 8 different examples showcasing different aspects of InstantDB's capabilities.
 
-## Features
+## Examples Included
 
-- ✅ Real-time synchronization between multiple app instances
-- ✅ Works without user authentication (anonymous mode)
-- ✅ Offline-first with local persistence
-- ✅ Reactive UI that updates automatically when data changes
-- ✅ Add, complete, and delete todos
-- ✅ Connection status indicator
-- ✅ Clean Material Design UI
-- ✅ Optional authentication example included
+### 1. **Todos** 📝
+A full-featured todo list application with real-time sync
+- Add, complete, and delete todos
+- Real-time synchronization across all connected clients
+- Works without authentication (anonymous mode)
+- Offline-first with local persistence
+- Connection status indicator
+
+### 2. **Authentication** 🔐
+Email-based magic code authentication
+- Send magic codes to email addresses
+- Verify codes to authenticate users
+- Display current user information
+- Sign out functionality
+- Protected content with AuthGuard
+
+### 3. **Cursor Tracking** 🖱️
+Basic real-time cursor position sharing
+- Track mouse/touch positions
+- See other users' cursors in real-time
+- Automatic cleanup of inactive cursors
+- Visual counter of active users
+
+### 4. **Custom Cursors** 🎨
+Enhanced cursor tracking with user identification
+- Name setup for each user
+- Color-coded cursors
+- User labels that follow cursors
+- Glow effect for current user
+- Persistent user colors
+
+### 5. **Reactions** 🎉
+Animated emoji reactions system
+- Tap to send emoji reactions
+- See reactions from other users
+- Floating animation effects
+- Auto-cleanup after animation
+- Multiple emoji options
+
+### 6. **Typing Indicators** 💬
+Real-time chat with typing awareness
+- Send and receive messages
+- See when others are typing
+- Animated typing indicator dots
+- Message history with timestamps
+- User avatars and names
+
+### 7. **Avatar Stack** 👥
+Presence tracking with visual user representation
+- See who's currently online
+- Circular avatar arrangement
+- Real-time presence updates
+- User count and list
+- "Active now" indicators
+
+### 8. **Merge Tile Game** 🎮
+Collaborative grid painting game
+- 16x16 interactive grid
+- Paint tiles by clicking/dragging
+- See other players' colors in real-time
+- Track top painters
+- Clear grid functionality
 
 ## Getting Started
 
