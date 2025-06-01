@@ -176,7 +176,7 @@ class _TodoListScreenState extends State<TodoListScreen> {
     
     try {
       await db.transact([
-        db.update(todo['id'], {
+        ...db.update(todo['id'], {
           'completed': !todo['completed'],
         }),
       ]);
@@ -391,9 +391,7 @@ class _TodoListScreenState extends State<TodoListScreen> {
           Expanded(
             child: InstantBuilderTyped<List<Map<String, dynamic>>>(
               query: {
-                'todos': {
-                  'orderBy': {'createdAt': 'desc'},
-                },
+                'todos': {},
               },
               transformer: (data) => (data['todos'] as List).cast<Map<String, dynamic>>(),
               loadingBuilder: (context) => const Center(

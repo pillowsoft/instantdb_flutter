@@ -82,6 +82,9 @@ class InstantDB {
         authManager: _authManager,
         config: config,
       );
+      
+      // Wire up sync engine to query engine
+      _queryEngine.setSyncEngine(_syncEngine);
 
       // Connect sync engine events
       effect(() {
@@ -185,15 +188,19 @@ class InstantDB {
   }
 
   /// Update an entity
-  Operation update(String entityId, Map<String, dynamic> data) {
-    // For simplicity, return single operation (real implementation would handle multiple attributes)
-    final firstEntry = data.entries.first;
-    return Operation(
-      type: OperationType.update,
-      entityId: entityId,
-      attribute: firstEntry.key,
-      value: firstEntry.value,
-    );
+  List<Operation> update(String entityId, Map<String, dynamic> data) {
+    final operations = <Operation>[];
+    
+    for (final entry in data.entries) {
+      operations.add(Operation(
+        type: OperationType.update,
+        entityId: entityId,
+        attribute: entry.key,
+        value: entry.value,
+      ));
+    }
+    
+    return operations;
   }
 
   /// Delete an entity
@@ -234,7 +241,7 @@ class TransactionBuilder {
 
   /// Update an entity
   TransactionBuilder update(String entityId, Map<String, dynamic> data) {
-    _operations.add(_db.update(entityId, data));
+    _operations.addAll(_db.update(entityId, data));
     return this;
   }
 

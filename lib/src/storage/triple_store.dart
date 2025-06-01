@@ -262,6 +262,9 @@ class TripleStore {
 
   /// Apply a transaction to the store
   Future<void> applyTransaction(Transaction transaction) async {
+    // Collect change events to emit after the transaction completes
+    final pendingChanges = <TripleChange>[];
+    
     await _db.transaction((txn) async {
       // Store transaction record
       await txn.insert('transactions', {
@@ -272,14 +275,23 @@ class TripleStore {
         'data': jsonEncode(transaction.toJson()),
       });
 
-      // Apply operations
+      // Apply operations and collect changes
       for (final operation in transaction.operations) {
-        await _applyOperation(txn, operation, transaction.id);
+        final changes = await _applyOperationWithChanges(txn, operation, transaction.id);
+        pendingChanges.addAll(changes);
       }
     });
+    
+    // Emit all changes after transaction completes
+    print('TripleStore: Transaction ${transaction.id} complete, emitting ${pendingChanges.length} changes');
+    for (final change in pendingChanges) {
+      print('TripleStore: Emitting change - ${change.type} for entity ${change.triple.entityId}, attribute ${change.triple.attribute}');
+      _changeController.add(change);
+    }
   }
 
-  Future<void> _applyOperation(DatabaseExecutor txn, Operation operation, String txId) async {
+  Future<List<TripleChange>> _applyOperationWithChanges(DatabaseExecutor txn, Operation operation, String txId) async {
+    final changes = <TripleChange>[];
     final now = DateTime.now();
 
     switch (operation.type) {
@@ -294,7 +306,7 @@ class TripleStore {
             'retracted': 0, // Use 0 for false
           });
 
-          _changeController.add(TripleChange(
+          changes.add(TripleChange(
             type: ChangeType.add,
             triple: Triple(
               entityId: operation.entityId,
@@ -327,7 +339,7 @@ class TripleStore {
             'retracted': 0, // Use 0 for false
           });
 
-          _changeController.add(TripleChange(
+          changes.add(TripleChange(
             type: ChangeType.add,
             triple: Triple(
               entityId: operation.entityId,
@@ -358,7 +370,7 @@ class TripleStore {
         
         // Emit change events for each retracted triple
         for (final tripleData in triplesToDelete) {
-          _changeController.add(TripleChange(
+          changes.add(TripleChange(
             type: ChangeType.retract,
             triple: Triple(
               entityId: tripleData['entity_id'] as String,
@@ -385,7 +397,7 @@ class TripleStore {
             ],
           );
 
-          _changeController.add(TripleChange(
+          changes.add(TripleChange(
             type: ChangeType.retract,
             triple: Triple(
               entityId: operation.entityId,
@@ -398,7 +410,10 @@ class TripleStore {
         }
         break;
     }
+    
+    return changes;
   }
+  
 
   /// Rollback a transaction
   Future<void> rollbackTransaction(String txId) async {

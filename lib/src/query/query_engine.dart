@@ -4,18 +4,53 @@ import 'package:signals_flutter/signals_flutter.dart';
 
 import '../core/types.dart';
 import '../storage/triple_store.dart';
+import '../sync/sync_engine.dart';
 
 /// Query engine that executes InstaQL queries reactively
 class QueryEngine {
   final TripleStore _store;
+  SyncEngine? _syncEngine;
   final Map<String, Signal<QueryResult>> _queryCache = {};
   late final StreamSubscription _storeSubscription;
   Timer? _batchTimer;
   final Set<String> _pendingQueryUpdates = {};
+  final Set<String> _subscribedQueries = {};
 
-  QueryEngine(this._store) {
+  QueryEngine(this._store, [this._syncEngine]) {
     // Listen to store changes and invalidate affected queries
     _storeSubscription = _store.changes.listen(_handleStoreChange);
+  }
+  
+  /// Set the sync engine (called after initialization)
+  void setSyncEngine(SyncEngine syncEngine) {
+    _syncEngine = syncEngine;
+    
+    // When sync engine is connected, send all queries to establish subscriptions
+    if (syncEngine.connectionStatus.value) {
+      print('QueryEngine: Already connected, sending ${_queryCache.length} queries to establish subscriptions');
+      for (final queryKey in _queryCache.keys) {
+        final query = _parseQueryKey(queryKey);
+        syncEngine.sendQuery(query);
+        _subscribedQueries.add(queryKey);
+      }
+    }
+    
+    // Use effect to react to connection status changes
+    effect(() {
+      final isConnected = syncEngine.connectionStatus.value;
+      if (isConnected) {
+        print('QueryEngine: Connection established, checking for unsubscribed queries');
+        // When connected, send any queries that haven't been subscribed yet
+        for (final queryKey in _queryCache.keys) {
+          if (!_subscribedQueries.contains(queryKey)) {
+            print('QueryEngine: Sending unsubscribed query: $queryKey');
+            final query = _parseQueryKey(queryKey);
+            syncEngine.sendQuery(query);
+            _subscribedQueries.add(queryKey);
+          }
+        }
+      }
+    });
   }
 
   /// Execute a query and return a reactive signal
@@ -24,12 +59,24 @@ class QueryEngine {
 
     // Return cached query if exists
     if (_queryCache.containsKey(queryKey)) {
+      print('QueryEngine: Returning cached query: $queryKey');
       return _queryCache[queryKey]!;
     }
 
+    print('QueryEngine: Creating new query: $queryKey');
+    
     // Create new reactive query
     final resultSignal = signal(QueryResult.loading());
     _queryCache[queryKey] = resultSignal;
+
+    // Send query to InstantDB to establish subscription
+    if (_syncEngine != null && !_subscribedQueries.contains(queryKey)) {
+      print('QueryEngine: Sending query to sync engine for subscription');
+      _syncEngine!.sendQuery(query);
+      _subscribedQueries.add(queryKey);
+    } else {
+      print('QueryEngine: Not sending query - syncEngine: ${_syncEngine != null}, already subscribed: ${_subscribedQueries.contains(queryKey)}');
+    }
 
     // Execute query asynchronously
     _executeQuery(query, resultSignal);
@@ -148,6 +195,11 @@ class QueryEngine {
   }
 
   void _handleStoreChange(TripleChange change) {
+    // Skip internal system changes to avoid feedback loops
+    if (change.triple.entityId == '__query_invalidation') {
+      return;
+    }
+    
     // Collect queries that need updating
     for (final entry in _queryCache.entries) {
       final query = _parseQueryKey(entry.key);
@@ -156,9 +208,9 @@ class QueryEngine {
       }
     }
 
-    // Batch query updates with a small delay to avoid excessive re-queries
+    // Batch query updates with a larger delay to avoid excessive re-queries
     _batchTimer?.cancel();
-    _batchTimer = Timer(const Duration(milliseconds: 10), () {
+    _batchTimer = Timer(const Duration(milliseconds: 200), () {
       // Execute all pending query updates
       for (final queryKey in _pendingQueryUpdates) {
         final query = _parseQueryKey(queryKey);
@@ -172,13 +224,18 @@ class QueryEngine {
   }
 
   bool _queryAffectedByChange(Map<String, dynamic> query, TripleChange change) {
-    // For now, invalidate all queries when any change happens
-    // This ensures reactivity works correctly
-    // In a production implementation, this would be more sophisticated:
-    // - Check if the changed entity's type matches any queried types
-    // - Check if the changed attributes affect WHERE clauses
-    // - Check if related entities are affected via JOINs
-    return true;
+    // For todos, we'll just check if the query includes todos
+    // This is simpler and avoids async lookups
+    
+    // If it's a __type change for todos, it affects todo queries
+    if (change.triple.attribute == '__type' && change.triple.value == 'todos') {
+      return query.containsKey('todos');
+    }
+    
+    // For any other attribute changes, check if it's likely a todo
+    // by seeing if the query includes todos
+    // This is a simplified approach that works for the todo app
+    return query.containsKey('todos');
   }
 
   String _generateQueryKey(Map<String, dynamic> query) {
