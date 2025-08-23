@@ -10,6 +10,7 @@ import '../query/query_engine.dart';
 import '../sync/sync_engine.dart';
 import '../auth/auth_manager.dart';
 import '../schema/schema.dart';
+import '../reactive/presence.dart';
 
 /// Main InstantDB client
 class InstantDB {
@@ -21,6 +22,7 @@ class InstantDB {
   late final QueryEngine _queryEngine;
   late final SyncEngine _syncEngine;
   late final AuthManager _authManager;
+  late final PresenceManager _presenceManager;
 
   final Signal<bool> _isReady = signal(false);
   final Signal<bool> _isOnline = signal(false);
@@ -37,6 +39,9 @@ class InstantDB {
 
   /// Query engine for reactive queries
   QueryEngine get queries => _queryEngine;
+
+  /// Presence manager for collaboration features
+  PresenceManager get presence => _presenceManager;
 
   InstantDB._({
     required this.appId,
@@ -90,6 +95,12 @@ class InstantDB {
         store: _store,
         authManager: _authManager,
         config: config,
+      );
+
+      // Initialize presence manager
+      _presenceManager = PresenceManager(
+        syncEngine: config.syncEnabled ? _syncEngine : null,
+        authManager: _authManager,
       );
       
       // Wire up sync engine to query engine
@@ -245,6 +256,7 @@ class InstantDB {
 
   /// Clean up resources
   Future<void> dispose() async {
+    _presenceManager.dispose();
     await _syncEngine.stop();
     await _store.close();
     _isReady.value = false;

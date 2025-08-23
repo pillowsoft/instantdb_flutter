@@ -124,26 +124,22 @@ class QueryEngine {
   ) async {
     // Extract query parameters
     final where = query['where'] as Map<String, dynamic>?;
-    final orderBy = query['orderBy'] as Map<String, dynamic>?;
+    final orderBy = query['orderBy'];
     final limit = query['limit'] as int?;
     final offset = query['offset'] as int?;
     final include = query['include'] as Map<String, dynamic>?;
-
-    // Convert orderBy to string format
-    String? orderByString;
-    if (orderBy != null) {
-      final field = orderBy.keys.first;
-      final direction = orderBy[field] as String;
-      orderByString = '$field ${direction.toLowerCase()}';
-    }
+    final aggregate = query['\$aggregate'] as Map<String, dynamic>?;
+    final groupBy = query['\$groupBy'] as List<String>?;
 
     // Query entities from store
     var entities = await _store.queryEntities(
       entityType: entityType,
       where: where,
-      orderBy: orderByString,
+      orderBy: orderBy,
       limit: limit,
       offset: offset,
+      aggregate: aggregate,
+      groupBy: groupBy,
     );
 
     // Process includes (nested queries)
@@ -161,30 +157,85 @@ class QueryEngine {
     for (final entity in entities) {
       for (final includeEntry in includes.entries) {
         final relationName = includeEntry.key;
-        final relationQuery = includeEntry.value as Map<String, dynamic>?;
+        final relationQuery = includeEntry.value is Map 
+            ? Map<String, dynamic>.from(includeEntry.value as Map)
+            : null;
 
         // Simple relation resolution based on naming conventions
         if (relationName.endsWith('s')) {
           // One-to-many relation (e.g., "posts")
-          final singularName = relationName.substring(0, relationName.length - 1);
-          final foreignKey = '${entity['__type']}Id';
+          // Keep the relationName as-is since it's already plural (which matches our entity types)
+          
+          // For one-to-many relationships, we need to determine the foreign key
+          // Convention: posts belong to a user via 'authorId', 'userId', etc.
+          // Try common patterns
+          String foreignKey;
+          final parentType = entity['__type']?.toString() ?? '';
+          final singularParentType = parentType.endsWith('s') ? parentType.substring(0, parentType.length - 1) : parentType;
+          
+          // Try specific naming patterns first
+          if (relationName == 'posts') {
+            foreignKey = 'authorId'; // posts commonly use authorId
+          } else {
+            foreignKey = '${singularParentType}Id'; // fallback to standard pattern
+          }
 
-          final relatedEntities = await _queryEntities(singularName, {
-            'where': {foreignKey: entity['id']},
-            ...?relationQuery,
-          });
+          final whereClause = <String, dynamic>{foreignKey: entity['id']};
+          
+          // Merge with any additional where conditions from the relation query
+          if (relationQuery != null && relationQuery['where'] != null) {
+            whereClause.addAll(relationQuery['where'] as Map<String, dynamic>);
+          }
 
+          final queryMap = <String, dynamic>{'where': whereClause};
+          
+          // Add other query parameters
+          if (relationQuery != null) {
+            for (final entry in relationQuery.entries) {
+              if (entry.key != 'where') {
+                queryMap[entry.key] = entry.value;
+              }
+            }
+          }
+
+          final relatedEntities = await _queryEntities(relationName, queryMap);
           entity[relationName] = relatedEntities;
         } else {
           // One-to-one relation (e.g., "author")
           final foreignKey = '${relationName}Id';
           
           if (entity.containsKey(foreignKey)) {
-            final relatedEntity = await _queryEntities(relationName, {
+            // Map common relationship names to actual entity types
+            String entityType;
+            switch (relationName) {
+              case 'author':
+                entityType = 'users';
+                break;
+              case 'user':
+                entityType = 'users';
+                break;
+              default:
+                entityType = '${relationName}s'; // Pluralize by default
+            }
+            
+            final queryMap = <String, dynamic>{
               'where': {'id': entity[foreignKey]},
               'limit': 1,
-              ...?relationQuery,
-            });
+            };
+            
+            // Add other query parameters
+            if (relationQuery != null) {
+              for (final entry in relationQuery.entries) {
+                if (entry.key != 'where') {
+                  queryMap[entry.key] = entry.value;
+                } else {
+                  // Merge where conditions
+                  queryMap['where'].addAll(entry.value as Map<String, dynamic>);
+                }
+              }
+            }
+            
+            final relatedEntity = await _queryEntities(entityType, queryMap);
 
             entity[relationName] = relatedEntity.isNotEmpty ? relatedEntity.first : null;
           }
