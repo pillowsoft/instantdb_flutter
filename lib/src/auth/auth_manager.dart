@@ -35,6 +35,14 @@ class AuthManager {
     required String email,
     required String password,
   }) async {
+    // Validate email format
+    if (!_isValidEmail(email)) {
+      throw InstantException(
+        message: 'Invalid email format',
+        code: 'invalid_email',
+      );
+    }
+
     try {
       final response = await _dio.post('/v1/auth/signin', data: {
         'email': email,
@@ -67,6 +75,22 @@ class AuthManager {
     required String password,
     Map<String, dynamic>? metadata,
   }) async {
+    // Validate email format
+    if (!_isValidEmail(email)) {
+      throw InstantException(
+        message: 'Invalid email format',
+        code: 'invalid_email',
+      );
+    }
+
+    // Validate password strength
+    if (!_isStrongPassword(password)) {
+      throw InstantException(
+        message: 'Password is too weak. Must be at least 8 symbols long and contain uppercase, lowercase, numbers, and special symbols',
+        code: 'weak_password',
+      );
+    }
+
     try {
       final response = await _dio.post('/v1/auth/signup', data: {
         'email': email,
@@ -175,6 +199,14 @@ class AuthManager {
 
   /// Reset password
   Future<void> resetPassword(String email) async {
+    // Validate email format
+    if (!_isValidEmail(email)) {
+      throw InstantException(
+        message: 'Invalid email format',
+        code: 'invalid_email',
+      );
+    }
+
     try {
       await _dio.post('/v1/auth/reset-password', data: {
         'email': email,
@@ -190,6 +222,14 @@ class AuthManager {
 
   /// Send magic link email
   Future<void> sendMagicLink(String email) async {
+    // Validate email format
+    if (!_isValidEmail(email)) {
+      throw InstantException(
+        message: 'Invalid email format',
+        code: 'invalid_email',
+      );
+    }
+
     try {
       await _dio.post('/v1/auth/magic-link', data: {
         'email': email,
@@ -206,6 +246,14 @@ class AuthManager {
 
   /// Send magic code email
   Future<void> sendMagicCode(String email) async {
+    // Validate email format
+    if (!_isValidEmail(email)) {
+      throw InstantException(
+        message: 'Invalid email format',
+        code: 'invalid_email',
+      );
+    }
+
     try {
       await _dio.post('/v1/auth/magic-code', data: {
         'email': email,
@@ -225,6 +273,22 @@ class AuthManager {
     required String email,
     required String code,
   }) async {
+    // Validate email format
+    if (!_isValidEmail(email)) {
+      throw InstantException(
+        message: 'Invalid email format',
+        code: 'invalid_email',
+      );
+    }
+
+    // Validate magic code format (typically 6 digits)
+    if (code.isEmpty || code.length < 6) {
+      throw InstantException(
+        message: 'Invalid magic code format',
+        code: 'invalid_code',
+      );
+    }
+
     try {
       final response = await _dio.post('/v1/auth/verify-magic-code', data: {
         'email': email,
@@ -250,5 +314,48 @@ class AuthManager {
         originalError: e,
       );
     }
+  }
+
+  /// Validate email format using regex
+  bool _isValidEmail(String email) {
+    if (email.isEmpty) return false;
+    
+    // Basic email validation regex
+    final emailRegex = RegExp(
+      r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$',
+    );
+    
+    return emailRegex.hasMatch(email) && email.length <= 254;
+  }
+
+  /// Validate password strength
+  bool _isStrongPassword(String password) {
+    if (password.length < 8) return false;
+    
+    // For international characters, be more lenient
+    if (password.runes.any((rune) => rune > 127)) {
+      // Contains non-ASCII characters - just check length and basic requirements
+      final hasLetter = RegExp(r'[a-zA-Z]').hasMatch(password) || 
+                       password.runes.any((rune) => rune > 127);
+      final hasNumber = RegExp(r'[0-9]').hasMatch(password);
+      final hasSpecial = RegExp(r'[!@#\$%\^&*()\-_=+\[\]{}|;:,.<>?/~`™]').hasMatch(password);
+      
+      return hasLetter && (hasNumber || hasSpecial);
+    }
+    
+    // For ASCII-only passwords, apply stricter rules
+    // Check for uppercase letter
+    if (!RegExp(r'[A-Z]').hasMatch(password)) return false;
+    
+    // Check for lowercase letter
+    if (!RegExp(r'[a-z]').hasMatch(password)) return false;
+    
+    // Check for number
+    if (!RegExp(r'[0-9]').hasMatch(password)) return false;
+    
+    // Check for special character (include a wider range)
+    if (!RegExp(r'[!@#\$%\^&*()\-_=+\[\]{}|;:,.<>?/~`™]').hasMatch(password)) return false;
+    
+    return true;
   }
 }

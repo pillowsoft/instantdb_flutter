@@ -63,15 +63,11 @@ class _AvatarsPageState extends State<AvatarsPage> {
     
     final db = InstantProvider.of(context);
     
-    db.transact([
-      ...db.create('presence', {
-        'id': _userId,
-        'userId': _userId,
-        'userName': _userName,
-        'lastSeen': DateTime.now().millisecondsSinceEpoch,
-        'status': 'online',
-      }),
-    ]);
+    // Update presence using presence API
+    db.presence.setPresence('avatars-room', {
+      'userName': _userName,
+      'status': 'online',
+    });
   }
 
   void _removePresence() {
@@ -79,9 +75,8 @@ class _AvatarsPageState extends State<AvatarsPage> {
     
     final db = InstantProvider.of(context);
     
-    db.transact([
-      db.delete(_userId!),
-    ]);
+    // Remove presence using presence API
+    db.presence.leaveRoom('avatars-room');
   }
 
   @override
@@ -114,23 +109,13 @@ class _AvatarsPageState extends State<AvatarsPage> {
         
         // User list
         Expanded(
-          child: InstantBuilder(
-            query: {'presence': {}},
-            builder: (context, data) {
-              final presenceList = (data['presence'] as List? ?? [])
-                  .where((p) {
-                    // Filter out stale presence (older than 30 seconds)
-                    final lastSeen = p['lastSeen'] ?? 0;
-                    final age = DateTime.now().millisecondsSinceEpoch - lastSeen;
-                    return age < 30000;
-                  })
-                  .toList()
-                  ..sort((a, b) {
-                    // Sort by last seen, most recent first
-                    final aTime = a['lastSeen'] ?? 0;
-                    final bTime = b['lastSeen'] ?? 0;
-                    return bTime.compareTo(aTime);
-                  });
+          child: Watch((context) {
+            final db = InstantProvider.of(context);
+            final presenceData = db.presence.getPresence('avatars-room').value;
+            
+            final presenceList = presenceData.entries
+                .where((entry) => entry.value.data['status'] == 'online')
+                .toList();
               
               if (presenceList.isEmpty) {
                 return Center(
@@ -186,9 +171,11 @@ class _AvatarsPageState extends State<AvatarsPage> {
                         // Avatar stack
                         ...presenceList.take(5).toList().asMap().entries.map((entry) {
                           final index = entry.key;
-                          final presence = entry.value;
-                          final userName = presence['userName'] ?? 'Unknown';
-                          final isMe = presence['userId'] == _userId;
+                          final presenceEntry = entry.value;
+                          final userId = presenceEntry.key;
+                          final presence = presenceEntry.value;
+                          final userName = presence.data['userName'] ?? 'Unknown';
+                          final isMe = userId == _userId;
                           
                           // Calculate position in circle
                           final angle = (index * 2 * 3.14159) / presenceList.length;
@@ -250,10 +237,11 @@ class _AvatarsPageState extends State<AvatarsPage> {
                       padding: const EdgeInsets.symmetric(horizontal: 16),
                       itemCount: presenceList.length,
                       itemBuilder: (context, index) {
-                        final presence = presenceList[index];
-                        final userName = presence['userName'] ?? 'Unknown';
-                        final lastSeen = presence['lastSeen'] ?? 0;
-                        final isMe = presence['userId'] == _userId;
+                        final presenceEntry = presenceList[index];
+                        final userId = presenceEntry.key;
+                        final presence = presenceEntry.value;
+                        final userName = presence.data['userName'] ?? 'Unknown';
+                        final isMe = userId == _userId;
                         
                         return Card(
                           child: ListTile(
@@ -288,7 +276,7 @@ class _AvatarsPageState extends State<AvatarsPage> {
                                 ],
                               ],
                             ),
-                            subtitle: Text(_formatLastSeen(lastSeen)),
+                            subtitle: Text('Online'),
                             trailing: Container(
                               width: 12,
                               height: 12,
@@ -304,8 +292,7 @@ class _AvatarsPageState extends State<AvatarsPage> {
                   ),
                 ],
               );
-            },
-          ),
+          }),
         ),
       ],
     );
@@ -345,19 +332,5 @@ class _AvatarsPageState extends State<AvatarsPage> {
         ),
       ),
     );
-  }
-
-  String _formatLastSeen(int timestamp) {
-    final lastSeen = DateTime.fromMillisecondsSinceEpoch(timestamp);
-    final now = DateTime.now();
-    final difference = now.difference(lastSeen);
-    
-    if (difference.inSeconds < 5) {
-      return 'Active now';
-    } else if (difference.inSeconds < 30) {
-      return 'Active ${difference.inSeconds}s ago';
-    } else {
-      return 'Active recently';
-    }
   }
 }

@@ -8,6 +8,7 @@ export 'src/schema/schema.dart';
 
 // Reactive widget exports
 export 'src/reactive/instant_builder.dart';
+export 'src/reactive/presence.dart';
 
 // Query engine exports
 export 'src/query/query_engine.dart';

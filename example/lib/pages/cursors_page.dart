@@ -42,16 +42,12 @@ class _CursorsPageState extends State<CursorsPage> {
     // Cancel existing timer
     _cursorTimer?.cancel();
     
-    // Update cursor position
-    db.transact([
-      ...db.create('cursors', {
-        'id': _userId,
-        'userId': _userId,
-        'x': position.dx,
-        'y': position.dy,
-        'timestamp': DateTime.now().millisecondsSinceEpoch,
-      }),
-    ]);
+    // Update cursor position using presence API
+    db.presence.updateCursor(
+      'cursors-room',
+      x: position.dx,
+      y: position.dy,
+    );
     
     // Set timer to remove cursor after 5 seconds of inactivity
     _cursorTimer = Timer(const Duration(seconds: 5), _removeCursor);
@@ -62,9 +58,8 @@ class _CursorsPageState extends State<CursorsPage> {
     
     final db = InstantProvider.of(context);
     
-    db.transact([
-      db.delete(_userId!),
-    ]);
+    // Remove cursor using presence API
+    db.presence.leaveRoom('cursors-room');
   }
 
   @override
@@ -159,34 +154,26 @@ class _CursorsPageState extends State<CursorsPage> {
                         ),
                         
                         // Cursors
-                        InstantBuilder(
-                          query: {'cursors': {}},
-                          builder: (context, data) {
-                            final cursors = (data['cursors'] as List? ?? [])
-                                .where((cursor) {
-                                  // Filter out stale cursors (older than 6 seconds)
-                                  final timestamp = cursor['timestamp'] ?? 0;
-                                  final age = DateTime.now().millisecondsSinceEpoch - timestamp;
-                                  return age < 6000;
-                                })
-                                .toList();
-                            
-                            return Stack(
-                              children: cursors.map((cursor) {
-                                final userId = cursor['userId'];
-                                final x = (cursor['x'] ?? 0).toDouble();
-                                final y = (cursor['y'] ?? 0).toDouble();
-                                final isMe = userId == _userId;
-                                
-                                return _CursorWidget(
-                                  position: Offset(x, y),
-                                  isMe: isMe,
-                                  userId: userId,
-                                );
-                              }).toList(),
-                            );
-                          },
-                        ),
+                        Watch((context) {
+                          final db = InstantProvider.of(context);
+                          final cursors = db.presence.getCursors('cursors-room').value;
+                          
+                          return Stack(
+                            children: cursors.entries.map((entry) {
+                              final userId = entry.key;
+                              final cursor = entry.value;
+                              final x = cursor.x;
+                              final y = cursor.y;
+                              final isMe = userId == _userId;
+                              
+                              return _CursorWidget(
+                                position: Offset(x, y),
+                                isMe: isMe,
+                                userId: userId,
+                              );
+                            }).toList(),
+                          );
+                        }),
                       ],
                     ),
                   ),
@@ -199,18 +186,12 @@ class _CursorsPageState extends State<CursorsPage> {
         // Stats
         Container(
           padding: const EdgeInsets.all(16),
-          child: InstantBuilder(
-            query: {'cursors': {}},
-            builder: (context, data) {
-              final activeCursors = (data['cursors'] as List? ?? [])
-                  .where((cursor) {
-                    final timestamp = cursor['timestamp'] ?? 0;
-                    final age = DateTime.now().millisecondsSinceEpoch - timestamp;
-                    return age < 6000;
-                  })
-                  .length;
-              
-              return Row(
+          child: Watch((context) {
+            final db = InstantProvider.of(context);
+            final cursors = db.presence.getCursors('cursors-room').value;
+            final activeCursors = cursors.length;
+            
+            return Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Container(
@@ -241,9 +222,8 @@ class _CursorsPageState extends State<CursorsPage> {
                     ),
                   ),
                 ],
-              );
-            },
-          ),
+            );
+          }),
         ),
       ],
     );

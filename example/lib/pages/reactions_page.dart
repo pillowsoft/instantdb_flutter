@@ -13,7 +13,6 @@ class ReactionsPage extends StatefulWidget {
 class _ReactionsPageState extends State<ReactionsPage> {
   String? _userId;
   final List<_AnimatedReaction> _localReactions = [];
-  int _reactionIdCounter = 0;
 
   static const List<String> _emojis = ['❤️', '👍', '😄', '🎉', '🚀', '✨', '🔥', '💯'];
 
@@ -40,20 +39,14 @@ class _ReactionsPageState extends State<ReactionsPage> {
     final RenderBox? renderBox = context.findRenderObject() as RenderBox?;
     final localPosition = renderBox?.globalToLocal(globalPosition) ?? globalPosition;
     
-    // Create reaction in database
-    final reactionId = '${_userId}_${DateTime.now().millisecondsSinceEpoch}_${_reactionIdCounter++}';
-    db.transact([
-      ...db.create('reactions', {
-        'id': reactionId,
-        'userId': _userId,
-        'emoji': emoji,
-        'x': localPosition.dx,
-        'y': localPosition.dy,
-        'timestamp': DateTime.now().millisecondsSinceEpoch,
-      }),
-    ]);
+    // Create reaction using presence API
+    db.presence.sendReaction('reactions-room', emoji, metadata: {
+      'x': localPosition.dx,
+      'y': localPosition.dy,
+    });
     
     // Add local reaction for immediate feedback
+    final reactionId = db.id();
     setState(() {
       _localReactions.add(_AnimatedReaction(
         id: reactionId,
@@ -157,40 +150,31 @@ class _ReactionsPageState extends State<ReactionsPage> {
           ],
         ),
         
-        // Remote reactions from database
-        InstantBuilder(
-          query: {'reactions': {}},
-          builder: (context, data) {
-            final reactions = (data['reactions'] as List? ?? [])
-                .where((r) {
-                  // Filter out stale reactions (older than 4 seconds)
-                  final timestamp = r['timestamp'] ?? 0;
-                  final age = DateTime.now().millisecondsSinceEpoch - timestamp;
-                  return age < 4000;
-                })
-                .toList();
-            
-            return Stack(
-              children: reactions.map((reaction) {
-                final id = reaction['id'];
-                final emoji = reaction['emoji'] ?? '❤️';
-                final x = (reaction['x'] ?? 0).toDouble();
-                final y = (reaction['y'] ?? 0).toDouble();
-                final isLocal = _localReactions.any((r) => r.id == id);
-                
-                // Skip if we're already showing this as a local reaction
-                if (isLocal) return const SizedBox.shrink();
-                
-                return _AnimatedReaction(
-                  id: id,
-                  emoji: emoji,
-                  position: Offset(x, y),
-                  onComplete: () {},
-                );
-              }).toList(),
-            );
-          },
-        ),
+        // Remote reactions from presence API
+        Watch((context) {
+          final db = InstantProvider.of(context);
+          final reactionsData = db.presence.getReactions('reactions-room').value;
+          
+          return Stack(
+            children: reactionsData.map((reaction) {
+              final id = reaction.id;
+              final emoji = reaction.emoji;
+              final x = (reaction.metadata?['x'] ?? 0.0).toDouble();
+              final y = (reaction.metadata?['y'] ?? 0.0).toDouble();
+              final isLocal = _localReactions.any((r) => r.id == id);
+              
+              // Skip if we're already showing this as a local reaction
+              if (isLocal) return const SizedBox.shrink();
+              
+              return _AnimatedReaction(
+                id: id,
+                emoji: emoji,
+                position: Offset(x, y),
+                onComplete: () {},
+              );
+            }).toList(),
+          );
+        }),
         
         // Local reactions (for immediate feedback)
         ..._localReactions,

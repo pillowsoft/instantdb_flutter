@@ -92,10 +92,10 @@ class TodoList extends StatelessWidget {
 ### 5. Perform Mutations
 
 ```dart
-// Create a new todo
+// Create a new todo - IMPORTANT: Always use db.id() for entity IDs
 await db.transact([
   ...db.create('todos', {
-    'id': db.id(),
+    'id': db.id(), // Generates a proper UUID - required by InstantDB
     'text': 'Learn InstantDB Flutter',
     'completed': false,
     'createdAt': DateTime.now().millisecondsSinceEpoch,
@@ -148,6 +148,7 @@ All mutations happen within transactions, which provide atomicity and enable opt
 await db.transact([
   db.update(userId, {'name': 'New Name'}),
   ...db.create('posts', {
+    'id': db.id(), // Always include UUID for new entities
     'title': 'Hello World',
     'authorId': userId,
   }),
@@ -175,6 +176,40 @@ ConnectionStatusBuilder(
     );
   },
 )
+```
+
+### Presence System
+
+InstantDB includes a real-time presence system for collaborative features:
+
+```dart
+// Update cursor position
+await db.presence.updateCursor('room-id', x: 100, y: 200);
+
+// Set typing indicator
+await db.presence.setTyping('room-id', true);
+
+// Send emoji reaction
+await db.presence.sendReaction('room-id', '❤️', metadata: {
+  'x': position.dx,
+  'y': position.dy,
+});
+
+// Leave room (clears all presence data)
+await db.presence.leaveRoom('room-id');
+
+// Listen to presence updates
+Watch((context) {
+  final cursors = db.presence.getCursors('room-id').value;
+  final typingUsers = db.presence.getTypingUsers('room-id').value;
+  final reactions = db.presence.getReactions('room-id').value;
+  
+  return YourCollaborativeWidget(
+    cursors: cursors,
+    typingUsers: typingUsers, 
+    reactions: reactions,
+  );
+});
 ```
 
 ## Widget Reference
@@ -364,13 +399,25 @@ InstantDB Flutter is built on several key components:
 2. **Implement pagination**: Use `limit` and `offset` for large datasets
 3. **Cache management**: The package automatically manages query caches
 4. **Dispose resources**: Properly dispose of InstantDB instances
+5. **UUID Generation**: Always use `db.id()` for entity IDs to ensure server compatibility
 
 ```dart
-// Good: Specific query
+// Good: Specific query with UUID
+await db.transact([
+  ...db.create('todos', {
+    'id': db.id(), // Required UUID format
+    'completed': false,
+    'text': 'My todo',
+  }),
+]);
+
 {'todos': {'where': {'completed': false}, 'limit': 20}}
 
-// Avoid: Querying everything
+// Avoid: Querying everything or custom IDs
 {'todos': {}}
+
+// Avoid: Custom string IDs (will cause server errors)
+'id': 'my-custom-id' // ❌ Invalid - not a UUID
 ```
 
 ## Contributing

@@ -47,18 +47,18 @@ class _TileGamePageState extends State<TileGamePage> {
   void _paintTile(int row, int col) {
     if (_userId == null) return;
     
-    final tileId = 'tile_${row}_$col';
+    final tileKey = 'tile_${row}_$col';
     
     // Skip if already painted in this drag
-    if (_currentDragTiles.contains(tileId)) return;
+    if (_currentDragTiles.contains(tileKey)) return;
     
-    _currentDragTiles.add(tileId);
+    _currentDragTiles.add(tileKey);
     
     final db = InstantProvider.of(context);
     
     db.transact([
       ...db.create('tiles', {
-        'id': tileId,
+        'id': db.id(),
         'row': row,
         'col': col,
         'userId': _userId,

@@ -54,15 +54,8 @@ class _TypingPageState extends State<TypingPage> {
     // Cancel existing timer
     _typingTimer?.cancel();
     
-    // Create typing indicator
-    db.transact([
-      ...db.create('typing_indicators', {
-        'id': _userId,
-        'userId': _userId,
-        'userName': _getUserName(),
-        'timestamp': DateTime.now().millisecondsSinceEpoch,
-      }),
-    ]);
+    // Create typing indicator using presence API
+    db.presence.setTyping('chat-room', true);
     
     // Set timer to remove typing indicator after 3 seconds of inactivity
     _typingTimer = Timer(const Duration(seconds: 3), _stopTyping);
@@ -73,10 +66,8 @@ class _TypingPageState extends State<TypingPage> {
     
     final db = InstantProvider.of(context);
     
-    // Remove typing indicator
-    db.transact([
-      db.delete(_userId!),
-    ]);
+    // Remove typing indicator using presence API
+    db.presence.setTyping('chat-room', false);
   }
 
   String _getUserName() {
@@ -203,19 +194,14 @@ class _TypingPageState extends State<TypingPage> {
         ),
         
         // Typing indicators
-        InstantBuilder(
-          query: {'typing_indicators': {}},
-          builder: (context, data) {
-            final indicators = (data['typing_indicators'] as List? ?? [])
-                .where((indicator) {
-                  // Filter out current user and stale indicators
-                  final userId = indicator['userId'];
-                  final timestamp = indicator['timestamp'] ?? 0;
-                  final age = DateTime.now().millisecondsSinceEpoch - timestamp;
-                  
-                  return userId != _userId && age < 5000; // 5 seconds
-                })
-                .toList();
+        Watch((context) {
+          final db = InstantProvider.of(context);
+          final typingData = db.presence.getTyping('chat-room').value;
+          
+          // Filter out current user (typing data is Map<String, DateTime>)
+          final indicators = typingData.entries
+              .where((entry) => entry.key != _userId)
+              .toList();
             
             if (indicators.isEmpty) return const SizedBox.shrink();
             
@@ -229,10 +215,11 @@ class _TypingPageState extends State<TypingPage> {
                     width: indicators.length * 20.0 + 20,
                     height: 30,
                     child: Stack(
-                      children: indicators.asMap().entries.map((entry) {
-                        final index = entry.key;
-                        final indicator = entry.value;
-                        final userName = indicator['userName'] ?? 'Unknown';
+                      children: indicators.asMap().entries.map((mapEntry) {
+                        final index = mapEntry.key;
+                        final indicatorEntry = mapEntry.value;
+                        final userId = indicatorEntry.key;
+                        final userName = userId.startsWith('user_') ? userId.substring(5, 9) : userId.substring(0, 4);
                         
                         return Positioned(
                           left: index * 20.0,
@@ -256,7 +243,7 @@ class _TypingPageState extends State<TypingPage> {
                   // Typing text
                   Text(
                     indicators.length == 1
-                        ? '${indicators[0]['userName'] ?? 'Someone'} is typing...'
+                        ? 'Someone is typing...'
                         : '${indicators.length} people are typing...',
                     style: TextStyle(
                       color: Colors.grey[600],
@@ -269,8 +256,7 @@ class _TypingPageState extends State<TypingPage> {
                 ],
               ),
             );
-          },
-        ),
+        }),
         
         // Message input
         Container(

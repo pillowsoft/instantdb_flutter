@@ -71,7 +71,7 @@ class _CustomCursorsPageState extends State<CustomCursorsPage> {
     // Update cursor position
     db.transact([
       ...db.create('custom_cursors', {
-        'id': _userId,
+        'id': db.id(),
         'userId': _userId,
         'userName': _userName,
         'color': _userColor!.toARGB32(),
@@ -90,9 +90,17 @@ class _CustomCursorsPageState extends State<CustomCursorsPage> {
     
     final db = InstantProvider.of(context);
     
-    db.transact([
-      db.delete(_userId!),
-    ]);
+    // Query for cursors by userId and delete them
+    final query = db.query({'custom_cursors': {
+      'where': {'userId': _userId}
+    }});
+    
+    final result = query.value;
+    final cursors = result.data?['custom_cursors'] as List? ?? [];
+    if (cursors.isNotEmpty) {
+      final deleteOps = cursors.map((cursor) => db.delete(cursor['id'])).toList();
+      db.transact(deleteOps);
+    }
   }
 
   @override
