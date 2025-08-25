@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:instantdb_flutter/instantdb_flutter.dart';
+import 'dart:developer' as developer;
 
 class AuthPage extends StatefulWidget {
   const AuthPage({super.key});
@@ -40,7 +41,11 @@ class _AuthPageState extends State<AuthPage> {
 
     try {
       final db = InstantProvider.of(context);
+      developer.log('AuthPage: Attempting to send magic code to: $email', name: 'AUTH');
+      
       await db.auth.sendMagicCode(email);
+      
+      developer.log('AuthPage: Magic code sent successfully', name: 'AUTH');
       
       setState(() {
         _codeSent = true;
@@ -52,7 +57,15 @@ class _AuthPageState extends State<AuthPage> {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         FocusScope.of(context).requestFocus();
       });
-    } catch (e) {
+    } catch (e, stackTrace) {
+      developer.log('AuthPage: Error sending magic code', error: e, stackTrace: stackTrace, name: 'AUTH');
+      
+      // Log additional details if it's an InstantException
+      if (e is InstantException) {
+        developer.log('AuthPage: InstantException details - message: ${e.message}, code: ${e.code}', name: 'AUTH');
+        developer.log('AuthPage: Original error: ${e.originalError}', name: 'AUTH');
+      }
+      
       setState(() {
         _errorMessage = e.toString();
         _isLoading = false;
@@ -76,10 +89,14 @@ class _AuthPageState extends State<AuthPage> {
 
     try {
       final db = InstantProvider.of(context);
+      developer.log('AuthPage: Attempting to verify magic code for: $_userEmail', name: 'AUTH');
+      
       await db.auth.verifyMagicCode(
         email: _userEmail!,
         code: code,
       );
+      
+      developer.log('AuthPage: Magic code verified successfully', name: 'AUTH');
       
       // Clear the form
       _emailController.clear();
@@ -99,7 +116,15 @@ class _AuthPageState extends State<AuthPage> {
           ),
         );
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
+      developer.log('AuthPage: Error verifying magic code', error: e, stackTrace: stackTrace, name: 'AUTH');
+      
+      // Log additional details if it's an InstantException
+      if (e is InstantException) {
+        developer.log('AuthPage: InstantException details - message: ${e.message}, code: ${e.code}', name: 'AUTH');
+        developer.log('AuthPage: Original error: ${e.originalError}', name: 'AUTH');
+      }
+      
       setState(() {
         _errorMessage = e.toString();
         _isLoading = false;

@@ -344,6 +344,7 @@ class TransactionResult {
 class AuthUser {
   final String id;
   final String email;
+  @JsonKey(name: 'refresh_token')
   final String? refreshToken;
   final Map<String, dynamic> metadata;
 

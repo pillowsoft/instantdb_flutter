@@ -14,6 +14,7 @@ class InstantDBLogging {
   static final Logger queryEngine = Logger('InstantDB.QueryEngine');
   static final Logger webSocket = Logger('InstantDB.WebSocket');
   static final Logger transaction = Logger('InstantDB.Transaction');
+  static final Logger auth = Logger('InstantDB.Auth');
   
   /// Configure logging for the entire InstantDB library
   static void configure({
@@ -45,6 +46,7 @@ class InstantDBLogging {
     queryEngine.level = level;
     webSocket.level = level;
     transaction.level = level;
+    auth.level = level;
     
     _isConfigured = true;
     
@@ -74,6 +76,10 @@ class InstantDBLogging {
       case 'transaction':
       case 'tx':
         transaction.level = level;
+        break;
+      case 'auth':
+      case 'authentication':
+        auth.level = level;
         break;
       case 'root':
       case 'all':

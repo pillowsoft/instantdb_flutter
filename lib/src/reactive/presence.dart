@@ -175,8 +175,8 @@ class PresenceManager {
       return user.id;
     }
     
-    // For anonymous users, use consistent ID per session
-    _anonymousUserId ??= 'anonymous-${DateTime.now().millisecondsSinceEpoch}';
+    // For anonymous users, use consistent UUID per session
+    _anonymousUserId ??= _uuid.v4();
     return _anonymousUserId!;
   }
 
