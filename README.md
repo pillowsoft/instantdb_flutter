@@ -4,7 +4,7 @@ A real-time, offline-first database client for Flutter with reactive bindings. T
 
 ## Features
 
-- ✅ **Real-time synchronization** - Changes sync instantly across all connected clients
+- ✅ **Real-time synchronization** - Changes sync instantly across all connected clients with differential sync for reliable deletions
 - ✅ **Offline-first** - Local SQLite storage with automatic sync when online
 - ✅ **Reactive UI** - Widgets automatically update when data changes using Signals
 - ✅ **Type-safe queries** - InstaQL query language with schema validation
@@ -223,6 +223,17 @@ ConnectionStatusBuilder(
   },
 )
 ```
+
+#### Enhanced Sync Features
+
+InstantDB Flutter includes advanced synchronization capabilities:
+
+- **Differential Sync**: Automatically detects and syncs deletions between instances
+- **Deduplication Logic**: Prevents duplicate entities during sync operations  
+- **Transaction Integrity**: Proper conversion to InstantDB's tx-steps format
+- **Comprehensive Logging**: Built-in hierarchical logging for debugging sync issues
+
+All CRUD operations (Create, Read, Update, Delete) sync reliably across multiple running instances, including edge cases like deleting the last entity in a collection.
 
 ### Presence System
 
