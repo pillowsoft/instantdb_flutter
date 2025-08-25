@@ -1100,11 +1100,37 @@ class SyncEngine {
           return;
         }
         
-        // Create a single transaction for all entities
+        // Create a single transaction for all entities (including deletes)
         final allOperations = <Operation>[];
+        
+        // First, get current local entities to detect deletions
+        Set<String> localEntityIds = {};
+        String? detectedEntityType;
+        
+        // Detect entity type from first entity
+        if (entityMap.isNotEmpty) {
+          final firstEntity = entityMap.values.first;
+          detectedEntityType = firstEntity['__type'] as String? ?? 'todos';
+          
+          try {
+            // Query current local entities of this type
+            final localEntities = await _store.queryEntities(
+              entityType: detectedEntityType,
+            );
+            
+            localEntityIds = localEntities.map((e) => e['id'] as String).toSet();
+            InstantDBLogging.root.debug('Found ${localEntityIds.length} existing local entities of type $detectedEntityType');
+          } catch (e) {
+            InstantDBLogging.root.warning('Failed to query local entities for delete detection: $e');
+          }
+        }
+        
+        // Track which entities we see from server
+        Set<String> serverEntityIds = {};
         
         for (final entity in entityMap.values) {
           final entityId = entity['id'] as String;
+          serverEntityIds.add(entityId);
           
           // Skip if this looks like a system entity or invalid ID
           if (entityId.startsWith('__') || entityId == '__query_invalidation') {
@@ -1142,6 +1168,29 @@ class SyncEngine {
           ));
         }
         
+        // Generate delete operations for entities that exist locally but not in server response
+        if (detectedEntityType != null && localEntityIds.isNotEmpty) {
+          final deletedEntityIds = localEntityIds.difference(serverEntityIds);
+          
+          if (deletedEntityIds.isNotEmpty) {
+            InstantDBLogging.root.debug('Detected ${deletedEntityIds.length} deleted entities: ${deletedEntityIds.take(5).toList()}${deletedEntityIds.length > 5 ? '...' : ''}');
+            
+            for (final deletedId in deletedEntityIds) {
+              // Skip recently created entities to avoid race conditions
+              if (!_recentlyCreatedEntities.containsKey(deletedId)) {
+                InstantDBLogging.root.debug('Creating delete operation for missing entity: $deletedId');
+                allOperations.add(Operation(
+                  type: OperationType.delete,
+                  entityType: detectedEntityType,
+                  entityId: deletedId,
+                ));
+              } else {
+                InstantDBLogging.root.debug('Skipping delete for recently created entity: $deletedId');
+              }
+            }
+          }
+        }
+        
         if (allOperations.isNotEmpty) {
           // Apply as a single transaction
           final transaction = Transaction(
@@ -1155,48 +1204,77 @@ class SyncEngine {
         }
       }
     } else if (resultData['todos'] is List) {
-      // Fallback to simple format if available
+      // Fallback to simple format if available  
       final todos = resultData['todos'] as List;
       InstantDBLogging.root.debug('Received todos from server (simple format)');
       
+      // Get current local todos to detect deletions
+      Set<String> localTodoIds = {};
+      try {
+        final localTodos = await _store.queryEntities(entityType: 'todos');
+        localTodoIds = localTodos.map((e) => e['id'] as String).toSet();
+        InstantDBLogging.root.debug('Found ${localTodoIds.length} existing local todos');
+      } catch (e) {
+        InstantDBLogging.root.warning('Failed to query local todos for delete detection: $e');
+      }
+      
+      // Track server todo IDs
+      Set<String> serverTodoIds = {};
+      final allOperations = <Operation>[];
+      
       for (final todo in todos) {
         if (todo is Map<String, dynamic>) {
-          // Convert server data to operations and apply
           final entityId = todo['id']?.toString();
           if (entityId != null) {
-            final operations = <Operation>[];
+            serverTodoIds.add(entityId);
             
-            // Add entity type
-            operations.add(Operation.legacy(
+            // Create new format operation with all data
+            final todoData = Map<String, dynamic>.from(todo);
+            todoData['__type'] = 'todos';
+            
+            allOperations.add(Operation(
               type: OperationType.add,
+              entityType: 'todos',
               entityId: entityId,
-              attribute: '__type',
-              value: 'todos',
+              data: todoData,
             ));
-            
-            // Add all attributes
-            for (final entry in todo.entries) {
-              if (entry.key != 'id') {
-                operations.add(Operation.legacy(
-                  type: OperationType.add,
-                  entityId: entityId,
-                  attribute: entry.key,
-                  value: entry.value,
-                ));
-              }
-            }
-            
-            // Apply as a transaction
-            final transaction = Transaction(
-              id: _generateEventId(),
-              operations: operations,
-              timestamp: DateTime.now(),
-              status: TransactionStatus.synced,
-            );
-            
-            await _applyRemoteTransaction(transaction);
           }
         }
+      }
+      
+      // Generate delete operations for missing todos
+      if (localTodoIds.isNotEmpty) {
+        final deletedTodoIds = localTodoIds.difference(serverTodoIds);
+        
+        if (deletedTodoIds.isNotEmpty) {
+          InstantDBLogging.root.debug('Detected ${deletedTodoIds.length} deleted todos: ${deletedTodoIds.take(5).toList()}${deletedTodoIds.length > 5 ? '...' : ''}');
+          
+          for (final deletedId in deletedTodoIds) {
+            // Skip recently created entities to avoid race conditions
+            if (!_recentlyCreatedEntities.containsKey(deletedId)) {
+              InstantDBLogging.root.debug('Creating delete operation for missing todo: $deletedId');
+              allOperations.add(Operation(
+                type: OperationType.delete,
+                entityType: 'todos',
+                entityId: deletedId,
+              ));
+            } else {
+              InstantDBLogging.root.debug('Skipping delete for recently created todo: $deletedId');
+            }
+          }
+        }
+      }
+      
+      // Apply all operations as a single transaction
+      if (allOperations.isNotEmpty) {
+        final transaction = Transaction(
+          id: _generateEventId(),
+          operations: allOperations,
+          timestamp: DateTime.now(),
+          status: TransactionStatus.synced,
+        );
+        
+        await _applyRemoteTransaction(transaction);
       }
     }
   }
