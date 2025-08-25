@@ -2,11 +2,14 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:signals_flutter/signals_flutter.dart';
 import 'package:uuid/uuid.dart';
+import 'package:logging/logging.dart';
 
 import 'types.dart';
-import 'logging.dart';
+import 'logging_config.dart';
 import 'transaction_builder.dart';
+import '../storage/storage_interface.dart';
 import '../storage/triple_store.dart';
+import '../storage/reax_store.dart';
 import '../query/query_engine.dart';
 import '../sync/sync_engine.dart';
 import '../auth/auth_manager.dart';
@@ -19,7 +22,7 @@ class InstantDB {
   final InstantConfig config;
   final InstantSchema? schema;
 
-  late final TripleStore _store;
+  late final StorageInterface _store;
   late final QueryEngine _queryEngine;
   late final SyncEngine _syncEngine;
   late final AuthManager _authManager;
@@ -74,18 +77,31 @@ class InstantDB {
 
   Future<void> _initialize() async {
     try {
-      // Configure logging based on config
-      if (config.verboseLogging) {
-        InstantLogger.enableVerbose();
-      } else {
-        InstantLogger.disableVerbose();
-      }
-      
-      // Initialize triple store
-      _store = await TripleStore.init(
-        appId: appId,
-        persistenceDir: config.persistenceDir,
+      // Configure the new hierarchical logging system
+      InstantDBLogging.configure(
+        level: config.verboseLogging ? Level.FINE : Level.INFO,
+        enableHierarchical: true,
+        instanceId: 'Instance-${DateTime.now().millisecondsSinceEpoch % 10000}',
       );
+      
+      // Initialize storage backend based on configuration
+      switch (config.storageBackend) {
+        case StorageBackend.sqlite:
+          InstantDBLogging.root.debug('Initializing SQLite storage backend');
+          _store = await TripleStore.init(
+            appId: appId,
+            persistenceDir: config.persistenceDir,
+          );
+          break;
+        case StorageBackend.reaxdb:
+          InstantDBLogging.root.debug('Initializing ReaxDB storage backend');
+          _store = await ReaxStore.init(
+            appId: appId,
+            persistenceDir: config.persistenceDir,
+            encrypted: config.encryptedStorage,
+          );
+          break;
+      }
 
       // Initialize query engine
       _queryEngine = QueryEngine(_store);
@@ -170,6 +186,8 @@ class InstantDB {
     }
 
     final txId = id();
+    InstantDBLogging.root.debug('InstantDB: Creating transaction $txId with ${operations.length} operations - StorageBackend: ${config.storageBackend.name}');
+    
     final transaction = Transaction(
       id: txId,
       operations: operations,
@@ -178,14 +196,23 @@ class InstantDB {
 
     try {
       // Apply optimistically to local store
+      InstantDBLogging.root.debug('InstantDB: Applying transaction $txId to local storage (${_store.runtimeType})');
+      final applyStopwatch = Stopwatch()..start();
       await _store.applyTransaction(transaction);
+      applyStopwatch.stop();
+      InstantDBLogging.root.debug('InstantDB: Local storage apply completed in ${applyStopwatch.elapsedMilliseconds}ms');
 
       // Send to sync engine
+      InstantDBLogging.root.debug('InstantDB: Sending transaction $txId to sync engine');
+      final syncStopwatch = Stopwatch()..start();
       final result = await _syncEngine.sendTransaction(transaction);
+      syncStopwatch.stop();
+      InstantDBLogging.root.debug('InstantDB: Sync engine send completed in ${syncStopwatch.elapsedMilliseconds}ms - Status: ${result.status}');
 
       return result;
-    } catch (e) {
+    } catch (e, stackTrace) {
       // Rollback on error
+      InstantDBLogging.root.severe('InstantDB: Transaction $txId failed, performing rollback', e, stackTrace);
       await _store.rollbackTransaction(txId);
       rethrow;
     }
@@ -239,34 +266,56 @@ class InstantDB {
 
   /// Delete an entity (legacy API - use tx namespace for new code)
   Operation delete(String entityId) {
+    InstantDBLogging.root.debug('InstantDB: Creating delete operation for entity "$entityId"');
+    InstantDBLogging.root.debug('InstantDB: Original entity ID type: ${entityId.runtimeType}, length: ${entityId.length}');
+    
     // Validate entity ID to prevent corrupted IDs
     String cleanEntityId = entityId;
     
     // Check if entity ID looks like a stringified array
     if (cleanEntityId.startsWith('[') && cleanEntityId.endsWith(']')) {
+      InstantDBLogging.root.debug('InstantDB: Detected array-like entity ID, attempting to clean');
       try {
         // Try to parse it as JSON array and extract first element
         final parsed = jsonDecode(cleanEntityId);
         if (parsed is List && parsed.isNotEmpty) {
           cleanEntityId = parsed[0].toString();
-          InstantLogger.debug('Fixed corrupted entity ID in delete from "$entityId" to "$cleanEntityId"');
+          InstantDBLogging.root.debug('InstantDB: Fixed corrupted entity ID in delete from "$entityId" to "$cleanEntityId"');
         }
       } catch (e) {
+        InstantDBLogging.root.debug('InstantDB: Failed to parse array-like entity ID, trying UUID extraction: $e');
         // If parsing fails, try to extract first UUID-like string
         final uuidPattern = RegExp(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}');
         final match = uuidPattern.firstMatch(cleanEntityId);
         if (match != null) {
           cleanEntityId = match.group(0)!;
-          InstantLogger.debug('Extracted entity ID "$cleanEntityId" from corrupted string in delete');
+          InstantDBLogging.root.debug('InstantDB: Extracted entity ID "$cleanEntityId" from corrupted string in delete');
+        } else {
+          InstantDBLogging.root.debug('InstantDB: No UUID pattern found in corrupted entity ID');
         }
       }
     }
     
-    return Operation(
+    final operation = Operation(
       type: OperationType.delete,
       entityType: 'unknown', // Will be resolved by store
       entityId: cleanEntityId,
     );
+    
+    InstantDBLogging.root.debug('InstantDB: Delete operation created - Type: ${operation.type}, EntityType: ${operation.entityType}, EntityId: ${operation.entityId}');
+    InstantDBLogging.root.debug('InstantDB: Final cleaned entity ID: "$cleanEntityId" (original: "$entityId")');
+    
+    return operation;
+  }
+
+  /// Clear all local data (useful for development/debugging)
+  Future<void> clearLocalDatabase() async {
+    if (!_isReady.value) {
+      throw InstantException(message: 'InstantDB not ready. Call init() first.');
+    }
+    
+    await _store.clearAll();
+    InstantDBLogging.root.debug('Local database cleared');
   }
 
   /// Clean up resources

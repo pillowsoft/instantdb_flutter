@@ -6,8 +6,8 @@ import 'package:signals_flutter/signals_flutter.dart';
 import 'package:uuid/uuid.dart';
 
 import '../core/types.dart';
-import '../core/logging.dart';
-import '../storage/triple_store.dart';
+import '../core/logging_config.dart';
+import '../storage/storage_interface.dart';
 import '../auth/auth_manager.dart';
 
 // Platform-specific WebSocket imports
@@ -18,10 +18,15 @@ import 'web_socket_stub.dart'
 /// Sync engine for real-time communication with InstantDB server
 class SyncEngine {
   final String appId;
-  final TripleStore _store;
+  final StorageInterface _store;
   final AuthManager _authManager;
   final InstantConfig config;
   final Dio _dio;
+  
+  // Loggers for different aspects of sync
+  static final _logger = InstantDBLogging.syncEngine;
+  static final _wsLogger = InstantDBLogging.webSocket;
+  static final _txLogger = InstantDBLogging.transaction;
 
   dynamic _webSocket; // WebSocketAdapter
   StreamSubscription? _messageSubscription;
@@ -40,6 +45,9 @@ class SyncEngine {
   // Track our own client event IDs to avoid processing echoed transactions
   final Set<String> _sentEventIds = {};
   
+  // Track recently created entity IDs to avoid duplicates during refresh-ok
+  final Map<String, DateTime> _recentlyCreatedEntities = {};
+  
   // Store session ID from init-ok response
   String? _sessionId;
   
@@ -55,7 +63,7 @@ class SyncEngine {
 
   SyncEngine({
     required this.appId,
-    required TripleStore store,
+    required StorageInterface store,
     required AuthManager authManager,
     required this.config,
   })  : _store = store,
@@ -93,23 +101,29 @@ class SyncEngine {
   
   /// Send a query to establish subscription
   void sendQuery(Map<String, dynamic> query) {
-    InstantLogger.debug('sendQuery called with: ${jsonEncode(query)}');
+    InstantDBLogging.root.debug('SyncEngine: sendQuery called with: ${jsonEncode(query)}');
     
     if (!_connectionStatus.value || _webSocket == null || !_webSocket.isOpen) {
-      InstantLogger.debug('Cannot send query - not connected, queuing for later');
+      InstantDBLogging.root.debug('SyncEngine: Cannot send query - WebSocket not connected, queuing for later (${_pendingQueries.length} already queued)');
       _pendingQueries.add(query);
       return;
     }
     
+    final clientEventId = _generateEventId();
     final queryMessage = {
       'op': 'add-query',
       'q': query,
-      'client-event-id': _generateEventId(),
+      'client-event-id': clientEventId,
       if (_sessionId != null) 'session-id': _sessionId,
+      // Add subscription flag to ensure real-time updates
+      'subscribe': true,
     };
     
     final queryJson = jsonEncode(queryMessage);
+    InstantDBLogging.root.debug('SyncEngine: Sending query to WebSocket - EventId: $clientEventId, SessionId: $_sessionId');
+    _wsLogger.fine('🔍 QUERY MESSAGE: ${queryJson}');
     _webSocket.send(queryJson);
+    InstantDBLogging.root.debug('SyncEngine: Query sent successfully');
   }
 
   Future<void> _connectWebSocket() async {
@@ -125,38 +139,54 @@ class SyncEngine {
       );
       
       // Log connection attempt for debugging
-      InstantLogger.info('Connecting to WebSocket at $wsUri');
+      _logger.info('Attempting WebSocket connection to $wsUri');
+      final connectStopwatch = Stopwatch()..start();
       
       // Use platform-specific WebSocket implementation
       _webSocket = await WebSocketManager.connect(wsUri.toString());
       
-      InstantLogger.info('WebSocket connected, sending init message');
+      connectStopwatch.stop();
+      _logger.info('WebSocket connected in ${connectStopwatch.elapsedMilliseconds}ms, sending init message');
       
       // Send init message according to InstantDB protocol
       // refresh-token can be null for anonymous users
+      final clientEventId = _generateEventId();
+      final currentUser = _authManager.currentUser.value;
       final initMessage = {
         'op': 'init',
         'app-id': appId,
-        if (_authManager.currentUser.value?.refreshToken != null)
-          'refresh-token': _authManager.currentUser.value!.refreshToken,
-        'client-event-id': _generateEventId(),
+        if (currentUser?.refreshToken != null)
+          'refresh-token': currentUser!.refreshToken,
+        'client-event-id': clientEventId,
         'versions': {
           '@instantdb/flutter': 'v0.1.0',
         },
       };
       
+      InstantDBLogging.root.debug('SyncEngine: Sending init message - EventId: $clientEventId, HasRefreshToken: ${currentUser?.refreshToken != null}, User: ${currentUser?.email ?? "anonymous"}');
       _webSocket.send(jsonEncode(initMessage));
-      InstantLogger.debug('Sent init message: ${initMessage['op']}');
+      InstantDBLogging.root.debug('SyncEngine: Init message sent successfully');
 
-      // Listen for messages
+      // Listen for messages with enhanced logging
+      _logger.debug('Setting up WebSocket message listeners');
       _messageSubscription = _webSocket.stream.listen(
-        _handleRemoteMessage,
-        onError: _handleWebSocketError,
-        onDone: _handleWebSocketClose,
+        (message) {
+          final messageStr = message.toString();
+          _wsLogger.debug('Received message (${messageStr.length} chars)');
+          _handleRemoteMessage(message);
+        },
+        onError: (error) {
+          _wsLogger.severe('Stream error', error);
+          _handleWebSocketError(error);
+        },
+        onDone: () {
+          _wsLogger.info('Stream closed');
+          _handleWebSocketClose();
+        },
         cancelOnError: false,
       );
     } catch (e) {
-      InstantLogger.error('WebSocket connection error', e);
+      InstantDBLogging.root.severe('WebSocket connection error', e);
       _connectionStatus.value = false;
       _scheduleReconnect();
     }
@@ -174,29 +204,50 @@ class SyncEngine {
 
   void _handleRemoteMessage(dynamic message) {
     try {
+      _wsLogger.fine('Parsing message...');
       final data = jsonDecode(message as String) as Map<String, dynamic>;
       final op = data['op'];
+      final clientEventId = data['client-event-id']?.toString();
       
-      // Only log operation type, not full message content
-      // Suppress refresh-ok logging after the first few to avoid spam
+      // COMPREHENSIVE LOGGING: Log ALL incoming messages to detect what we might be missing
+      _wsLogger.fine('🔍 RAW MESSAGE ANALYSIS:');
+      _wsLogger.fine('   Operation: $op');
+      _wsLogger.fine('   Client Event ID: $clientEventId');
+      _wsLogger.fine('   All message keys: ${data.keys.toList()}');
+      _wsLogger.fine('   Full message (first 500 chars): ${message.toString().substring(0, message.toString().length.clamp(0, 500))}');
+      
+      // Enhanced logging with event correlation
       if (op == 'refresh-ok') {
         _refreshOkCount++;
         if (_refreshOkCount <= 3) {
-          InstantLogger.debug('Received: $op (count: $_refreshOkCount)');
+          InstantDBLogging.logWebSocketMessage('<<<', op, eventId: clientEventId);
+          _wsLogger.fine('🔄 REFRESH-OK MESSAGE: This should contain updated query results');
+          // Log the computations data specifically for refresh-ok
+          if (data['computations'] != null) {
+            _wsLogger.fine('   Computations found: ${data['computations'] is List ? (data['computations'] as List).length : 'not a list'}');
+          } else {
+            _wsLogger.warning('   ❌ NO COMPUTATIONS in refresh-ok message!');
+          }
         } else if (_refreshOkCount == 4) {
-          InstantLogger.debug('Suppressing further refresh-ok logs...');
+          _wsLogger.debug('Suppressing further refresh-ok logs...');
         }
       } else {
-        InstantLogger.debug('Received: $op');
+        InstantDBLogging.logWebSocketMessage('<<<', op, eventId: clientEventId);
+        _wsLogger.fine('Message data keys: ${data.keys.toList()}');
+        
+        // Special logging for messages that might be related to sync
+        if (op == 'refresh' || op == 'transact' || op == 'refresh-query' || op?.toString().contains('query') == true) {
+          _wsLogger.info('🚨 SYNC-RELATED MESSAGE: $op - This might be important for real-time updates!');
+        }
       }
 
       switch (data['op']) {
         case 'init-ok':
-          InstantLogger.info('WebSocket authenticated successfully');
+          InstantDBLogging.root.info('WebSocket authenticated successfully');
           _connectionStatus.value = true;
           // Store session ID for future messages
           _sessionId = data['session-id']?.toString();
-          InstantLogger.debug('Session ID: $_sessionId');
+          InstantDBLogging.root.debug('Session ID: $_sessionId');
           
           // Parse and cache attribute UUIDs from the response
           if (data['attrs'] is List) {
@@ -215,7 +266,7 @@ class SyncEngine {
                 
                 // Only log first few attributes to avoid spam
                 if (_attributeCache[namespace]!.length <= 3) {
-                  InstantLogger.debug('Cached attribute $namespace.$attrName = $attrId');
+                  InstantDBLogging.root.debug('Cached attribute $namespace.$attrName = $attrId');
                 }
               }
             }
@@ -224,13 +275,13 @@ class SyncEngine {
             // This is a workaround for missing attribute in init-ok response
             if (_attributeCache['todos'] != null && !_attributeCache['todos']!.containsKey('completed')) {
               _attributeCache['todos']!['completed'] = 'd4787d60-b7fe-4dbc-a7cb-683cbdd2c0a9';
-              InstantLogger.debug('Added hardcoded mapping for todos.completed');
+              InstantDBLogging.root.debug('Added hardcoded mapping for todos.completed');
             }
             
             // Debug: Log all cached attributes
-            InstantLogger.debug('All cached attributes after init-ok:');
+            InstantDBLogging.root.debug('All cached attributes after init-ok:');
             for (final entry in _attributeCache.entries) {
-              InstantLogger.debug('  Namespace "${entry.key}": ${entry.value.keys.join(', ')}');
+              InstantDBLogging.root.debug('  Namespace "${entry.key}": ${entry.value.keys.join(', ')}');
             }
           }
           
@@ -246,44 +297,43 @@ class SyncEngine {
           break;
           
         case 'init-error':
-          InstantLogger.error('WebSocket authentication failed: ${data['error']}');
+          InstantDBLogging.root.severe('WebSocket authentication failed: ${data['error']}');
           _connectionStatus.value = false;
           _handleAuthError(data['error']);
           break;
           
         case 'transaction':
-          InstantLogger.debug('Received transaction message: ${jsonEncode(data)}');
+          InstantDBLogging.root.debug('Received transaction message: ${jsonEncode(data)}');
           try {
             // Check various possible data locations
             final txData = data['data'] ?? data['tx'] ?? data;
             
             // If this looks like a transaction with tx-steps, handle it like transact
             if (txData['tx-steps'] != null) {
-              InstantLogger.debug('Transaction message contains tx-steps, processing as transact');
+              InstantDBLogging.root.debug('Transaction message contains tx-steps, processing as transact');
               _handleRemoteTransact(txData);
             } else if (txData['operations'] != null) {
               // This looks like our Transaction format
               _applyRemoteTransaction(Transaction.fromJson(txData));
             } else {
-              InstantLogger.warn('Transaction message has unexpected format');
-              InstantLogger.debug('Keys in data: ${txData.keys.toList()}');
+              InstantDBLogging.root.warning('Transaction message has unexpected format');
+              InstantDBLogging.root.debug('Keys in data: ${txData.keys.toList()}');
             }
           } catch (e, stackTrace) {
-            InstantLogger.error('Error processing transaction: $e');
-            InstantLogger.debug('Stack trace: $stackTrace');
+            InstantDBLogging.root.severe('Error processing transaction: $e');
+            InstantDBLogging.root.debug('Stack trace: $stackTrace');
           }
           break;
           
         case 'transact':
           // Handle incoming transactions from other clients
-          InstantLogger.debug('Received transact message from another client');
-          InstantLogger.debug('Message keys: ${data.keys.toList()}');
-          InstantLogger.debug('Full message: ${jsonEncode(data)}');
+          _logger.info('Received transact from remote client');
+          _wsLogger.fine('Transact keys: ${data.keys.toList()}');
+          _wsLogger.fine('Full transact: ${jsonEncode(data)}');
           try {
             _handleRemoteTransact(data);
           } catch (e, stackTrace) {
-            InstantLogger.error('Error processing transact: $e');
-            InstantLogger.debug('Stack trace: $stackTrace');
+            _logger.severe('Error processing transact', e, stackTrace);
           }
           break;
           
@@ -293,17 +343,17 @@ class SyncEngine {
           
         case 'error':
           // Log the full error data for debugging
-          InstantLogger.debug('Error message data: $data');
+          InstantDBLogging.root.debug('Error message data: $data');
           final errorMessage = data['message'] ?? data['error'];
           if (errorMessage != null) {
             _handleRemoteError(errorMessage.toString());
           } else {
-            InstantLogger.warn('Received error with no message or error field');
+            InstantDBLogging.root.warning('Received error with no message or error field');
           }
           break;
           
         case 'transact-ok':
-          InstantLogger.info('Transaction successful: server tx-id=${data['tx-id']}, client-event-id=${data['client-event-id']}');
+          InstantDBLogging.root.info('Transaction successful: server tx-id=${data['tx-id']}, client-event-id=${data['client-event-id']}');
           // Use client-event-id (which is our transaction ID) to mark as synced
           if (data['client-event-id'] != null) {
             _handleTransactionAck(data['client-event-id'].toString());
@@ -313,14 +363,14 @@ class SyncEngine {
         case 'query-update':
         case 'invalidate-query':
           // Handle query invalidation messages
-          InstantLogger.debug('Received query update/invalidation message: ${jsonEncode(data)}');
+          InstantDBLogging.root.debug('Received query update/invalidation message: ${jsonEncode(data)}');
           _handleQueryInvalidation(data);
           break;
           
         case 'refresh':
           // Handle refresh messages which contain updated data
-          InstantLogger.debug('Received refresh message with updated data');
-          InstantLogger.debug('Refresh data keys: ${data.keys.toList()}');
+          InstantDBLogging.root.debug('Received refresh message with updated data');
+          InstantDBLogging.root.debug('Refresh data keys: ${data.keys.toList()}');
           _handleRefreshMessage(data);
           break;
           
@@ -328,13 +378,13 @@ class SyncEngine {
         case 'query-response':
         case 'query-result':
           // Handle query response with initial data
-          InstantLogger.debug('Received query response: ${jsonEncode(data)}');
+          InstantDBLogging.root.debug('Received query response: ${jsonEncode(data)}');
           _handleQueryResponse(data);
           break;
           
         case 'refresh-query':
           // Handle refresh-query message which might contain updated data
-          InstantLogger.debug('Received refresh-query message: ${jsonEncode(data)}');
+          InstantDBLogging.root.debug('Received refresh-query message: ${jsonEncode(data)}');
           _handleRefreshQuery(data);
           break;
           
@@ -342,33 +392,36 @@ class SyncEngine {
           
         case 'refresh-ok':
           // Handle refresh-ok messages which contain updated query results
-          InstantLogger.debug('Processing refresh-ok');
+          InstantDBLogging.root.debug('Processing refresh-ok');
           _handleRefreshOk(data);
           break;
           
         default:
-          InstantLogger.warn('Unknown op: ${data['op']}');
+          InstantDBLogging.root.warning('🚨 UNHANDLED MESSAGE: ${data['op']}');
+          _wsLogger.warning('   Message keys: ${data.keys.toList()}');
+          _wsLogger.warning('   Full message: ${jsonEncode(data)}');
+          InstantDBLogging.root.warning('   ❗ This message might be important for sync - consider adding a handler!');
       }
     } catch (e) {
-      InstantLogger.error('Error parsing message', e);
-      InstantLogger.debug('Raw message was: $message');
+      InstantDBLogging.root.severe('Error parsing message', e);
+      InstantDBLogging.root.debug('Raw message was: $message');
     }
   }
   
   void _handleAuthError(dynamic error) {
-    InstantLogger.error('Authentication error: $error');
+    InstantDBLogging.root.severe('Authentication error: $error');
     _connectionStatus.value = false;
     // Could implement retry logic or user notification here
   }
 
   void _handleWebSocketError(error) {
-    InstantLogger.error('WebSocket error: $error');
+    InstantDBLogging.root.severe('WebSocket error: $error');
     _connectionStatus.value = false;
     _scheduleReconnect();
   }
 
   void _handleWebSocketClose() {
-    InstantLogger.info('WebSocket connection closed');
+    InstantDBLogging.root.info('WebSocket connection closed');
     _connectionStatus.value = false;
     _scheduleReconnect();
   }
@@ -404,7 +457,7 @@ class SyncEngine {
     try {
       // Don't log every operation to reduce verbosity
       if (_refreshOkCount <= 3) {
-        InstantLogger.debug('Applying remote transaction ${transaction.id} with ${transaction.operations.length} operations');
+        InstantDBLogging.root.debug('Applying remote transaction ${transaction.id} with ${transaction.operations.length} operations');
       }
       
       // Apply the transaction with already-synced status to avoid re-sending
@@ -413,7 +466,7 @@ class SyncEngine {
     } catch (e) {
       // Handle conflict resolution here
       // For now, just log the error
-      InstantLogger.error('Error applying remote transaction', e);
+      InstantDBLogging.root.severe('Error applying remote transaction', e);
     }
   }
   
@@ -424,13 +477,13 @@ class SyncEngine {
       // Check if this is our own transaction echoed back
       final clientEventId = data['client-event-id'];
       if (clientEventId != null && _sentEventIds.contains(clientEventId)) {
-        InstantLogger.debug('Ignoring our own echoed transaction: $clientEventId');
+        InstantDBLogging.root.debug('Ignoring our own echoed transaction: $clientEventId');
         return;
       }
       
       final txSteps = data['tx-steps'] as List?;
       if (txSteps == null) {
-        InstantLogger.warn('No tx-steps in transact message');
+        InstantDBLogging.root.warning('No tx-steps in transact message');
         return;
       }
       
@@ -484,7 +537,7 @@ class SyncEngine {
               } else {
                 // If we don't have the attribute cached, try to use common attribute names
                 // This is a workaround for when we receive updates before the attribute cache is fully populated
-                InstantLogger.debug('Unknown attribute ID: $attrId, trying to infer attribute name');
+                InstantDBLogging.root.debug('Unknown attribute ID: $attrId, trying to infer attribute name');
                 
                 // Common attributes we might expect
                 if (value is String && (value == 'todos' || value == 'users')) {
@@ -498,7 +551,7 @@ class SyncEngine {
                   currentNamespace = value;
                 } else {
                   // For now, skip unknown attributes but log them
-                  InstantLogger.debug('Skipping unknown attribute ID: $attrId with value: $value');
+                  InstantDBLogging.root.debug('Skipping unknown attribute ID: $attrId with value: $value');
                 }
               }
             }
@@ -546,29 +599,30 @@ class SyncEngine {
           status: TransactionStatus.synced,
         );
         
-        InstantLogger.debug('Applying remote transaction with ${operations.length} operations');
+        InstantDBLogging.logTransaction('APPLY_REMOTE', txId, 
+          operationCount: operations.length, status: 'synced');
         await _applyRemoteTransaction(transaction);
       }
     } catch (e, stackTrace) {
-      InstantLogger.error('Error handling remote transact: $e');
-      InstantLogger.debug('Stack trace: $stackTrace');
+      InstantDBLogging.root.severe('Error handling remote transact: $e');
+      InstantDBLogging.root.debug('Stack trace: $stackTrace');
     }
   }
 
   void _handleTransactionAck(String txId) async {
-    InstantLogger.debug('Marking transaction $txId as synced');
+    InstantDBLogging.logTransaction('ACK', txId, status: 'synced');
     await _store.markTransactionSynced(txId);
   }
 
   void _handleRemoteError(String error) {
-    InstantLogger.error('Remote error: $error');
+    InstantDBLogging.root.severe('Remote error: $error');
     // Handle specific error types if needed
     // For now, just log the error
   }
   
   void _handleQueryInvalidation(Map<String, dynamic> data) async {
     // When a query is invalidated, we need to re-fetch the data
-    InstantLogger.debug('Query invalidation received');
+    InstantDBLogging.root.debug('Query invalidation received');
     
     // Check if the message contains the actual data update
     if (data['data'] != null || data['result'] != null) {
@@ -598,22 +652,23 @@ class SyncEngine {
   }
   
   void _handleRefreshQuery(Map<String, dynamic> data) async {
-    InstantLogger.debug('Processing refresh-query message');
+    InstantDBLogging.root.debug('Processing refresh-query message');
     
     // Check if this message contains updated data
     final result = data['result'] ?? data['data'] ?? data['r'];
     if (result != null) {
-      InstantLogger.debug('refresh-query contains data, processing as query response');
+      InstantDBLogging.root.debug('refresh-query contains data, processing as query response');
       _handleQueryResponse(data);
     } else {
       // Otherwise treat it as an invalidation
-      InstantLogger.debug('refresh-query has no data, treating as invalidation');
+      InstantDBLogging.root.debug('refresh-query has no data, treating as invalidation');
       _handleQueryInvalidation(data);
     }
   }
   
   void _handleRefreshMessage(Map<String, dynamic> data) async {
-    InstantLogger.debug('Processing refresh message');
+    _wsLogger.info('🔄 Processing refresh message');
+    _wsLogger.fine('   Message keys: ${data.keys.toList()}');
     
     // Refresh messages typically contain the full updated dataset
     // Check various possible data locations
@@ -621,17 +676,17 @@ class SyncEngine {
     
     if (result != null && result is Map) {
       // Process the refresh data similar to a query response
-      InstantLogger.debug('Refresh contains data, processing updates');
+      _wsLogger.info('   ✅ Refresh contains data, processing updates');
       _handleQueryResponse({'result': result});
     } else {
       // If no data, trigger a query invalidation
-      InstantLogger.debug('Refresh has no data, triggering invalidation');
+      _wsLogger.info('   ⚠️  Refresh has no data, triggering invalidation');
       _handleQueryInvalidation(data);
     }
   }
   
   void _processPendingQueries() {
-    InstantLogger.debug('Processing pending queries');
+    InstantDBLogging.root.debug('Processing pending queries');
     while (_pendingQueries.isNotEmpty) {
       final query = _pendingQueries.removeFirst();
       sendQuery(query);
@@ -640,36 +695,94 @@ class SyncEngine {
   
   void _handleRefreshOk(Map<String, dynamic> data) {
     // refresh-ok contains updated query results
+    _wsLogger.info('🔄 Processing refresh-ok message...');
+    
     if (data['computations'] is List) {
       final computations = data['computations'] as List;
+      _wsLogger.info('   Found ${computations.length} computations to process');
       
       // Generate a hash of the computations to detect duplicates
       final dataHash = computations.toString().hashCode.toString();
+      _wsLogger.fine('   Data hash: $dataHash');
+      _wsLogger.fine('   Last processed hash: ${_lastProcessedData['refresh-ok']}');
+      
       if (_lastProcessedData['refresh-ok'] == dataHash) {
-        // Skip duplicate data
+        _wsLogger.warning('   ⏭️  SKIPPING: Duplicate refresh-ok data detected');
         return;
       }
       _lastProcessedData['refresh-ok'] = dataHash;
       
-      for (final computation in computations) {
+      for (int i = 0; i < computations.length; i++) {
+        final computation = computations[i];
+        _wsLogger.fine('   Processing computation ${i + 1}/${computations.length}');
+        
         if (computation is Map && computation['instaql-result'] != null) {
+          _wsLogger.info('   ✅ Found instaql-result in computation ${i + 1}, processing...');
           // Process the query result
           _handleQueryResponse({'result': computation['instaql-result']}, skipDuplicateCheck: true);
+        } else {
+          _wsLogger.warning('   ❌ Computation ${i + 1} has no instaql-result: ${computation.runtimeType}');
+          if (computation is Map) {
+            _wsLogger.warning('      Computation keys: ${computation.keys.toList()}');
+          }
         }
       }
+      
+      _wsLogger.info('   ✅ Finished processing refresh-ok computations');
+      
+      // Periodic cleanup of recently created entities
+      _cleanupRecentlyCreatedEntities();
+    } else {
+      _wsLogger.warning('   ❌ refresh-ok has no computations array');
+      _wsLogger.warning('   Message keys: ${data.keys.toList()}');
+    }
+  }
+
+  /// Clean up old entries from recently created entities map
+  void _cleanupRecentlyCreatedEntities() {
+    final now = DateTime.now();
+    final toRemove = <String>[];
+    
+    for (final entry in _recentlyCreatedEntities.entries) {
+      final age = now.difference(entry.value);
+      if (age.inSeconds > 30) { // Remove entries older than 30 seconds
+        toRemove.add(entry.key);
+      }
+    }
+    
+    for (final key in toRemove) {
+      _recentlyCreatedEntities.remove(key);
+    }
+    
+    if (toRemove.isNotEmpty) {
+      InstantDBLogging.root.debug('Cleaned up ${toRemove.length} old recently-created entity entries');
     }
   }
 
   /// Send a transaction to the server
   Future<TransactionResult> sendTransaction(Transaction transaction) async {
+    InstantDBLogging.logTransaction('SEND', transaction.id, 
+      operationCount: transaction.operations.length);
+    
+    // Log operation details
+    for (int i = 0; i < transaction.operations.length; i++) {
+      final op = transaction.operations[i];
+      _txLogger.fine('Op ${i + 1}: ${op.type} ${op.entityType}:${op.entityId} | Data: ${op.data}');
+    }
+    
     // Add to sync queue
+    InstantDBLogging.root.debug('SyncEngine: Adding transaction ${transaction.id} to sync queue (current queue size: ${_syncQueue.length})');
     _syncQueue.add(transaction);
 
     // Process queue if not already processing
     if (!_isProcessingQueue) {
+      InstantDBLogging.root.debug('SyncEngine: Starting queue processing for transaction ${transaction.id}');
       _processQueue();
+    } else {
+      InstantDBLogging.root.debug('SyncEngine: Queue processing already in progress, transaction ${transaction.id} queued');
     }
 
+    InstantDBLogging.root.debug('SyncEngine: sendTransaction returning pending result for ${transaction.id}');
     return TransactionResult(
       txId: transaction.id,
       status: TransactionStatus.pending,
@@ -706,7 +819,40 @@ class SyncEngine {
             // Second pass: add the actual operations using attribute UUIDs
             for (final op in transaction.operations) {
               if (op.type == OperationType.add) {
-                if (op.attribute != null && op.attribute != '__type') {
+                // Handle new Operation format with data map
+                if (op.data != null && op.data!.isNotEmpty) {
+                  final ns = op.entityType.isNotEmpty ? op.entityType : (namespace ?? 'todos');
+                  InstantDBLogging.root.debug('Processing add operation for entity ${op.entityId} in namespace $ns');
+                  InstantDBLogging.root.debug('Operation data: ${op.data}');
+                  
+                  // Convert each attribute in the data map to a tx-step
+                  for (final entry in op.data!.entries) {
+                    final attrName = entry.key;
+                    final attrValue = entry.value;
+                    
+                    // Skip __type attribute for now - we'll handle it separately
+                    if (attrName == '__type') continue;
+                    
+                    // Look up the attribute ID from cache
+                    String? attrId = _attributeCache[ns]?[attrName];
+                    
+                    if (attrId != null) {
+                      // Use known attribute UUID
+                      txSteps.add([
+                        'add-triple',
+                        op.entityId,
+                        attrId,
+                        attrValue,
+                      ]);
+                      InstantDBLogging.root.debug('Added tx-step for $ns.$attrName = $attrValue (UUID: $attrId)');
+                    } else {
+                      // Skip unknown attributes for now
+                      InstantDBLogging.root.warning('Skipping unknown attribute $ns.$attrName - not registered with server');
+                    }
+                  }
+                }
+                // Legacy format support (for backwards compatibility)
+                else if (op.attribute != null && op.attribute != '__type') {
                   // Look up the attribute ID from cache
                   final ns = namespace ?? 'todos';
                   String? attrId = _attributeCache[ns]?[op.attribute];
@@ -721,7 +867,7 @@ class SyncEngine {
                     ]);
                   } else {
                     // Skip unknown attributes for now
-                    InstantLogger.warn('Skipping unknown attribute ${op.attribute} for namespace $ns - not registered with server');
+                    InstantDBLogging.root.warning('Skipping unknown attribute ${op.attribute} for namespace $ns - not registered with server');
                   }
                 }
               } else if (op.type == OperationType.update) {
@@ -740,7 +886,7 @@ class SyncEngine {
                     ]);
                   } else {
                     // Skip unknown attributes for now
-                    InstantLogger.warn('Skipping unknown attribute ${op.attribute} for namespace $ns in update - not registered with server');
+                    InstantDBLogging.root.warning('Skipping unknown attribute ${op.attribute} for namespace $ns in update - not registered with server');
                   }
                 }
               } else if (op.type == OperationType.delete) {
@@ -755,7 +901,7 @@ class SyncEngine {
                     final parsed = jsonDecode(cleanEntityId);
                     if (parsed is List && parsed.isNotEmpty) {
                       cleanEntityId = parsed[0].toString();
-                      InstantLogger.debug('Fixed corrupted entity ID from "$op.entityId" to "$cleanEntityId"');
+                      InstantDBLogging.root.debug('Fixed corrupted entity ID from "$op.entityId" to "$cleanEntityId"');
                     }
                   } catch (e) {
                     // If parsing fails, try to extract first UUID-like string
@@ -763,7 +909,7 @@ class SyncEngine {
                     final match = uuidPattern.firstMatch(cleanEntityId);
                     if (match != null) {
                       cleanEntityId = match.group(0)!;
-                      InstantLogger.debug('Extracted entity ID "$cleanEntityId" from corrupted string');
+                      InstantDBLogging.root.debug('Extracted entity ID "$cleanEntityId" from corrupted string');
                     }
                   }
                 }
@@ -779,6 +925,15 @@ class SyncEngine {
             final clientEventId = transaction.id; // Use transaction ID as client-event-id
             _sentEventIds.add(clientEventId); // Track for deduplication
             
+            // Track entity IDs from add operations for deduplication
+            final now = DateTime.now();
+            for (final op in transaction.operations) {
+              if (op.type == OperationType.add) {
+                _recentlyCreatedEntities[op.entityId] = now;
+                InstantDBLogging.root.debug('Tracking recently created entity: ${op.entityId}');
+              }
+            }
+            
             final transactionMessage = {
               'op': 'transact',
               'tx-steps': txSteps,
@@ -788,9 +943,9 @@ class SyncEngine {
             };
             
             // Debug log transaction details
-            InstantLogger.debug('Sending transaction ${transaction.id} with ${txSteps.length} steps');
+            InstantDBLogging.root.debug('Sending transaction ${transaction.id} with ${txSteps.length} steps');
             if (txSteps.isNotEmpty) {
-              InstantLogger.debug('First tx-step: ${jsonEncode(txSteps.first)}');
+              InstantDBLogging.root.debug('First tx-step: ${jsonEncode(txSteps.first)}');
             }
             _webSocket.send(jsonEncode(transactionMessage));
           } catch (e) {
@@ -820,11 +975,11 @@ class SyncEngine {
 
   Future<void> _processPendingTransactions() async {
     final pendingTransactions = await _store.getPendingTransactions();
-    InstantLogger.info('Found ${pendingTransactions.length} pending transactions to sync');
+    InstantDBLogging.root.info('Found ${pendingTransactions.length} pending transactions to sync');
     
     for (final transaction in pendingTransactions) {
       _syncQueue.add(transaction);
-      InstantLogger.debug('Queued transaction ${transaction.id} with ${transaction.operations.length} operations');
+      InstantDBLogging.root.debug('Queued transaction ${transaction.id} with ${transaction.operations.length} operations');
     }
 
     if (_syncQueue.isNotEmpty) {
@@ -839,7 +994,7 @@ class SyncEngine {
   void _handleQueryResponse(Map<String, dynamic> data, {bool skipDuplicateCheck = false}) async {
     // Only log if not from refresh-ok or if it's one of the first few
     if (!skipDuplicateCheck || _refreshOkCount <= 3) {
-      InstantLogger.debug('Processing query response');
+      InstantDBLogging.root.debug('Processing query response');
     }
     
     // InstantDB returns data in a specific format with nested result structure
@@ -856,14 +1011,14 @@ class SyncEngine {
     }
     
     if (resultData == null) {
-      InstantLogger.warn('Query response has no result data');
+      InstantDBLogging.root.warning('Query response has no result data');
       return;
     }
     
     // Check if this is a datalog-result format
     if (resultData['datalog-result'] != null) {
       final datalogResult = resultData['datalog-result'];
-      InstantLogger.debug('Processing datalog-result format');
+      InstantDBLogging.root.debug('Processing datalog-result format');
       
       if (datalogResult['join-rows'] is List) {
         final joinRowsOuter = datalogResult['join-rows'] as List;
@@ -877,7 +1032,7 @@ class SyncEngine {
           // Direct structure: [[row1], [row2], ...]
           joinRows = joinRowsOuter;
         }
-        InstantLogger.debug('Found ${joinRows.length} join-rows');
+        InstantDBLogging.root.debug('Found ${joinRows.length} join-rows');
         
         // Parse join-rows to reconstruct entities
         // Join-rows format: [[entityId, attributeId, value, timestamp], ...]
@@ -920,9 +1075,9 @@ class SyncEngine {
               if (value is bool) {
                 // Boolean values are likely 'completed' for todos
                 entityMap[entityId]!['completed'] = value;
-                InstantLogger.debug('Inferred attribute "completed" for unknown ID: $attributeId');
+                InstantDBLogging.root.debug('Inferred attribute "completed" for unknown ID: $attributeId');
               } else {
-                InstantLogger.debug('Unknown attribute ID in query response: $attributeId with value: $value');
+                InstantDBLogging.root.debug('Unknown attribute ID in query response: $attributeId with value: $value');
               }
             }
           }
@@ -930,7 +1085,7 @@ class SyncEngine {
         
         // Now process each entity
         if (!skipDuplicateCheck || _refreshOkCount <= 3) {
-          InstantLogger.debug('Reconstructed ${entityMap.length} entities from join-rows');
+          InstantDBLogging.root.debug('Reconstructed ${entityMap.length} entities from join-rows');
         }
         
         // Check if we've already processed this exact data set
@@ -956,25 +1111,35 @@ class SyncEngine {
             continue;
           }
           
-          // Add entity type
-          allOperations.add(Operation.legacy(
-            type: OperationType.add,
-            entityId: entityId,
-            attribute: '__type',
-            value: 'todos',
-          ));
-          
-          // Add all attributes
-          for (final entry in entity.entries) {
-            if (entry.key != 'id' && entry.value != null) {
-              allOperations.add(Operation.legacy(
-                type: OperationType.add,
-                entityId: entityId,
-                attribute: entry.key,
-                value: entry.value,
-              ));
+          // Skip entities we recently created locally to avoid duplicates
+          if (_recentlyCreatedEntities.containsKey(entityId)) {
+            final createdTime = _recentlyCreatedEntities[entityId]!;
+            final age = DateTime.now().difference(createdTime);
+            
+            // Skip if created within the last 10 seconds
+            if (age.inSeconds < 10) {
+              InstantDBLogging.root.debug('Skipping recently created entity to avoid duplicate: $entityId (age: ${age.inMilliseconds}ms)');
+              continue;
+            } else {
+              // Remove old entries to prevent memory leak
+              _recentlyCreatedEntities.remove(entityId);
             }
           }
+          
+          // Detect entity type from the data or default to 'todos'
+          final entityType = entity['__type'] as String? ?? 'todos';
+          InstantDBLogging.root.debug('Creating operation for entity $entityId with type: $entityType');
+          
+          // Create a single operation with all the entity data
+          final entityData = Map<String, dynamic>.from(entity);
+          entityData['__type'] = entityType;
+          
+          allOperations.add(Operation(
+            type: OperationType.add,
+            entityType: entityType,
+            entityId: entityId,
+            data: entityData,
+          ));
         }
         
         if (allOperations.isNotEmpty) {
@@ -992,7 +1157,7 @@ class SyncEngine {
     } else if (resultData['todos'] is List) {
       // Fallback to simple format if available
       final todos = resultData['todos'] as List;
-      InstantLogger.debug('Received todos from server (simple format)');
+      InstantDBLogging.root.debug('Received todos from server (simple format)');
       
       for (final todo in todos) {
         if (todo is Map<String, dynamic>) {

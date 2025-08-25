@@ -35,6 +35,13 @@
 * ✅ Performance testing for large datasets and query caching
 * ✅ Room-based presence system testing with isolation validation
 
+### 🐛 Bug Fixes & Performance Improvements
+* ✅ **Fixed transaction conversion for real-time sync** - transactions now properly convert to tx-steps with actual data instead of sending 0 steps
+* ✅ **Fixed duplicate entity issue during sync** - implemented deduplication logic to prevent locally-created entities from being re-applied during refresh-ok
+* ✅ **Fixed entity type resolution during sync** - entities from server now properly stored with correct type (e.g., `todos:id` instead of `unknown:id`)
+* ✅ **Added comprehensive hierarchical logging system** - using `logging` package for better debugging and monitoring of sync operations
+* ✅ **Enhanced sync engine with proper attribute UUID mapping** - transactions now use correct InstantDB attribute UUIDs instead of attribute names
+
 ### 📖 Documentation
 * ✅ Updated README with all new APIs and examples
 * ✅ Created `ADVANCED_FEATURES.md` comprehensive feature guide

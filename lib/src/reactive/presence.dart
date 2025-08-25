@@ -5,6 +5,7 @@ import 'package:uuid/uuid.dart';
 
 import '../core/types.dart';
 import '../core/logging.dart';
+import '../core/logging_config.dart';
 import '../sync/sync_engine.dart';
 import '../auth/auth_manager.dart';
 
@@ -201,7 +202,7 @@ class PresenceManager {
       await _sendPresenceMessage(roomId, 'set', presenceData.toJson());
     }
 
-    InstantLogger.debug('Set presence for user $userId in room $roomId');
+    InstantDBLogging.root.debug('Set presence for user $userId in room $roomId');
   }
 
   /// Get presence data for a room
@@ -357,7 +358,7 @@ class PresenceManager {
       });
     }
 
-    InstantLogger.debug('Joined room $roomId');
+    InstantDBLogging.root.debug('Joined room $roomId');
     
     return InstantRoom._(this, roomId);
   }
@@ -397,7 +398,7 @@ class PresenceManager {
       await _sendPresenceMessage(roomId, 'leave', {'userId': user.id});
     }
 
-    InstantLogger.debug('Left room $roomId');
+    InstantDBLogging.root.debug('Left room $roomId');
   }
 
   /// Handle incoming presence messages from the sync engine
@@ -432,7 +433,7 @@ class PresenceManager {
           break;
       }
     } catch (e) {
-      InstantLogger.error('Error handling presence message', e);
+      InstantDBLogging.root.severe('Error handling presence message', e);
     }
   }
 
@@ -445,7 +446,7 @@ class PresenceManager {
       
       _getPresenceSignal(roomId).value = Map.from(_roomPresence[roomId]!);
     } catch (e) {
-      InstantLogger.error('Error handling presence set', e);
+      InstantDBLogging.root.severe('Error handling presence set', e);
     }
   }
 
@@ -458,7 +459,7 @@ class PresenceManager {
       
       _getCursorSignal(roomId).value = Map.from(_roomCursors[roomId]!);
     } catch (e) {
-      InstantLogger.error('Error handling cursor update', e);
+      InstantDBLogging.root.severe('Error handling cursor update', e);
     }
   }
 
@@ -478,7 +479,7 @@ class PresenceManager {
       
       _getTypingSignal(roomId).value = Map.from(_roomTyping[roomId]!);
     } catch (e) {
-      InstantLogger.error('Error handling typing update', e);
+      InstantDBLogging.root.severe('Error handling typing update', e);
     }
   }
 
@@ -496,7 +497,7 @@ class PresenceManager {
       
       _getReactionSignal(roomId).value = List.from(_roomReactions[roomId]!);
     } catch (e) {
-      InstantLogger.error('Error handling reaction update', e);
+      InstantDBLogging.root.severe('Error handling reaction update', e);
     }
   }
 
@@ -519,7 +520,7 @@ class PresenceManager {
         _typingSignals[roomId]!.value = Map.from(_roomTyping[roomId] ?? {});
       }
     } catch (e) {
-      InstantLogger.error('Error handling user leave', e);
+      InstantDBLogging.root.severe('Error handling user leave', e);
     }
   }
 
@@ -536,7 +537,7 @@ class PresenceManager {
 
     // In a real implementation, you would send this via the sync engine
     // For now, we'll just log it
-    InstantLogger.debug('Would send presence message: ${jsonEncode(message)}');
+    InstantDBLogging.root.debug('Would send presence message: ${jsonEncode(message)}');
   }
 
   Signal<Map<String, PresenceData>> _getPresenceSignal(String roomId) {

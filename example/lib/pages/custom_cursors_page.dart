@@ -44,7 +44,8 @@ class _CustomCursorsPageState extends State<CustomCursorsPage> {
       _userColor = UserColors.fromString(currentUser.email);
       _hasSetName = true;
     } else {
-      _userId = 'user_${DateTime.now().millisecondsSinceEpoch}';
+      final db = InstantProvider.of(context);
+      _userId = db.id(); // Generate proper UUID
       _userName = 'Guest';
       _userColor = UserColors.fromString(_userId!);
     }

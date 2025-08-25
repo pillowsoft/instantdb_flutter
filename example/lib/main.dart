@@ -63,6 +63,7 @@ class _ExamplesRootScreenState extends State<ExamplesRootScreen> {
         appId: appId,
         config: const InstantConfig(
           syncEnabled: true, // Enable real-time sync
+          verboseLogging: true, // Enable comprehensive logging for debugging
         ),
       );
 

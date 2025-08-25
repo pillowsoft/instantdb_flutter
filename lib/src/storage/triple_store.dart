@@ -1,13 +1,15 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:sqflite/sqflite.dart' hide Transaction;
-import 'package:path/path.dart';
 
 import '../core/types.dart';
 import '../core/logging.dart';
+import '../core/logging_config.dart';
+import 'database_factory.dart';
+import 'storage_interface.dart';
 
 /// Local triple store implementation using SQLite
-class TripleStore {
+class TripleStore implements StorageInterface {
   late final Database _db;
   final String appId;
   final StreamController<TripleChange> _changeController = StreamController.broadcast();
@@ -22,15 +24,22 @@ class TripleStore {
     required String appId,
     String? persistenceDir,
   }) async {
-    final dbPath = persistenceDir != null
-        ? join(persistenceDir, '$appId.db')
-        : join(await getDatabasesPath(), '$appId.db');
+    // Initialize the platform-specific database factory
+    await initializeDatabaseFactory();
+    
+    // Get the platform-specific database path
+    final dbPath = await getDatabasePath(appId, persistenceDir: persistenceDir);
+    
+    // Get the platform-specific database factory
+    final factory = getDatabaseFactory();
 
-    final db = await openDatabase(
+    final db = await factory.openDatabase(
       dbPath,
-      version: 1,
-      onCreate: _createTables,
-      onUpgrade: _upgradeTables,
+      options: OpenDatabaseOptions(
+        version: 1,
+        onCreate: _createTables,
+        onUpgrade: _upgradeTables,
+      ),
     );
 
     return TripleStore._(appId, db);
@@ -164,8 +173,9 @@ class TripleStore {
   /// Execute a complex query with WHERE conditions
   Future<List<Map<String, dynamic>>> queryEntities({
     String? entityType,
+    String? entityId,
     Map<String, dynamic>? where,
-    dynamic orderBy,
+    List<String>? orderBy,
     int? limit,
     int? offset,
     Map<String, dynamic>? aggregate,
@@ -175,7 +185,10 @@ class TripleStore {
 
     // Get entity IDs
     List<String> entityIds;
-    if (entityType != null) {
+    if (entityId != null) {
+      // Query specific entity
+      entityIds = [entityId];
+    } else if (entityType != null) {
       entityIds = await queryEntityIdsByType(entityType);
     } else {
       final results = await _db.query(
@@ -600,7 +613,7 @@ class TripleStore {
     
     if (existing.isNotEmpty) {
       // Transaction already applied, skip
-      InstantLogger.debug('Transaction ${transaction.id} already applied, skipping');
+      InstantDBLogging.root.debug('Transaction ${transaction.id} already applied, skipping');
       return;
     }
 
@@ -628,9 +641,9 @@ class TripleStore {
     });
     
     // Emit all changes after transaction completes
-    InstantLogger.debug('TripleStore: Transaction ${transaction.id} complete, emitting ${pendingChanges.length} changes');
+    InstantDBLogging.root.debug('TripleStore: Transaction ${transaction.id} complete, emitting ${pendingChanges.length} changes');
     for (final change in pendingChanges) {
-      InstantLogger.debug('TripleStore: Emitting change - ${change.type} for entity ${change.triple.entityId}, attribute ${change.triple.attribute}');
+      InstantDBLogging.root.debug('TripleStore: Emitting change - ${change.type} for entity ${change.triple.entityId}, attribute ${change.triple.attribute}');
       _changeController.add(change);
     }
   }
@@ -1005,12 +1018,12 @@ class TripleStore {
         if (hasCorruptedIds) {
           // Mark corrupted transactions as failed
           corruptedIds.add(transaction.id);
-          InstantLogger.debug('Found corrupted transaction ${transaction.id}, marking as failed');
+          InstantDBLogging.root.debug('Found corrupted transaction ${transaction.id}, marking as failed');
         } else {
           transactions.add(transaction);
         }
       } catch (e) {
-        InstantLogger.error('Error parsing transaction', e);
+        InstantDBLogging.root.severe('Error parsing transaction', e);
       }
     }
     
@@ -1046,6 +1059,19 @@ class TripleStore {
       where: 'id = ?',
       whereArgs: [txId],
     );
+  }
+
+  /// Clear all data from the database (useful for development/debugging)
+  Future<void> clearAll() async {
+    await _db.transaction((txn) async {
+      await txn.delete('triples');
+      await txn.delete('transactions');
+      await txn.delete('entities');
+      await txn.delete('attributes');
+    });
+    
+    // Emit a change event to update any listeners
+    _changeController.add(TripleChange.clear());
   }
 
   /// Close the database

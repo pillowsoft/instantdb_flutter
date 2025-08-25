@@ -43,7 +43,8 @@ class _AvatarsPageState extends State<AvatarsPage> {
       _userId = currentUser.id;
       _userName = currentUser.email;
     } else {
-      _userId = 'user_${DateTime.now().millisecondsSinceEpoch}';
+      final db = InstantProvider.of(context);
+      _userId = db.id(); // Generate a proper UUID
       _userName = 'Guest ${_userId!.substring(_userId!.length - 4)}';
     }
   }

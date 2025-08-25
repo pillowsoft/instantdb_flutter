@@ -74,6 +74,18 @@ class TripleChange {
 
   factory TripleChange.fromJson(Map<String, dynamic> json) => _$TripleChangeFromJson(json);
   Map<String, dynamic> toJson() => _$TripleChangeToJson(this);
+  
+  /// Create a clear change event
+  factory TripleChange.clear() => TripleChange(
+    type: ChangeType.clear,
+    triple: Triple(
+      entityId: '',
+      attribute: '',
+      value: '',
+      txId: '',
+      createdAt: DateTime.now(),
+    ),
+  );
 }
 
 /// Type of change that occurred
@@ -82,6 +94,8 @@ enum ChangeType {
   add,
   @JsonValue('retract')
   retract,
+  @JsonValue('clear')
+  clear,
 }
 
 /// Result of a query operation
@@ -116,6 +130,14 @@ class QueryResult {
   bool get hasError => error != null;
 }
 
+/// Storage backend options
+enum StorageBackend {
+  @JsonValue('sqlite')
+  sqlite,
+  @JsonValue('reaxdb') 
+  reaxdb,
+}
+
 /// Configuration for InstantDB client
 @JsonSerializable()
 class InstantConfig {
@@ -126,6 +148,8 @@ class InstantConfig {
   final int maxCachedQueries;
   final Duration reconnectDelay;
   final bool verboseLogging;
+  final StorageBackend storageBackend;
+  final bool encryptedStorage;
 
   const InstantConfig({
     this.persistenceDir,
@@ -135,6 +159,8 @@ class InstantConfig {
     this.maxCachedQueries = 100,
     this.reconnectDelay = const Duration(seconds: 1),
     this.verboseLogging = false,
+    this.storageBackend = StorageBackend.reaxdb, // Default to ReaxDB for new simplicity
+    this.encryptedStorage = false,
   });
 
   factory InstantConfig.fromJson(Map<String, dynamic> json) => _$InstantConfigFromJson(json);
@@ -176,7 +202,55 @@ class Operation {
     this.options,
   });
 
-  factory Operation.fromJson(Map<String, dynamic> json) => _$OperationFromJson(json);
+  factory Operation.fromJson(Map<String, dynamic> json) {
+    // Handle both old and new Operation formats for backward compatibility
+    try {
+      // Try new format first
+      if (json.containsKey('entityType') && json.containsKey('entityId')) {
+        return _$OperationFromJson(json);
+      }
+      
+      // Handle old format - convert to new format
+      final type = $enumDecode(_$OperationTypeEnumMap, json['type']);
+      final entityId = json['entityId'] as String? ?? '';
+      final attribute = json['attribute'] as String?;
+      final value = json['value'];
+      
+      // For old format, entityType is often derived from the operation context
+      // We'll use a default or try to infer it
+      String entityType = '';
+      Map<String, dynamic>? data;
+      
+      if (attribute != null && value != null) {
+        // Old format: single attribute-value pair
+        data = {attribute: value};
+        // Try to infer entityType from attribute (e.g., "todos.text" -> "todos")
+        if (attribute.contains('.')) {
+          entityType = attribute.split('.').first;
+        }
+      } else if (json['data'] is Map<String, dynamic>) {
+        // Mixed format: has data but missing entityType
+        data = json['data'] as Map<String, dynamic>;
+      }
+      
+      return Operation(
+        type: type,
+        entityType: entityType,
+        entityId: entityId,
+        data: data,
+        options: json['options'] as Map<String, dynamic>?,
+      );
+    } catch (e) {
+      // If all else fails, create a minimal valid operation
+      return Operation(
+        type: OperationType.add,
+        entityType: '',
+        entityId: json['entityId']?.toString() ?? '',
+        data: json['data'] as Map<String, dynamic>?,
+        options: json['options'] as Map<String, dynamic>?,
+      );
+    }
+  }
   Map<String, dynamic> toJson() => _$OperationToJson(this);
 
   // Legacy constructor for backward compatibility

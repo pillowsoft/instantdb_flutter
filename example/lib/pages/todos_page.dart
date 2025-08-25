@@ -24,15 +24,16 @@ class _TodosPageState extends State<TodosPage> {
     final db = InstantProvider.of(context);
     
     try {
-      // Using the new tx namespace API for a cleaner transaction
+      // Using the traditional transaction API (more reliable for now)
       final todoId = db.id();
-      await db.transactChunk(
-        db.tx['todos'][todoId].update({
+      await db.transact([
+        ...db.create('todos', {
+          'id': todoId,
           'text': text,
           'completed': false,
           'createdAt': DateTime.now().millisecondsSinceEpoch,
-        })
-      );
+        }),
+      ]);
 
       _textController.clear();
     } catch (e) {
@@ -64,20 +65,76 @@ class _TodosPageState extends State<TodosPage> {
   }
 
   Future<void> _deleteTodo(String todoId) async {
+    print('=== DELETE TODO INITIATED ===');
+    print('TodosPage: Attempting to delete todo with ID: $todoId');
+    print('TodosPage: ID type: ${todoId.runtimeType}');
+    print('TodosPage: ID length: ${todoId.length}');
+    
     final db = InstantProvider.of(context);
     
     try {
-      // Using the old API for deletion as it's simpler
-      await db.transact([
-        db.delete(todoId),
-      ]);
-    } catch (e) {
+      print('TodosPage: Creating delete operation...');
+      final deleteOperation = db.delete(todoId);
+      print('TodosPage: Delete operation created - Type: ${deleteOperation.type}, EntityType: ${deleteOperation.entityType}, EntityId: ${deleteOperation.entityId}');
+      
+      print('TodosPage: Starting transaction...');
+      final transactionStopwatch = Stopwatch()..start();
+      
+      final result = await db.transact([deleteOperation]);
+      
+      transactionStopwatch.stop();
+      print('TodosPage: Transaction completed in ${transactionStopwatch.elapsedMilliseconds}ms');
+      print('TodosPage: Transaction result status: ${result.status}');
+      
+      if (result.status == TransactionStatus.pending) {
+        print('TodosPage: Delete operation successful (pending sync)');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Todo deleted (syncing...)'),
+              backgroundColor: Colors.blue,
+              duration: Duration(seconds: 1),
+            ),
+          );
+        }
+      } else if (result.status == TransactionStatus.synced || result.status == TransactionStatus.committed) {
+        print('TodosPage: Delete operation successful and synced');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Todo deleted successfully'),
+              backgroundColor: Colors.green,
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+      } else {
+        print('TodosPage: Delete operation failed - Status: ${result.status}');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Delete failed: ${result.status}'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    } catch (e, stackTrace) {
+      print('TodosPage: Delete operation threw exception: $e');
+      print('TodosPage: Stack trace: $stackTrace');
+      
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to delete todo: $e')),
+          SnackBar(
+            content: Text('Failed to delete todo: $e'),
+            backgroundColor: Colors.red,
+            duration: Duration(seconds: 4),
+          ),
         );
       }
     }
+    
+    print('=== DELETE TODO COMPLETED ===');
   }
   
   Future<void> _clearAllTodos() async {
@@ -171,6 +228,62 @@ class _TodosPageState extends State<TodosPage> {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
+              TextButton.icon(
+                icon: const Icon(Icons.storage, size: 20),
+                label: const Text('Clear DB'),
+                style: TextButton.styleFrom(
+                  foregroundColor: Colors.purple,
+                ),
+                onPressed: () async {
+                  final confirmed = await showDialog<bool>(
+                    context: context,
+                    builder: (context) => AlertDialog(
+                      title: const Text('Clear Local Database'),
+                      content: const Text(
+                        'This will clear all local data to fix any corrupted entries. This action cannot be undone.',
+                      ),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.of(context).pop(false),
+                          child: const Text('Cancel'),
+                        ),
+                        TextButton(
+                          onPressed: () => Navigator.of(context).pop(true),
+                          style: TextButton.styleFrom(
+                            foregroundColor: Colors.purple,
+                          ),
+                          child: const Text('Clear DB'),
+                        ),
+                      ],
+                    ),
+                  );
+                  
+                  if (confirmed == true) {
+                    final db = InstantProvider.of(context);
+                    try {
+                      await db.clearLocalDatabase();
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Local database cleared successfully'),
+                            backgroundColor: Colors.green,
+                          ),
+                        );
+                      }
+                    } catch (e) {
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('Failed to clear database: $e'),
+                            backgroundColor: Colors.red,
+                          ),
+                        );
+                      }
+                    }
+                  }
+                },
+              ),
+              const SizedBox(width: 8),
               TextButton.icon(
                 icon: const Icon(Icons.delete_sweep, size: 20),
                 label: const Text('Clear All'),
@@ -319,10 +432,10 @@ class _TodosPageState extends State<TodosPage> {
   }
 }
 
-class TodoTile extends StatelessWidget {
+class TodoTile extends StatefulWidget {
   final Map<String, dynamic> todo;
   final VoidCallback onToggle;
-  final VoidCallback onDelete;
+  final Future<void> Function() onDelete;
 
   const TodoTile({
     super.key,
@@ -332,8 +445,15 @@ class TodoTile extends StatelessWidget {
   });
 
   @override
+  State<TodoTile> createState() => _TodoTileState();
+}
+
+class _TodoTileState extends State<TodoTile> {
+  bool _isDeleting = false;
+
+  @override
   Widget build(BuildContext context) {
-    final isCompleted = todo['completed'] == true;
+    final isCompleted = widget.todo['completed'] == true;
     
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
@@ -351,30 +471,57 @@ class TodoTile extends StatelessWidget {
       child: ListTile(
         leading: Checkbox(
           value: isCompleted,
-          onChanged: (_) => onToggle(),
+          onChanged: _isDeleting ? null : (_) => widget.onToggle(),
           activeColor: Colors.green,
         ),
         title: Text(
-          todo['text'] ?? '',
+          widget.todo['text'] ?? '',
           style: TextStyle(
             decoration: isCompleted ? TextDecoration.lineThrough : null,
-            color: isCompleted ? Colors.grey : null,
+            color: isCompleted ? Colors.grey : (_isDeleting ? Colors.grey[400] : null),
           ),
         ),
         subtitle: Text(
-          _formatDate(todo['createdAt']),
+          _formatDate(widget.todo['createdAt']),
           style: TextStyle(
             fontSize: 12,
             color: Colors.grey[600],
           ),
         ),
-        trailing: IconButton(
-          icon: const Icon(Icons.delete_outline),
-          color: Colors.red[400],
-          onPressed: onDelete,
-        ),
+        trailing: _isDeleting
+            ? SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  valueColor: AlwaysStoppedAnimation<Color>(Colors.red[400]!),
+                ),
+              )
+            : IconButton(
+                icon: const Icon(Icons.delete_outline),
+                color: Colors.red[400],
+                onPressed: _handleDelete,
+              ),
       ),
     );
+  }
+
+  Future<void> _handleDelete() async {
+    if (_isDeleting) return;
+    
+    setState(() {
+      _isDeleting = true;
+    });
+    
+    try {
+      await widget.onDelete();
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isDeleting = false;
+        });
+      }
+    }
   }
 
   String _formatDate(dynamic timestamp) {
