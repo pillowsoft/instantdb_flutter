@@ -12,12 +12,14 @@ class CursorsPage extends StatefulWidget {
 class _CursorsPageState extends State<CursorsPage> {
   String? _userId;
   Timer? _cursorTimer;
+  InstantRoom? _room;
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     if (_userId == null) {
       _initializeUser();
+      _joinRoom();
     }
   }
 
@@ -34,17 +36,20 @@ class _CursorsPageState extends State<CursorsPage> {
     _userId = currentUser?.id ?? 'cursor_${DateTime.now().millisecondsSinceEpoch}';
   }
 
-  void _updateCursor(Offset position) {
-    if (_userId == null) return;
-    
+  void _joinRoom() {
     final db = InstantProvider.of(context);
+    // Join the cursors room using the new room-based API
+    _room = db.presence.joinRoom('cursors-room');
+  }
+
+  void _updateCursor(Offset position) {
+    if (_userId == null || _room == null) return;
     
     // Cancel existing timer
     _cursorTimer?.cancel();
     
-    // Update cursor position using presence API
-    db.presence.updateCursor(
-      'cursors-room',
+    // Update cursor position using the new room-based API
+    _room!.updateCursor(
       x: position.dx,
       y: position.dy,
     );
@@ -58,7 +63,7 @@ class _CursorsPageState extends State<CursorsPage> {
     
     final db = InstantProvider.of(context);
     
-    // Remove cursor using presence API
+    // Remove cursor using presence API (fallback to old API for leaving)
     db.presence.leaveRoom('cursors-room');
   }
 
@@ -153,10 +158,11 @@ class _CursorsPageState extends State<CursorsPage> {
                           ),
                         ),
                         
-                        // Cursors
+                        // Cursors using new room-based API
                         Watch((context) {
-                          final db = InstantProvider.of(context);
-                          final cursors = db.presence.getCursors('cursors-room').value;
+                          if (_room == null) return const SizedBox.shrink();
+                          
+                          final cursors = _room!.getCursors().value;
                           
                           return Stack(
                             children: cursors.entries.map((entry) {
@@ -183,12 +189,13 @@ class _CursorsPageState extends State<CursorsPage> {
           ),
         ),
         
-        // Stats
+        // Stats using new room-based API
         Container(
           padding: const EdgeInsets.all(16),
           child: Watch((context) {
-            final db = InstantProvider.of(context);
-            final cursors = db.presence.getCursors('cursors-room').value;
+            if (_room == null) return const SizedBox.shrink();
+            
+            final cursors = _room!.getCursors().value;
             final activeCursors = cursors.length;
             
             return Row(

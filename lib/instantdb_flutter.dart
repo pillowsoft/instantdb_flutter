@@ -2,6 +2,7 @@
 // Core exports
 export 'src/core/instant_db.dart';
 export 'src/core/types.dart';
+export 'src/core/transaction_builder.dart';
 
 // Schema exports
 export 'src/schema/schema.dart';

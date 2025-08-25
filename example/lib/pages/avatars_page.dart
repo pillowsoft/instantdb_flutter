@@ -15,12 +15,14 @@ class _AvatarsPageState extends State<AvatarsPage> {
   String? _userId;
   String? _userName;
   Timer? _presenceTimer;
+  InstantRoom? _room;
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     if (_userId == null) {
       _initializeUser();
+      _joinRoom();
       _startPresence();
     }
   }
@@ -46,6 +48,15 @@ class _AvatarsPageState extends State<AvatarsPage> {
     }
   }
 
+  void _joinRoom() {
+    final db = InstantProvider.of(context);
+    // Join the avatars room using the new room-based API
+    _room = db.presence.joinRoom('avatars-room', initialPresence: {
+      'userName': _userName,
+      'status': 'online',
+    });
+  }
+
   void _startPresence() {
     if (_userId == null) return;
     
@@ -59,12 +70,10 @@ class _AvatarsPageState extends State<AvatarsPage> {
   }
 
   void _updatePresence() {
-    if (_userId == null) return;
+    if (_userId == null || _room == null) return;
     
-    final db = InstantProvider.of(context);
-    
-    // Update presence using presence API
-    db.presence.setPresence('avatars-room', {
+    // Update presence using new room-based API
+    _room!.setPresence({
       'userName': _userName,
       'status': 'online',
     });
@@ -107,11 +116,12 @@ class _AvatarsPageState extends State<AvatarsPage> {
           ),
         ),
         
-        // User list
+        // User list using new room-based API
         Expanded(
           child: Watch((context) {
-            final db = InstantProvider.of(context);
-            final presenceData = db.presence.getPresence('avatars-room').value;
+            if (_room == null) return const SizedBox.shrink();
+            
+            final presenceData = _room!.getPresence().value;
             
             final presenceList = presenceData.entries
                 .where((entry) => entry.value.data['status'] == 'online')

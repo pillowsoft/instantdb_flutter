@@ -92,7 +92,17 @@ class TodoList extends StatelessWidget {
 ### 5. Perform Mutations
 
 ```dart
-// Create a new todo - IMPORTANT: Always use db.id() for entity IDs
+// Create a new todo using the new tx namespace (recommended)
+final todoId = db.id();
+await db.transactChunk(
+  db.tx['todos'][todoId].update({
+    'text': 'Learn InstantDB Flutter',
+    'completed': false,
+    'createdAt': DateTime.now().millisecondsSinceEpoch,
+  })
+);
+
+// Or use the traditional approach
 await db.transact([
   ...db.create('todos', {
     'id': db.id(), // Generates a proper UUID - required by InstantDB
@@ -102,10 +112,20 @@ await db.transact([
   }),
 ]);
 
-// Update a todo
-await db.transact([
-  db.update(todoId, {'completed': true}),
-]);
+// Update with the new tx API
+await db.transactChunk(
+  db.tx['todos'][todoId].update({'completed': true})
+);
+
+// Deep merge for nested updates
+await db.transactChunk(
+  db.tx['users'][userId].merge({
+    'preferences': {
+      'theme': 'dark',
+      'notifications': {'email': false}
+    }
+  })
+);
 
 // Delete a todo
 await db.transact([
@@ -120,18 +140,28 @@ await db.transact([
 InstantDB Flutter uses [Signals](https://pub.dev/packages/signals_flutter) for reactivity. Queries return `Signal<QueryResult>` objects that automatically update when underlying data changes.
 
 ```dart
-// Simple query
-final querySignal = db.query({
+// Simple query with the new subscribeQuery alias (recommended)
+final querySignal = db.subscribeQuery({
   'users': {
     'where': {'active': true},
   },
 });
 
-// Access the current value
-final result = querySignal.value;
-if (result.hasData) {
-  final users = result.data!['users'];
-}
+// One-time query (no subscriptions)
+final result = await db.queryOnce({'users': {}});
+
+// Advanced query with new operators
+final advancedQuery = db.subscribeQuery({
+  'users': {
+    'where': {
+      'age': {'\$gte': 18, '\$lt': 65}, // Age between 18-65
+      'email': {'\$like': '%@company.com'}, // Company emails
+      'status': {'\$ne': 'inactive'}, // Not inactive
+    },
+    'orderBy': {'createdAt': 'desc'},
+    'limit': 20,
+  },
+});
 
 // React to changes
 Watch((context) {
@@ -142,13 +172,29 @@ Watch((context) {
 
 ### Transactions
 
-All mutations happen within transactions, which provide atomicity and enable optimistic updates:
+All mutations happen within transactions, which provide atomicity and enable optimistic updates. Use the new `tx` namespace for cleaner, more intuitive syntax:
 
 ```dart
+// New tx namespace API (recommended)
+final postId = db.id();
+await db.transactChunk(
+  db.tx['users'][userId]
+    .update({'name': 'New Name'})
+    .link({'posts': [postId]})
+);
+
+await db.transactChunk(
+  db.tx['posts'][postId].update({
+    'title': 'Hello World',
+    'authorId': lookup('users', 'email', 'john@example.com'),
+  })
+);
+
+// Traditional approach still works
 await db.transact([
   db.update(userId, {'name': 'New Name'}),
   ...db.create('posts', {
-    'id': db.id(), // Always include UUID for new entities
+    'id': db.id(),
     'title': 'Hello World',
     'authorId': userId,
   }),
@@ -180,36 +226,47 @@ ConnectionStatusBuilder(
 
 ### Presence System
 
-InstantDB includes a real-time presence system for collaborative features:
+InstantDB includes a real-time presence system for collaborative features. Use the new room-based API for better organization:
 
 ```dart
-// Update cursor position
-await db.presence.updateCursor('room-id', x: 100, y: 200);
-
-// Set typing indicator
-await db.presence.setTyping('room-id', true);
-
-// Send emoji reaction
-await db.presence.sendReaction('room-id', '❤️', metadata: {
-  'x': position.dx,
-  'y': position.dy,
+// Join a room to get a scoped API (recommended)
+final room = db.presence.joinRoom('room-id', initialPresence: {
+  'username': 'Alice',
+  'status': 'online',
 });
 
-// Leave room (clears all presence data)
-await db.presence.leaveRoom('room-id');
+// Room-scoped operations
+await room.updateCursor(x: 100, y: 200);
+await room.setTyping(true);
+await room.sendReaction('❤️', metadata: {'x': 100, 'y': 200});
+await room.setPresence({'mood': 'happy'});
 
-// Listen to presence updates
+// Topic-based messaging within rooms
+await room.publishTopic('chat', {'message': 'Hello everyone!'});
+room.subscribeTopic('chat').listen((data) {
+  print('New message: ${data['message']}');
+});
+
+// Listen to room updates
 Watch((context) {
-  final cursors = db.presence.getCursors('room-id').value;
-  final typingUsers = db.presence.getTypingUsers('room-id').value;
-  final reactions = db.presence.getReactions('room-id').value;
+  final cursors = room.getCursors().value;
+  final typingUsers = room.getTyping().value;
+  final reactions = room.getReactions().value;
+  final presence = room.getPresence().value;
   
   return YourCollaborativeWidget(
     cursors: cursors,
     typingUsers: typingUsers, 
     reactions: reactions,
+    presence: presence,
   );
 });
+
+// Direct API still works for simple use cases
+await db.presence.updateCursor('room-id', x: 100, y: 200);
+await db.presence.setTyping('room-id', true);
+await db.presence.sendReaction('room-id', '❤️');
+await db.presence.leaveRoom('room-id');
 ```
 
 ## Widget Reference
@@ -268,44 +325,76 @@ AuthBuilder(
 
 ## Query Language (InstaQL)
 
-InstantDB uses a declarative query language similar to GraphQL:
+InstantDB uses a declarative query language with advanced operators:
 
 ```dart
 // Basic query
 {'users': {}}
 
-// With conditions
+// Advanced operators
 {
   'users': {
-    'where': {'active': true, 'role': 'admin'},
-  }
-}
-
-// With ordering and limits
-{
-  'posts': {
+    'where': {
+      // Comparison operators
+      'age': {'\$gte': 18, '\$lt': 65},
+      'salary': {'\$gt': 50000, '\$lte': 200000},
+      'status': {'\$ne': 'inactive'},
+      
+      // String pattern matching
+      'email': {'\$like': '%@company.com'},
+      'name': {'\$ilike': '%john%'}, // Case insensitive
+      
+      // Array operations
+      'tags': {'\$contains': 'vip'},
+      'skills': {'\$size': {'\$gte': 3}},
+      'roles': {'\$in': ['admin', 'moderator']},
+      
+      // Existence checks
+      'profilePicture': {'\$exists': true},
+      'deletedAt': {'\$isNull': true},
+      
+      // Logical operators
+      '\$and': [
+        {'age': {'\$gte': 18}},
+        {'\$or': [
+          {'department': 'engineering'},
+          {'department': 'design'}
+        ]}
+      ]
+    },
     'orderBy': {'createdAt': 'desc'},
     'limit': 10,
     'offset': 20,
   }
 }
 
-// With relationships
+// With relationships and nested conditions
 {
   'users': {
     'include': {
       'posts': {
+        'where': {'published': true},
         'orderBy': {'createdAt': 'desc'},
         'limit': 5,
       },
+      'profile': {}
     },
+  }
+}
+
+// Lookup references (reference by attribute instead of ID)
+{
+  'posts': {
+    'where': {
+      'author': lookup('users', 'email', 'john@example.com')
+    }
   }
 }
 ```
 
 ## Authentication
 
-InstantDB includes built-in authentication:
+InstantDB includes built-in authentication with convenient helper methods:
 
 ```dart
 // Sign up
@@ -323,13 +412,25 @@ final user = await db.auth.signIn(
 // Sign out
 await db.auth.signOut();
 
-// Listen to auth state
+// Get current auth state (new convenience methods)
+final currentUser = db.getAuth(); // One-time check
+final authSignal = db.subscribeAuth(); // Reactive updates
+
+// Listen to auth state changes
 db.auth.onAuthStateChange.listen((user) {
   if (user != null) {
     // User signed in
   } else {
     // User signed out
   }
+});
+
+// Use in reactive widgets
+Watch((context) {
+  final user = db.subscribeAuth().value;
+  return user != null 
+    ? Text('Welcome ${user.email}')
+    : Text('Please sign in');
 });
 ```
 

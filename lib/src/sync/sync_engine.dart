@@ -475,7 +475,7 @@ class SyncEngine {
                   currentNamespace = value.toString();
                 }
                 
-                operations.add(Operation(
+                operations.add(Operation.legacy(
                   type: OperationType.add,
                   entityId: entityId,
                   attribute: attrName,
@@ -489,7 +489,7 @@ class SyncEngine {
                 // Common attributes we might expect
                 if (value is String && (value == 'todos' || value == 'users')) {
                   // This is likely a __type attribute
-                  operations.add(Operation(
+                  operations.add(Operation.legacy(
                     type: OperationType.add,
                     entityId: entityId,
                     attribute: '__type',
@@ -507,7 +507,7 @@ class SyncEngine {
           case 'delete-entity':
             if (step.length >= 2) {
               final entityId = step[1].toString();
-              operations.add(Operation(
+              operations.add(Operation.legacy(
                 type: OperationType.delete,
                 entityId: entityId,
               ));
@@ -581,7 +581,7 @@ class SyncEngine {
       final syntheticTx = Transaction(
         id: _generateEventId(),
         operations: [
-          Operation(
+          Operation.legacy(
             type: OperationType.add,
             entityId: '__query_invalidation',
             attribute: '__timestamp',
@@ -957,7 +957,7 @@ class SyncEngine {
           }
           
           // Add entity type
-          allOperations.add(Operation(
+          allOperations.add(Operation.legacy(
             type: OperationType.add,
             entityId: entityId,
             attribute: '__type',
@@ -967,7 +967,7 @@ class SyncEngine {
           // Add all attributes
           for (final entry in entity.entries) {
             if (entry.key != 'id' && entry.value != null) {
-              allOperations.add(Operation(
+              allOperations.add(Operation.legacy(
                 type: OperationType.add,
                 entityId: entityId,
                 attribute: entry.key,
@@ -1002,7 +1002,7 @@ class SyncEngine {
             final operations = <Operation>[];
             
             // Add entity type
-            operations.add(Operation(
+            operations.add(Operation.legacy(
               type: OperationType.add,
               entityId: entityId,
               attribute: '__type',
@@ -1012,7 +1012,7 @@ class SyncEngine {
             // Add all attributes
             for (final entry in todo.entries) {
               if (entry.key != 'id') {
-                operations.add(Operation(
+                operations.add(Operation.legacy(
                   type: OperationType.add,
                   entityId: entityId,
                   attribute: entry.key,

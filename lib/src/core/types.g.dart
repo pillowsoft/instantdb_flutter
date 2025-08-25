@@ -79,18 +79,18 @@ Map<String, dynamic> _$InstantConfigToJson(InstantConfig instance) =>
 
 Operation _$OperationFromJson(Map<String, dynamic> json) => Operation(
   type: $enumDecode(_$OperationTypeEnumMap, json['type']),
+  entityType: json['entityType'] as String,
   entityId: json['entityId'] as String,
-  attribute: json['attribute'] as String?,
-  value: json['value'],
-  oldValue: json['oldValue'],
+  data: json['data'] as Map<String, dynamic>?,
+  options: json['options'] as Map<String, dynamic>?,
 );
 
 Map<String, dynamic> _$OperationToJson(Operation instance) => <String, dynamic>{
   'type': _$OperationTypeEnumMap[instance.type]!,
+  'entityType': instance.entityType,
   'entityId': instance.entityId,
-  'attribute': instance.attribute,
-  'value': instance.value,
-  'oldValue': instance.oldValue,
+  'data': instance.data,
+  'options': instance.options,
 };
 
 const _$OperationTypeEnumMap = {
@@ -98,6 +98,9 @@ const _$OperationTypeEnumMap = {
   OperationType.update: 'update',
   OperationType.delete: 'delete',
   OperationType.retract: 'retract',
+  OperationType.link: 'link',
+  OperationType.unlink: 'unlink',
+  OperationType.merge: 'merge',
 };
 
 Transaction _$TransactionFromJson(Map<String, dynamic> json) => Transaction(
@@ -154,4 +157,16 @@ Map<String, dynamic> _$AuthUserToJson(AuthUser instance) => <String, dynamic>{
   'email': instance.email,
   'refreshToken': instance.refreshToken,
   'metadata': instance.metadata,
+};
+
+LookupRef _$LookupRefFromJson(Map<String, dynamic> json) => LookupRef(
+  entityType: json['entityType'] as String,
+  attribute: json['attribute'] as String,
+  value: json['value'],
+);
+
+Map<String, dynamic> _$LookupRefToJson(LookupRef instance) => <String, dynamic>{
+  'entityType': instance.entityType,
+  'attribute': instance.attribute,
+  'value': instance.value,
 };

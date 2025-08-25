@@ -141,7 +141,7 @@ class InstantConfig {
   Map<String, dynamic> toJson() => _$InstantConfigToJson(this);
 }
 
-/// Transaction operation types
+/// Transaction operation types (aligned with InstantDB core)
 enum OperationType {
   @JsonValue('add')
   add,
@@ -151,27 +151,68 @@ enum OperationType {
   delete,
   @JsonValue('retract')
   retract,
+  @JsonValue('link')
+  link,
+  @JsonValue('unlink')
+  unlink,
+  @JsonValue('merge')
+  merge,
 }
 
-/// A single operation in a transaction
+/// A single operation in a transaction (aligned with InstantDB core format)
 @JsonSerializable()
 class Operation {
   final OperationType type;
+  final String entityType;
   final EntityId entityId;
-  final String? attribute;
-  final dynamic value;
-  final dynamic oldValue;
+  final Map<String, dynamic>? data;
+  final Map<String, dynamic>? options;
 
   const Operation({
     required this.type,
+    required this.entityType,
     required this.entityId,
-    this.attribute,
-    this.value,
-    this.oldValue,
+    this.data,
+    this.options,
   });
 
   factory Operation.fromJson(Map<String, dynamic> json) => _$OperationFromJson(json);
   Map<String, dynamic> toJson() => _$OperationToJson(this);
+
+  // Legacy constructor for backward compatibility
+  factory Operation.legacy({
+    required OperationType type,
+    required EntityId entityId,
+    String? attribute,
+    dynamic value,
+    dynamic oldValue,
+  }) {
+    final data = <String, dynamic>{};
+    if (attribute != null && value != null) {
+      data[attribute] = value;
+    }
+    return Operation(
+      type: type,
+      entityType: 'unknown', // Will be set properly by transaction builder
+      entityId: entityId,
+      data: data.isEmpty ? null : data,
+    );
+  }
+
+  // Legacy getters for backward compatibility
+  String? get attribute {
+    if (data != null && data!.length == 1) {
+      return data!.keys.first;
+    }
+    return null;
+  }
+
+  dynamic get value {
+    if (data != null && data!.length == 1) {
+      return data!.values.first;
+    }
+    return null;
+  }
 }
 
 /// A transaction containing multiple operations
@@ -241,6 +282,35 @@ class AuthUser {
 
   factory AuthUser.fromJson(Map<String, dynamic> json) => _$AuthUserFromJson(json);
   Map<String, dynamic> toJson() => _$AuthUserToJson(this);
+}
+
+/// Lookup reference for transactions (find entity by attribute value)
+@JsonSerializable()
+class LookupRef {
+  final String entityType;
+  final String attribute;
+  final dynamic value;
+
+  const LookupRef({
+    required this.entityType,
+    required this.attribute,
+    required this.value,
+  });
+
+  factory LookupRef.fromJson(Map<String, dynamic> json) => _$LookupRefFromJson(json);
+  Map<String, dynamic> toJson() => _$LookupRefToJson(this);
+}
+
+/// Transaction chunk - represents a chainable transaction operation
+class TransactionChunk {
+  final List<Operation> operations;
+
+  const TransactionChunk(this.operations);
+
+  /// Merge with another transaction chunk
+  TransactionChunk merge(TransactionChunk other) {
+    return TransactionChunk([...operations, ...other.operations]);
+  }
 }
 
 /// Exception thrown by InstantDB operations

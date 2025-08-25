@@ -13,6 +13,7 @@ class ReactionsPage extends StatefulWidget {
 class _ReactionsPageState extends State<ReactionsPage> {
   String? _userId;
   final List<_AnimatedReaction> _localReactions = [];
+  InstantRoom? _room;
 
   static const List<String> _emojis = ['❤️', '👍', '😄', '🎉', '🚀', '✨', '🔥', '💯'];
 
@@ -21,6 +22,7 @@ class _ReactionsPageState extends State<ReactionsPage> {
     super.didChangeDependencies();
     if (_userId == null) {
       _initializeUser();
+      _joinRoom();
     }
   }
 
@@ -30,8 +32,14 @@ class _ReactionsPageState extends State<ReactionsPage> {
     _userId = currentUser?.id ?? 'user_${DateTime.now().millisecondsSinceEpoch}';
   }
 
+  void _joinRoom() {
+    final db = InstantProvider.of(context);
+    // Join the reactions room using the new room-based API
+    _room = db.presence.joinRoom('reactions-room');
+  }
+
   void _sendReaction(String emoji, Offset globalPosition) {
-    if (_userId == null) return;
+    if (_userId == null || _room == null) return;
     
     final db = InstantProvider.of(context);
     
@@ -39,8 +47,8 @@ class _ReactionsPageState extends State<ReactionsPage> {
     final RenderBox? renderBox = context.findRenderObject() as RenderBox?;
     final localPosition = renderBox?.globalToLocal(globalPosition) ?? globalPosition;
     
-    // Create reaction using presence API
-    db.presence.sendReaction('reactions-room', emoji, metadata: {
+    // Create reaction using the new room-based API
+    _room!.sendReaction(emoji, metadata: {
       'x': localPosition.dx,
       'y': localPosition.dy,
     });
@@ -150,10 +158,11 @@ class _ReactionsPageState extends State<ReactionsPage> {
           ],
         ),
         
-        // Remote reactions from presence API
+        // Remote reactions from new room-based API
         Watch((context) {
-          final db = InstantProvider.of(context);
-          final reactionsData = db.presence.getReactions('reactions-room').value;
+          if (_room == null) return const SizedBox.shrink();
+          
+          final reactionsData = _room!.getReactions().value;
           
           return Stack(
             children: reactionsData.map((reaction) {

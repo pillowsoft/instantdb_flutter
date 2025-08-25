@@ -151,6 +151,10 @@ class PresenceManager {
   final Map<String, List<ReactionData>> _roomReactions = {};
   final Map<String, Signal<List<ReactionData>>> _reactionSignals = {};
 
+  // Topic pub/sub system
+  final Map<String, Map<String, StreamController<Map<String, dynamic>>>> _roomTopics = {};
+  final Map<String, Map<String, Stream<Map<String, dynamic>>>> _topicStreams = {};
+
   // Cleanup timers
   final Map<String, Timer> _cleanupTimers = {};
   
@@ -331,6 +335,33 @@ class PresenceManager {
     return _getReactionSignal(roomId);
   }
 
+  /// Join a room and return a room-specific API
+  InstantRoom joinRoom(String roomId, {Map<String, dynamic>? initialPresence}) {
+    // Initialize room data if needed
+    _roomPresence.putIfAbsent(roomId, () => {});
+    _roomCursors.putIfAbsent(roomId, () => {});
+    _roomTyping.putIfAbsent(roomId, () => {});
+    _roomReactions.putIfAbsent(roomId, () => []);
+    _roomTopics.putIfAbsent(roomId, () => {});
+
+    // Set initial presence if provided
+    if (initialPresence != null) {
+      setPresence(roomId, initialPresence);
+    }
+
+    // Send join message to server
+    if (_syncEngine != null) {
+      _sendPresenceMessage(roomId, 'join', {
+        'userId': _getUserId(),
+        'timestamp': DateTime.now().millisecondsSinceEpoch,
+      });
+    }
+
+    InstantLogger.debug('Joined room $roomId');
+    
+    return InstantRoom._(this, roomId);
+  }
+
   /// Leave a room (clear presence)
   Future<void> leaveRoom(String roomId) async {
     final user = _authManager.currentUser.value;
@@ -393,6 +424,11 @@ class PresenceManager {
           break;
         case 'leave':
           _handleUserLeave(roomId, data);
+          break;
+        case 'topic':
+          final topic = data['topic'] as String;
+          final messageData = data['data'] as Map<String, dynamic>;
+          _handleTopicMessage(roomId, topic, messageData);
           break;
       }
     } catch (e) {
@@ -567,12 +603,68 @@ class PresenceManager {
     }
   }
 
+  /// Publish a message to a topic in a room
+  Future<void> publishTopic(String roomId, String topic, Map<String, dynamic> data) async {
+    // Send to server
+    if (_syncEngine != null) {
+      await _sendPresenceMessage(roomId, 'topic', {
+        'topic': topic,
+        'data': data,
+        'userId': _getUserId(),
+        'timestamp': DateTime.now().millisecondsSinceEpoch,
+      });
+    }
+
+    // Emit to local subscribers
+    final topicController = _getRoomTopicController(roomId, topic);
+    topicController.add(data);
+  }
+
+  /// Subscribe to a topic in a room
+  Stream<Map<String, dynamic>> subscribeTopic(String roomId, String topic) {
+    return _getRoomTopicStream(roomId, topic);
+  }
+
+  /// Get or create topic controller for room/topic
+  StreamController<Map<String, dynamic>> _getRoomTopicController(String roomId, String topic) {
+    _roomTopics.putIfAbsent(roomId, () => {});
+    
+    if (!_roomTopics[roomId]!.containsKey(topic)) {
+      _roomTopics[roomId]![topic] = StreamController<Map<String, dynamic>>.broadcast();
+      _topicStreams.putIfAbsent(roomId, () => {});
+      _topicStreams[roomId]![topic] = _roomTopics[roomId]![topic]!.stream;
+    }
+    
+    return _roomTopics[roomId]![topic]!;
+  }
+
+  /// Get or create topic stream for room/topic
+  Stream<Map<String, dynamic>> _getRoomTopicStream(String roomId, String topic) {
+    _getRoomTopicController(roomId, topic); // Ensure controller exists
+    return _topicStreams[roomId]![topic]!;
+  }
+
+  /// Handle incoming topic messages
+  void _handleTopicMessage(String roomId, String topic, Map<String, dynamic> data) {
+    final controller = _getRoomTopicController(roomId, topic);
+    controller.add(data);
+  }
+
   /// Dispose of the presence manager and cleanup resources
   void dispose() {
     for (final timer in _cleanupTimers.values) {
       timer.cancel();
     }
     _cleanupTimers.clear();
+
+    // Dispose topic controllers
+    for (final roomTopics in _roomTopics.values) {
+      for (final controller in roomTopics.values) {
+        controller.close();
+      }
+    }
+    _roomTopics.clear();
+    _topicStreams.clear();
     
     _presenceSignals.clear();
     _cursorSignals.clear();
@@ -637,4 +729,92 @@ class ReactionData {
 
   @override
   int get hashCode => id.hashCode;
+}
+
+/// Room-specific API for InstantDB presence and collaboration features
+/// This class provides a scoped interface for a specific room
+class InstantRoom {
+  final PresenceManager _presenceManager;
+  final String roomId;
+
+  InstantRoom._(this._presenceManager, this.roomId);
+
+  /// Set presence data for the current user in this room
+  Future<void> setPresence(Map<String, dynamic> data) async {
+    return _presenceManager.setPresence(roomId, data);
+  }
+
+  /// Get presence data for all users in this room
+  Signal<Map<String, PresenceData>> getPresence() {
+    return _presenceManager.getPresence(roomId);
+  }
+
+  /// Update cursor position in this room
+  Future<void> updateCursor({
+    required double x,
+    required double y,
+    String? userName,
+    String? userColor,
+    Map<String, dynamic>? metadata,
+  }) async {
+    return _presenceManager.updateCursor(
+      roomId,
+      x: x,
+      y: y,
+      userName: userName,
+      userColor: userColor,
+      metadata: metadata,
+    );
+  }
+
+  /// Get cursor positions for all users in this room
+  Signal<Map<String, CursorData>> getCursors() {
+    return _presenceManager.getCursors(roomId);
+  }
+
+  /// Set typing status for the current user in this room
+  Future<void> setTyping(bool isTyping) async {
+    return _presenceManager.setTyping(roomId, isTyping);
+  }
+
+  /// Get typing indicators for all users in this room
+  Signal<Map<String, DateTime>> getTyping() {
+    return _presenceManager.getTyping(roomId);
+  }
+
+  /// Send a reaction in this room
+  Future<void> sendReaction(String emoji, {
+    String? messageId,
+    Map<String, dynamic>? metadata,
+  }) async {
+    return _presenceManager.sendReaction(
+      roomId,
+      emoji,
+      messageId: messageId,
+      metadata: metadata,
+    );
+  }
+
+  /// Get reactions for this room
+  Signal<List<ReactionData>> getReactions() {
+    return _presenceManager.getReactions(roomId);
+  }
+
+  /// Publish a message to a topic in this room
+  Future<void> publishTopic(String topic, Map<String, dynamic> data) async {
+    return _presenceManager.publishTopic(roomId, topic, data);
+  }
+
+  /// Subscribe to a topic in this room
+  Stream<Map<String, dynamic>> subscribeTopic(String topic) {
+    return _presenceManager.subscribeTopic(roomId, topic);
+  }
+
+  /// Leave this room
+  Future<void> leave() async {
+    return _presenceManager.leaveRoom(roomId);
+  }
+
+  /// Get the room ID
+  String get id => roomId;
 }

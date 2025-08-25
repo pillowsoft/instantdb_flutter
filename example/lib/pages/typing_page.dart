@@ -15,6 +15,7 @@ class _TypingPageState extends State<TypingPage> {
   final _messages = <ChatMessage>[];
   Timer? _typingTimer;
   String? _userId;
+  InstantRoom? _room;
 
   @override
   void initState() {
@@ -27,6 +28,7 @@ class _TypingPageState extends State<TypingPage> {
     super.didChangeDependencies();
     if (_userId == null) {
       _initializeUser();
+      _joinRoom();
     }
   }
 
@@ -38,6 +40,12 @@ class _TypingPageState extends State<TypingPage> {
     _userId = currentUser?.id ?? 'user_${DateTime.now().millisecondsSinceEpoch}';
   }
 
+  void _joinRoom() {
+    final db = InstantProvider.of(context);
+    // Join the chat room using the new room-based API
+    _room = db.presence.joinRoom('chat-room');
+  }
+
   @override
   void dispose() {
     _typingTimer?.cancel();
@@ -47,27 +55,23 @@ class _TypingPageState extends State<TypingPage> {
   }
 
   void _startTyping() {
-    if (_userId == null) return;
-    
-    final db = InstantProvider.of(context);
+    if (_userId == null || _room == null) return;
     
     // Cancel existing timer
     _typingTimer?.cancel();
     
-    // Create typing indicator using presence API
-    db.presence.setTyping('chat-room', true);
+    // Create typing indicator using new room-based API
+    _room!.setTyping(true);
     
     // Set timer to remove typing indicator after 3 seconds of inactivity
     _typingTimer = Timer(const Duration(seconds: 3), _stopTyping);
   }
 
   void _stopTyping() {
-    if (_userId == null) return;
+    if (_userId == null || _room == null) return;
     
-    final db = InstantProvider.of(context);
-    
-    // Remove typing indicator using presence API
-    db.presence.setTyping('chat-room', false);
+    // Remove typing indicator using new room-based API
+    _room!.setTyping(false);
   }
 
   String _getUserName() {
@@ -193,10 +197,11 @@ class _TypingPageState extends State<TypingPage> {
           ),
         ),
         
-        // Typing indicators
+        // Typing indicators using new room-based API
         Watch((context) {
-          final db = InstantProvider.of(context);
-          final typingData = db.presence.getTyping('chat-room').value;
+          if (_room == null) return const SizedBox.shrink();
+          
+          final typingData = _room!.getTyping().value;
           
           // Filter out current user (typing data is Map<String, DateTime>)
           final indicators = typingData.entries

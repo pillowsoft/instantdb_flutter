@@ -24,14 +24,15 @@ class _TodosPageState extends State<TodosPage> {
     final db = InstantProvider.of(context);
     
     try {
-      await db.transact([
-        ...db.create('todos', {
-          'id': db.id(),
+      // Using the new tx namespace API for a cleaner transaction
+      final todoId = db.id();
+      await db.transactChunk(
+        db.tx['todos'][todoId].update({
           'text': text,
           'completed': false,
           'createdAt': DateTime.now().millisecondsSinceEpoch,
-        }),
-      ]);
+        })
+      );
 
       _textController.clear();
     } catch (e) {
@@ -47,11 +48,12 @@ class _TodosPageState extends State<TodosPage> {
     final db = InstantProvider.of(context);
     
     try {
-      await db.transact([
-        ...db.update(todo['id'], {
+      // Using the new tx namespace API for updating
+      await db.transactChunk(
+        db.tx['todos'][todo['id']].update({
           'completed': !todo['completed'],
-        }),
-      ]);
+        })
+      );
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -65,6 +67,7 @@ class _TodosPageState extends State<TodosPage> {
     final db = InstantProvider.of(context);
     
     try {
+      // Using the old API for deletion as it's simpler
       await db.transact([
         db.delete(todoId),
       ]);

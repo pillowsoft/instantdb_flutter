@@ -232,7 +232,7 @@ class TripleStore {
       final key = entry.key;
       final value = entry.value;
 
-      // Handle special operators
+      // Handle special logical operators
       if (key == '\$or') {
         if (value is List) {
           bool matchesAny = false;
@@ -258,6 +258,14 @@ class TripleStore {
         continue;
       }
 
+      if (key == '\$not') {
+        if (value is Map<String, dynamic>) {
+          // If the NOT condition matches, this fails
+          if (_matchesWhere(entity, value)) return false;
+        }
+        continue;
+      }
+
       if (!entity.containsKey(key)) return false;
 
       final entityValue = entity[key];
@@ -279,37 +287,135 @@ class TripleStore {
       final operandValue = entry.value;
 
       switch (operator) {
+        // Standard comparison operators
         case '>':
+        case '\$gt':
           if (entityValue is! Comparable || operandValue is! Comparable) return false;
           if ((entityValue as Comparable).compareTo(operandValue) <= 0) return false;
           break;
         case '>=':
+        case '\$gte':
           if (entityValue is! Comparable || operandValue is! Comparable) return false;
           if ((entityValue as Comparable).compareTo(operandValue) < 0) return false;
           break;
         case '<':
+        case '\$lt':
           if (entityValue is! Comparable || operandValue is! Comparable) return false;
           if ((entityValue as Comparable).compareTo(operandValue) >= 0) return false;
           break;
         case '<=':
+        case '\$lte':
           if (entityValue is! Comparable || operandValue is! Comparable) return false;
           if ((entityValue as Comparable).compareTo(operandValue) > 0) return false;
           break;
         case '!=':
+        case '\$ne':
           if (entityValue == operandValue) return false;
           break;
         case 'in':
+        case '\$in':
           if (operandValue is List && !operandValue.contains(entityValue)) return false;
           break;
         case 'not_in':
+        case '\$nin':
           if (operandValue is List && operandValue.contains(entityValue)) return false;
           break;
+
+        // String pattern matching operators
+        case '\$like':
+          if (entityValue is! String || operandValue is! String) return false;
+          final pattern = operandValue.replaceAll('%', '.*');
+          final regex = RegExp(pattern, caseSensitive: true);
+          if (!regex.hasMatch(entityValue)) return false;
+          break;
+        case '\$ilike':
+          if (entityValue is! String || operandValue is! String) return false;
+          final pattern = operandValue.toLowerCase().replaceAll('%', '.*');
+          final regex = RegExp(pattern, caseSensitive: false);
+          if (!regex.hasMatch(entityValue.toLowerCase())) return false;
+          break;
+
+        // Null checking operators  
+        case '\$isNull':
+          final shouldBeNull = operandValue == true;
+          final isNull = entityValue == null;
+          if (shouldBeNull != isNull) return false;
+          break;
+
+        // Existence operators
+        case '\$exists':
+          // For our implementation, we consider a field to exist if it's not null
+          final shouldExist = operandValue == true;
+          final exists = entityValue != null;
+          if (shouldExist != exists) return false;
+          break;
+
+        // Array/Collection operators
+        case '\$contains':
+          if (entityValue is List) {
+            if (!entityValue.contains(operandValue)) return false;
+          } else if (entityValue is String && operandValue is String) {
+            if (!entityValue.contains(operandValue)) return false;
+          } else {
+            return false;
+          }
+          break;
+        case '\$size':
+          if (entityValue is List) {
+            if (entityValue.length != operandValue) return false;
+          } else if (entityValue is String) {
+            if (entityValue.length != operandValue) return false;
+          } else {
+            return false;
+          }
+          break;
+
+        // Logical operators (handled at higher level but included for completeness)
+        case '\$not':
+          if (operandValue is Map<String, dynamic>) {
+            if (_matchesOperator(entityValue, operandValue)) return false;
+          } else {
+            if (entityValue == operandValue) return false;
+          }
+          break;
+
         default:
           // Unknown operator, treat as equality
           if (entityValue != operandValue) return false;
       }
     }
     return true;
+  }
+
+  /// Resolve a lookup reference to find entity ID by attribute value
+  Future<String?> resolveLookup(String entityType, String attribute, dynamic value) async {
+    final results = await queryEntities(
+      entityType: entityType,
+      where: {attribute: value},
+      limit: 1,
+    );
+    
+    if (results.isNotEmpty) {
+      return results.first['id'] as String?;
+    }
+    
+    return null;
+  }
+
+  /// Resolve multiple lookup references at once
+  Future<Map<LookupRef, String?>> resolveLookupsMap(List<LookupRef> lookups) async {
+    final results = <LookupRef, String?>{};
+    
+    for (final lookup in lookups) {
+      final entityId = await resolveLookup(
+        lookup.entityType,
+        lookup.attribute,
+        lookup.value,
+      );
+      results[lookup] = entityId;
+    }
+    
+    return results;
   }
 
   int _compareEntities(Map<String, dynamic> a, Map<String, dynamic> b, dynamic orderBy) {
@@ -497,6 +603,9 @@ class TripleStore {
       InstantLogger.debug('Transaction ${transaction.id} already applied, skipping');
       return;
     }
+
+    // Resolve any lookup references first (outside DB transaction)
+    final resolvedOperations = await _resolveLookupReferences(transaction.operations);
     
     // Collect change events to emit after the transaction completes
     final pendingChanges = <TripleChange>[];
@@ -511,8 +620,8 @@ class TripleStore {
         'data': jsonEncode(transaction.toJson()),
       });
 
-      // Apply operations and collect changes
-      for (final operation in transaction.operations) {
+      // Apply resolved operations and collect changes
+      for (final operation in resolvedOperations) {
         final changes = await _applyOperationWithChanges(txn, operation, transaction.id);
         pendingChanges.addAll(changes);
       }
@@ -526,70 +635,230 @@ class TripleStore {
     }
   }
 
+  /// Resolve any LookupRef references in operation data to actual entity IDs
+  Future<List<Operation>> _resolveLookupReferences(List<Operation> operations) async {
+    final resolvedOperations = <Operation>[];
+    
+    for (final operation in operations) {
+      if (operation.data == null) {
+        resolvedOperations.add(operation);
+        continue;
+      }
+      
+      final resolvedData = <String, dynamic>{};
+      bool hasChanges = false;
+      
+      for (final entry in operation.data!.entries) {
+        final value = entry.value;
+        if (value is LookupRef) {
+          // Resolve the lookup reference
+          final entityId = await resolveLookup(value.entityType, value.attribute, value.value);
+          if (entityId != null) {
+            resolvedData[entry.key] = entityId;
+            hasChanges = true;
+          } else {
+            throw InstantException(
+              message: 'Could not resolve lookup reference: ${value.entityType}.${value.attribute} = ${value.value}',
+              code: 'lookup_failed',
+            );
+          }
+        } else {
+          resolvedData[entry.key] = value;
+        }
+      }
+      
+      if (hasChanges) {
+        resolvedOperations.add(Operation(
+          type: operation.type,
+          entityType: operation.entityType,
+          entityId: operation.entityId,
+          data: resolvedData,
+          options: operation.options,
+        ));
+      } else {
+        resolvedOperations.add(operation);
+      }
+    }
+    
+    return resolvedOperations;
+  }
+
   Future<List<TripleChange>> _applyOperationWithChanges(DatabaseExecutor txn, Operation operation, String txId) async {
     final changes = <TripleChange>[];
     final now = DateTime.now();
 
     switch (operation.type) {
       case OperationType.add:
-        if (operation.attribute != null) {
-          await txn.insert('triples', {
-            'entity_id': operation.entityId,
-            'attribute': operation.attribute!,
-            'value': jsonEncode(operation.value),
-            'tx_id': txId,
-            'created_at': now.millisecondsSinceEpoch,
-            'retracted': 0, // Use 0 for false
-          });
+        // Add operation with data map
+        if (operation.data != null) {
+          for (final entry in operation.data!.entries) {
+            await txn.insert('triples', {
+              'entity_id': operation.entityId,
+              'attribute': entry.key,
+              'value': jsonEncode(entry.value),
+              'tx_id': txId,
+              'created_at': now.millisecondsSinceEpoch,
+              'retracted': 0,
+            });
 
-          changes.add(TripleChange(
-            type: ChangeType.add,
-            triple: Triple(
-              entityId: operation.entityId,
-              attribute: operation.attribute!,
-              value: operation.value,
-              txId: txId,
-              createdAt: now,
-            ),
-          ));
+            changes.add(TripleChange(
+              type: ChangeType.add,
+              triple: Triple(
+                entityId: operation.entityId,
+                attribute: entry.key,
+                value: entry.value,
+                txId: txId,
+                createdAt: now,
+              ),
+            ));
+          }
         }
         break;
 
       case OperationType.update:
-        if (operation.attribute != null) {
-          // Retract old value
-          await txn.update(
-            'triples',
-            {'retracted': 1},
-            where: 'entity_id = ? AND attribute = ? AND retracted = FALSE',
-            whereArgs: [operation.entityId, operation.attribute!],
-          );
+        // Update operation with data map
+        if (operation.data != null) {
+          for (final entry in operation.data!.entries) {
+            // Retract old value
+            await txn.update(
+              'triples',
+              {'retracted': 1},
+              where: 'entity_id = ? AND attribute = ? AND retracted = FALSE',
+              whereArgs: [operation.entityId, entry.key],
+            );
 
-          // Add new value
-          await txn.insert('triples', {
-            'entity_id': operation.entityId,
-            'attribute': operation.attribute!,
-            'value': jsonEncode(operation.value),
-            'tx_id': txId,
-            'created_at': now.millisecondsSinceEpoch,
-            'retracted': 0, // Use 0 for false
-          });
+            // Add new value
+            await txn.insert('triples', {
+              'entity_id': operation.entityId,
+              'attribute': entry.key,
+              'value': jsonEncode(entry.value),
+              'tx_id': txId,
+              'created_at': now.millisecondsSinceEpoch,
+              'retracted': 0,
+            });
 
-          changes.add(TripleChange(
-            type: ChangeType.add,
-            triple: Triple(
-              entityId: operation.entityId,
-              attribute: operation.attribute!,
-              value: operation.value,
-              txId: txId,
-              createdAt: now,
-            ),
-          ));
+            changes.add(TripleChange(
+              type: ChangeType.add,
+              triple: Triple(
+                entityId: operation.entityId,
+                attribute: entry.key,
+                value: entry.value,
+                txId: txId,
+                createdAt: now,
+              ),
+            ));
+          }
+        }
+        break;
+
+      case OperationType.merge:
+        // Merge operation - deep merge with existing data
+        final existingTriples = await txn.query(
+          'triples',
+          where: 'entity_id = ? AND retracted = FALSE',
+          whereArgs: [operation.entityId],
+        );
+        
+        final existingData = <String, dynamic>{};
+        for (final triple in existingTriples) {
+          existingData[triple['attribute'] as String] = jsonDecode(triple['value'] as String);
+        }
+        
+        if (operation.data != null) {
+          final mergedData = _deepMerge(existingData, operation.data!);
+          
+          // Update changed fields
+          for (final entry in mergedData.entries) {
+            if (existingData[entry.key] != entry.value) {
+              // Retract old value
+              await txn.update(
+                'triples',
+                {'retracted': 1},
+                where: 'entity_id = ? AND attribute = ? AND retracted = FALSE',
+                whereArgs: [operation.entityId, entry.key],
+              );
+
+              // Add merged value
+              await txn.insert('triples', {
+                'entity_id': operation.entityId,
+                'attribute': entry.key,
+                'value': jsonEncode(entry.value),
+                'tx_id': txId,
+                'created_at': now.millisecondsSinceEpoch,
+                'retracted': 0,
+              });
+
+              changes.add(TripleChange(
+                type: ChangeType.add,
+                triple: Triple(
+                  entityId: operation.entityId,
+                  attribute: entry.key,
+                  value: entry.value,
+                  txId: txId,
+                  createdAt: now,
+                ),
+              ));
+            }
+          }
+        }
+        break;
+
+      case OperationType.link:
+        // Link operation - create relationship triples
+        if (operation.data != null) {
+          for (final entry in operation.data!.entries) {
+            // Add link triple
+            await txn.insert('triples', {
+              'entity_id': operation.entityId,
+              'attribute': entry.key,
+              'value': jsonEncode(entry.value),
+              'tx_id': txId,
+              'created_at': now.millisecondsSinceEpoch,
+              'retracted': 0,
+            });
+
+            changes.add(TripleChange(
+              type: ChangeType.add,
+              triple: Triple(
+                entityId: operation.entityId,
+                attribute: entry.key,
+                value: entry.value,
+                txId: txId,
+                createdAt: now,
+              ),
+            ));
+          }
+        }
+        break;
+
+      case OperationType.unlink:
+        // Unlink operation - remove relationship triples
+        if (operation.data != null) {
+          for (final entry in operation.data!.entries) {
+            await txn.update(
+              'triples',
+              {'retracted': 1},
+              where: 'entity_id = ? AND attribute = ? AND value = ? AND retracted = FALSE',
+              whereArgs: [operation.entityId, entry.key, jsonEncode(entry.value)],
+            );
+
+            changes.add(TripleChange(
+              type: ChangeType.retract,
+              triple: Triple(
+                entityId: operation.entityId,
+                attribute: entry.key,
+                value: entry.value,
+                txId: txId,
+                createdAt: now,
+                retracted: true,
+              ),
+            ));
+          }
         }
         break;
 
       case OperationType.delete:
-        // Get all triples for this entity before deletion (use txn for consistency)
+        // Get all triples for this entity before deletion
         final triplesToDelete = await txn.query(
           'triples',
           where: 'entity_id = ? AND retracted = FALSE',
@@ -621,35 +890,52 @@ class TripleStore {
         break;
 
       case OperationType.retract:
-        if (operation.attribute != null) {
-          await txn.update(
-            'triples',
-            {'retracted': 1},
-            where: 'entity_id = ? AND attribute = ? AND value = ? AND retracted = FALSE',
-            whereArgs: [
-              operation.entityId,
-              operation.attribute!,
-              jsonEncode(operation.value),
-            ],
-          );
+        // Legacy retract operation for backward compatibility
+        if (operation.data != null) {
+          for (final entry in operation.data!.entries) {
+            await txn.update(
+              'triples',
+              {'retracted': 1},
+              where: 'entity_id = ? AND attribute = ? AND value = ? AND retracted = FALSE',
+              whereArgs: [operation.entityId, entry.key, jsonEncode(entry.value)],
+            );
 
-          changes.add(TripleChange(
-            type: ChangeType.retract,
-            triple: Triple(
-              entityId: operation.entityId,
-              attribute: operation.attribute!,
-              value: operation.value,
-              txId: txId,
-              createdAt: now,
-            ),
-          ));
+            changes.add(TripleChange(
+              type: ChangeType.retract,
+              triple: Triple(
+                entityId: operation.entityId,
+                attribute: entry.key,
+                value: entry.value,
+                txId: txId,
+                createdAt: now,
+                retracted: true,
+              ),
+            ));
+          }
         }
         break;
     }
-    
+
     return changes;
   }
-  
+
+  /// Deep merge two maps, recursively merging nested maps
+  Map<String, dynamic> _deepMerge(Map<String, dynamic> target, Map<String, dynamic> source) {
+    final result = Map<String, dynamic>.from(target);
+    
+    for (final entry in source.entries) {
+      final key = entry.key;
+      final value = entry.value;
+      
+      if (value is Map<String, dynamic> && result[key] is Map<String, dynamic>) {
+        result[key] = _deepMerge(result[key] as Map<String, dynamic>, value);
+      } else {
+        result[key] = value;
+      }
+    }
+    
+    return result;
+  }
 
   /// Rollback a transaction
   Future<void> rollbackTransaction(String txId) async {

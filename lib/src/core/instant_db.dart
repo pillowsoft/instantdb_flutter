@@ -5,6 +5,7 @@ import 'package:uuid/uuid.dart';
 
 import 'types.dart';
 import 'logging.dart';
+import 'transaction_builder.dart';
 import '../storage/triple_store.dart';
 import '../query/query_engine.dart';
 import '../sync/sync_engine.dart';
@@ -28,6 +29,9 @@ class InstantDB {
   final Signal<bool> _isOnline = signal(false);
   final _uuid = const Uuid();
 
+  // Transaction namespace for fluent API
+  late final TransactionBuilder _txBuilder;
+
   /// Whether the database is ready for use
   ReadonlySignal<bool> get isReady => _isReady.readonly();
 
@@ -42,6 +46,9 @@ class InstantDB {
 
   /// Presence manager for collaboration features
   PresenceManager get presence => _presenceManager;
+
+  /// Transaction builder for fluent API (e.g., tx.goals[goalId].update(...))
+  TransactionBuilder get tx => _txBuilder;
 
   InstantDB._({
     required this.appId,
@@ -102,6 +109,9 @@ class InstantDB {
         syncEngine: config.syncEnabled ? _syncEngine : null,
         authManager: _authManager,
       );
+
+      // Initialize transaction builder
+      _txBuilder = TransactionBuilder();
       
       // Wire up sync engine to query engine
       _queryEngine.setSyncEngine(_syncEngine);
@@ -181,49 +191,53 @@ class InstantDB {
     }
   }
 
-  /// Create a new entity
+  /// Execute a transaction chunk (from tx namespace API)
+  Future<TransactionResult> transactChunk(TransactionChunk chunk) async {
+    return transact(chunk.operations);
+  }
+
+  /// Alias for query - for API compatibility
+  Signal<QueryResult> subscribeQuery(Map<String, dynamic> query) {
+    return this.query(query);
+  }
+
+  /// Get current auth state
+  AuthUser? getAuth() {
+    return _authManager.currentUser.value;
+  }
+
+  /// Subscribe to auth state changes
+  Stream<AuthUser?> subscribeAuth() {
+    return _authManager.onAuthStateChange;
+  }
+
+  /// Create a new entity (legacy API - use tx namespace for new code)
   List<Operation> create(String entityType, Map<String, dynamic> data) {
     final entityId = data['id'] as String? ?? id();
-    final operations = <Operation>[];
-
-    // Add entity type as __type attribute
-    operations.add(Operation(
+    
+    // Ensure __type is in the data
+    final fullData = Map<String, dynamic>.from(data);
+    fullData['__type'] = entityType;
+    
+    return [Operation(
       type: OperationType.add,
+      entityType: entityType,
       entityId: entityId,
-      attribute: '__type',
-      value: entityType,
-    ));
-
-    // Add all attributes
-    for (final entry in data.entries) {
-      operations.add(Operation(
-        type: OperationType.add,
-        entityId: entityId,
-        attribute: entry.key,
-        value: entry.value,
-      ));
-    }
-
-    return operations;
+      data: fullData,
+    )];
   }
 
-  /// Update an entity
+  /// Update an entity (legacy API - use tx namespace for new code)
   List<Operation> update(String entityId, Map<String, dynamic> data) {
-    final operations = <Operation>[];
-    
-    for (final entry in data.entries) {
-      operations.add(Operation(
-        type: OperationType.update,
-        entityId: entityId,
-        attribute: entry.key,
-        value: entry.value,
-      ));
-    }
-    
-    return operations;
+    return [Operation(
+      type: OperationType.update,
+      entityType: 'unknown', // Will be resolved by store
+      entityId: entityId,
+      data: data,
+    )];
   }
 
-  /// Delete an entity
+  /// Delete an entity (legacy API - use tx namespace for new code)
   Operation delete(String entityId) {
     // Validate entity ID to prevent corrupted IDs
     String cleanEntityId = entityId;
@@ -250,6 +264,7 @@ class InstantDB {
     
     return Operation(
       type: OperationType.delete,
+      entityType: 'unknown', // Will be resolved by store
       entityId: cleanEntityId,
     );
   }
@@ -261,42 +276,5 @@ class InstantDB {
     await _store.close();
     _isReady.value = false;
     _isOnline.value = false;
-  }
-}
-
-/// Transaction builder for fluent API
-class TransactionBuilder {
-  final InstantDB _db;
-  final List<Operation> _operations = [];
-
-  TransactionBuilder(this._db);
-
-  /// Add an operation
-  TransactionBuilder add(Operation operation) {
-    _operations.add(operation);
-    return this;
-  }
-
-  /// Create a new entity
-  TransactionBuilder create(String entityType, Map<String, dynamic> data) {
-    _operations.addAll(_db.create(entityType, data));
-    return this;
-  }
-
-  /// Update an entity
-  TransactionBuilder update(String entityId, Map<String, dynamic> data) {
-    _operations.addAll(_db.update(entityId, data));
-    return this;
-  }
-
-  /// Delete an entity
-  TransactionBuilder delete(String entityId) {
-    _operations.add(_db.delete(entityId));
-    return this;
-  }
-
-  /// Execute the transaction
-  Future<TransactionResult> commit() async {
-    return await _db.transact(_operations);
   }
 }
