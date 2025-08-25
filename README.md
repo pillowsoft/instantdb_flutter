@@ -499,11 +499,12 @@ INSTANTDB_API_ID=your-test-app-id
 
 InstantDB Flutter is built on several key components:
 
-- **Triple Store**: Local SQLite-based storage using the RDF triple model
-- **Query Engine**: InstaQL parser and executor with reactive bindings
-- **Sync Engine**: WebSocket-based real-time synchronization with conflict resolution
-- **Transaction System**: Atomic operations with optimistic updates
+- **Triple Store**: Local SQLite-based storage using the RDF triple model (supports pattern queries like `todos:*`)
+- **Query Engine**: InstaQL parser and executor with reactive bindings using Signals
+- **Sync Engine**: WebSocket-based real-time synchronization with conflict resolution and differential sync
+- **Transaction System**: Atomic operations with optimistic updates and proper rollback handling
 - **Reactive Layer**: Signals-based reactivity for automatic UI updates
+- **Cross-Platform**: Uses SQLite for robust local storage on all Flutter platforms (iOS, Android, Web, macOS, Windows, Linux)
 
 ## Performance Tips
 

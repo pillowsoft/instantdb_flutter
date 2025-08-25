@@ -1,8 +1,10 @@
+import 'package:uuid/uuid.dart';
 import 'types.dart';
 
 /// Transaction builder that implements the `tx` namespace pattern
 class TransactionBuilder {
   final Map<String, EntityBuilder> _entities = {};
+  final _uuid = const Uuid();
 
   /// Access entity builder by type (e.g., tx.goals, tx.todos)
   EntityBuilder operator [](String entityType) {
@@ -27,12 +29,31 @@ class TransactionBuilder {
 class EntityBuilder {
   final String entityType;
   final Map<String, EntityInstanceBuilder> _instances = {};
+  final _uuid = const Uuid();
 
   EntityBuilder(this.entityType);
 
   /// Access specific entity instance (e.g., tx.goals[goalId])
   EntityInstanceBuilder operator [](String entityId) {
     return _instances[entityId] ??= EntityInstanceBuilder(entityType, entityId);
+  }
+
+  /// Create a new entity of this type
+  TransactionChunk create(Map<String, dynamic> data) {
+    final entityId = data['id'] as String? ?? _uuid.v4();
+    
+    // Ensure __type is included
+    final fullData = Map<String, dynamic>.from(data);
+    fullData['__type'] = entityType;
+    
+    return TransactionChunk([
+      Operation(
+        type: OperationType.add,
+        entityType: entityType,
+        entityId: entityId,
+        data: fullData,
+      ),
+    ]);
   }
 }
 

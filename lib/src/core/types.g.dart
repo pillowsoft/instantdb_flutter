@@ -38,6 +38,8 @@ Map<String, dynamic> _$TripleChangeToJson(TripleChange instance) =>
 const _$ChangeTypeEnumMap = {
   ChangeType.add: 'add',
   ChangeType.retract: 'retract',
+  ChangeType.delete: 'delete',
+  ChangeType.clear: 'clear',
 };
 
 QueryResult _$QueryResultFromJson(Map<String, dynamic> json) => QueryResult(
@@ -64,6 +66,13 @@ InstantConfig _$InstantConfigFromJson(Map<String, dynamic> json) =>
           ? const Duration(seconds: 1)
           : Duration(microseconds: (json['reconnectDelay'] as num).toInt()),
       verboseLogging: json['verboseLogging'] as bool? ?? false,
+      storageBackend:
+          $enumDecodeNullable(
+            _$StorageBackendEnumMap,
+            json['storageBackend'],
+          ) ??
+          StorageBackend.sqlite,
+      encryptedStorage: json['encryptedStorage'] as bool? ?? false,
     );
 
 Map<String, dynamic> _$InstantConfigToJson(InstantConfig instance) =>
@@ -75,7 +84,11 @@ Map<String, dynamic> _$InstantConfigToJson(InstantConfig instance) =>
       'maxCachedQueries': instance.maxCachedQueries,
       'reconnectDelay': instance.reconnectDelay.inMicroseconds,
       'verboseLogging': instance.verboseLogging,
+      'storageBackend': _$StorageBackendEnumMap[instance.storageBackend]!,
+      'encryptedStorage': instance.encryptedStorage,
     };
+
+const _$StorageBackendEnumMap = {StorageBackend.sqlite: 'sqlite'};
 
 Operation _$OperationFromJson(Map<String, dynamic> json) => Operation(
   type: $enumDecode(_$OperationTypeEnumMap, json['type']),

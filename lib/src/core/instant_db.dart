@@ -9,7 +9,6 @@ import 'logging_config.dart';
 import 'transaction_builder.dart';
 import '../storage/storage_interface.dart';
 import '../storage/triple_store.dart';
-import '../storage/reax_store.dart';
 import '../query/query_engine.dart';
 import '../sync/sync_engine.dart';
 import '../auth/auth_manager.dart';
@@ -84,24 +83,12 @@ class InstantDB {
         instanceId: 'Instance-${DateTime.now().millisecondsSinceEpoch % 10000}',
       );
       
-      // Initialize storage backend based on configuration
-      switch (config.storageBackend) {
-        case StorageBackend.sqlite:
-          InstantDBLogging.root.debug('Initializing SQLite storage backend');
-          _store = await TripleStore.init(
-            appId: appId,
-            persistenceDir: config.persistenceDir,
-          );
-          break;
-        case StorageBackend.reaxdb:
-          InstantDBLogging.root.debug('Initializing ReaxDB storage backend');
-          _store = await ReaxStore.init(
-            appId: appId,
-            persistenceDir: config.persistenceDir,
-            encrypted: config.encryptedStorage,
-          );
-          break;
-      }
+      // Initialize SQLite storage backend
+      InstantDBLogging.root.debug('Initializing SQLite storage backend');
+      _store = await TripleStore.init(
+        appId: appId,
+        persistenceDir: config.persistenceDir,
+      );
 
       // Initialize query engine
       _queryEngine = QueryEngine(_store);
@@ -186,7 +173,7 @@ class InstantDB {
     }
 
     final txId = id();
-    InstantDBLogging.root.debug('InstantDB: Creating transaction $txId with ${operations.length} operations - StorageBackend: ${config.storageBackend.name}');
+    InstantDBLogging.root.debug('InstantDB: Creating transaction $txId with ${operations.length} operations - StorageBackend: SQLite');
     
     final transaction = Transaction(
       id: txId,

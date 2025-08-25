@@ -94,6 +94,8 @@ enum ChangeType {
   add,
   @JsonValue('retract')
   retract,
+  @JsonValue('delete')
+  delete,
   @JsonValue('clear')
   clear,
 }
@@ -134,8 +136,6 @@ class QueryResult {
 enum StorageBackend {
   @JsonValue('sqlite')
   sqlite,
-  @JsonValue('reaxdb') 
-  reaxdb,
 }
 
 /// Configuration for InstantDB client
@@ -159,7 +159,7 @@ class InstantConfig {
     this.maxCachedQueries = 100,
     this.reconnectDelay = const Duration(seconds: 1),
     this.verboseLogging = false,
-    this.storageBackend = StorageBackend.reaxdb, // Default to ReaxDB for new simplicity
+    this.storageBackend = StorageBackend.sqlite,
     this.encryptedStorage = false,
   });
 

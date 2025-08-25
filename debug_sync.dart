@@ -8,7 +8,7 @@ Future<void> main() async {
   final db1 = await InstantDB.init(
     appId: '82100963-e4c0-4f02-b49b-b6fa92d64a17',
     config: const InstantConfig(
-      storageBackend: StorageBackend.reaxdb,
+      storageBackend: StorageBackend.sqlite,
       verboseLogging: true,
       syncEnabled: true,
     ),
@@ -21,7 +21,7 @@ Future<void> main() async {
   final db2 = await InstantDB.init(
     appId: '82100963-e4c0-4f02-b49b-b6fa92d64a17',
     config: const InstantConfig(
-      storageBackend: StorageBackend.reaxdb,
+      storageBackend: StorageBackend.sqlite,
       verboseLogging: true,
       syncEnabled: true,
       persistenceDir: './test_db2', // Different directory
@@ -61,7 +61,7 @@ Future<void> main() async {
   
   // Create a todo on DB1
   print('\n=== Creating todo on DB1 ===');
-  final createOps = db1.tx.todos.create({
+  final createOps = db1.tx['todos'].create({
     'text': 'Test todo from DB1 - ${DateTime.now().millisecondsSinceEpoch}',
     'done': false,
   });
@@ -75,7 +75,7 @@ Future<void> main() async {
   
   // Create a todo on DB2
   print('\n=== Creating todo on DB2 ===');
-  final createOps2 = db2.tx.todos.create({
+  final createOps2 = db2.tx['todos'].create({
     'text': 'Test todo from DB2 - ${DateTime.now().millisecondsSinceEpoch}',
     'done': false,
   });
