@@ -1095,34 +1095,35 @@ class SyncEngine {
         }
         _lastProcessedData['query-entities'] = entitiesHash;
         
-        // Skip if we've already processed this exact data
-        if (entityMap.isEmpty) {
-          return;
-        }
-        
         // Create a single transaction for all entities (including deletes)
         final allOperations = <Operation>[];
         
         // First, get current local entities to detect deletions
+        // Note: We need to do this even if entityMap is empty (all entities deleted)
         Set<String> localEntityIds = {};
         String? detectedEntityType;
         
-        // Detect entity type from first entity
+        // Detect entity type from first entity, or default to 'todos' if empty
         if (entityMap.isNotEmpty) {
           final firstEntity = entityMap.values.first;
           detectedEntityType = firstEntity['__type'] as String? ?? 'todos';
+        } else {
+          // If no entities from server, we still need to check for deletes
+          // Default to 'todos' as the most common entity type
+          detectedEntityType = 'todos';
+          InstantDBLogging.root.debug('Empty entity map from server - checking for deletes in todos');
+        }
+        
+        try {
+          // Query current local entities of this type
+          final localEntities = await _store.queryEntities(
+            entityType: detectedEntityType,
+          );
           
-          try {
-            // Query current local entities of this type
-            final localEntities = await _store.queryEntities(
-              entityType: detectedEntityType,
-            );
-            
-            localEntityIds = localEntities.map((e) => e['id'] as String).toSet();
-            InstantDBLogging.root.debug('Found ${localEntityIds.length} existing local entities of type $detectedEntityType');
-          } catch (e) {
-            InstantDBLogging.root.warning('Failed to query local entities for delete detection: $e');
-          }
+          localEntityIds = localEntities.map((e) => e['id'] as String).toSet();
+          InstantDBLogging.root.debug('Found ${localEntityIds.length} existing local entities of type $detectedEntityType');
+        } catch (e) {
+          InstantDBLogging.root.warning('Failed to query local entities for delete detection: $e');
         }
         
         // Track which entities we see from server
