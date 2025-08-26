@@ -43,6 +43,7 @@
 * ✅ **Fixed presence reactions not appearing in peer instances** - implemented proper refresh-presence message handling to convert reaction data to visible UI reactions
 * ✅ **Fixed cursors, typing indicators, and avatars not working in peer instances** - implemented complete presence data detection and routing in refresh-presence messages to handle all presence types
 * ✅ **Fixed avatars page showing only 1 user instead of both users** - preserved local user's presence when processing refresh-presence messages to match React SDK behavior
+* ✅ **Fixed avatar presence data extraction and room ID consistency** - corrected nested data structure extraction from refresh-presence messages and unified room key format usage
 * ✅ **Added comprehensive hierarchical logging system** - using `logging` package for better debugging and monitoring of sync operations
 * ✅ **Enhanced sync engine with proper attribute UUID mapping** - transactions now use correct InstantDB attribute UUIDs instead of attribute names
 
