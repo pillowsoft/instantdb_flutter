@@ -11,35 +11,35 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  
+
   # Core dependencies
   signals_flutter: ^6.0.2
   dio: ^5.7.0
-  web_socket_channel: ^3.0.1
-  
+  web_socket_channel: ^3.0.3
+
   # Local storage
-  sqflite: ^2.4.1
-  sqflite_common_ffi_web: ^0.4.5+1
-  path: ^1.9.0
-  
+  sqflite: ^2.4.2
+  sqflite_common_ffi_web: ^1.0.1+1
+  path: ^1.9.1
+
   # Utilities
   uuid: ^4.5.1
   json_annotation: ^4.9.0
   crypto: ^3.0.5
   logging: ^1.2.0
-  
+
   # Environment variables for testing
-  flutter_dotenv: ^5.2.1
+  flutter_dotenv: ^6.0.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_lints: ^5.0.0
-  
+  flutter_lints: ^6.0.0
+
   # Code generation
   build_runner: ^2.4.13
   json_serializable: ^6.8.0
-  
+
   # Testing
   mocktail: ^1.0.4
   sqflite_common_ffi: ^2.3.5
