@@ -54,7 +54,9 @@ class _TileGamePageState extends State<TileGamePage> {
     
     if (tiles.isNotEmpty) {
       // Clear any stale data from previous sessions
-      final transactions = tiles.map((tile) => db.delete(tile['id'])).toList();
+      final transactions = tiles.map((tile) => 
+        db.tx['tiles'][tile['id']].delete().operations[0]
+      ).toList();
       db.transact(transactions);
     }
   }
@@ -92,7 +94,9 @@ class _TileGamePageState extends State<TileGamePage> {
     final tiles = result.data?['tiles'] as List? ?? [];
     
     if (tiles.isNotEmpty) {
-      final transactions = tiles.map((tile) => db.delete(tile['id'])).toList();
+      final transactions = tiles.map((tile) => 
+        db.tx['tiles'][tile['id']].delete().operations[0]
+      ).toList();
       db.transact(transactions);
       
       // Force UI update
