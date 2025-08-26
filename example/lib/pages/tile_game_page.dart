@@ -39,7 +39,7 @@ class _TileGamePageState extends State<TileGamePage> {
       _userColor = UserColors.fromString(currentUser.email);
     } else {
       final db = InstantProvider.of(context);
-      _userId = db.id(); // Generate proper UUID
+      _userId = db.getAnonymousUserId(); // Use consistent anonymous user ID
       _userName = 'Player ${_userId!.substring(_userId!.length - 4)}';
       _userColor = UserColors.fromString(_userId!);
     }

@@ -385,7 +385,7 @@ class PresenceManager {
 
     InstantDBLogging.root.debug('Joined room $roomKey');
     
-    return InstantRoom._(this, roomKey);
+    return InstantRoom._(this, roomId);
   }
 
   /// Leave a room (clear presence)
@@ -834,14 +834,16 @@ class PresenceManager {
         // Extract user ID
         final peerUserId = presenceDataWrapper['userId'] as String?;
         
-        // Try to get data - first check if it's directly in presenceDataWrapper (typing data),
-        // then check nested structure (other presence data)
+        // Try to get data - first check if it's directly in presenceDataWrapper (reactions, cursors, typing),
+        // then check nested structure (avatar/status presence data)
         Map<String, dynamic> userData;
-        if (presenceDataWrapper.containsKey('isTyping')) {
-          // Typing data comes directly in presenceDataWrapper
+        if (presenceDataWrapper.containsKey('isTyping') || 
+            presenceDataWrapper.containsKey('emoji') || 
+            presenceDataWrapper.containsKey('x')) {
+          // Direct presence data (typing, reactions, cursors) comes directly in presenceDataWrapper
           userData = Map<String, dynamic>.from(presenceDataWrapper);
         } else {
-          // Other data is nested under 'data' key
+          // Avatar/status data is nested under 'data' key
           userData = presenceDataWrapper['data'] as Map<String, dynamic>? ?? {};
         }
         

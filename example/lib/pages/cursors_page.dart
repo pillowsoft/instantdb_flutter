@@ -33,7 +33,7 @@ class _CursorsPageState extends State<CursorsPage> {
   void _initializeUser() {
     final db = InstantProvider.of(context);
     final currentUser = db.auth.currentUser.value;
-    _userId = currentUser?.id ?? 'cursor_${DateTime.now().millisecondsSinceEpoch}';
+    _userId = currentUser?.id ?? db.getAnonymousUserId(); // Use consistent anonymous user ID
   }
 
   void _joinRoom() {

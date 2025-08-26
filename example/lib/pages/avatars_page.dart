@@ -44,7 +44,7 @@ class _AvatarsPageState extends State<AvatarsPage> {
       _userName = currentUser.email;
     } else {
       final db = InstantProvider.of(context);
-      _userId = db.id(); // Generate a proper UUID
+      _userId = db.getAnonymousUserId(); // Use consistent anonymous user ID
       _userName = 'Guest ${_userId!.substring(_userId!.length - 4)}';
     }
   }

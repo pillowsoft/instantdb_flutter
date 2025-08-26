@@ -29,7 +29,7 @@ class _ReactionsPageState extends State<ReactionsPage> {
   void _initializeUser() {
     final db = InstantProvider.of(context);
     final currentUser = db.auth.currentUser.value;
-    _userId = currentUser?.id ?? db.id(); // Generate proper UUID
+    _userId = currentUser?.id ?? db.getAnonymousUserId(); // Use consistent anonymous user ID
   }
 
   void _joinRoom() {
