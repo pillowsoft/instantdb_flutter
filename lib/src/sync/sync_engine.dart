@@ -126,6 +126,21 @@ class SyncEngine {
     InstantDBLogging.root.debug('SyncEngine: Query sent successfully');
   }
 
+  void sendPresence(Map<String, dynamic> presenceMessage) {
+    InstantDBLogging.root.debug('SyncEngine: sendPresence called with: ${jsonEncode(presenceMessage)}');
+    
+    if (!_connectionStatus.value || _webSocket == null || !_webSocket.isOpen) {
+      InstantDBLogging.root.warning('SyncEngine: Cannot send presence - WebSocket not connected');
+      return;
+    }
+    
+    final presenceJson = jsonEncode(presenceMessage);
+    InstantDBLogging.root.debug('SyncEngine: Sending presence message to WebSocket - EventId: ${presenceMessage['clientEventId']}');
+    _wsLogger.fine('👥 PRESENCE MESSAGE: ${presenceJson}');
+    _webSocket.send(presenceJson);
+    InstantDBLogging.root.debug('SyncEngine: Presence message sent successfully');
+  }
+
   Future<void> _connectWebSocket() async {
     try {
       // Construct WebSocket URL with app_id as query parameter
@@ -394,6 +409,12 @@ class SyncEngine {
           // Handle refresh-ok messages which contain updated query results
           InstantDBLogging.root.debug('Processing refresh-ok');
           _handleRefreshOk(data);
+          break;
+          
+        case 'presence':
+          // Handle incoming presence messages (reactions, cursors, typing indicators)
+          InstantDBLogging.root.debug('Received presence message: ${jsonEncode(data)}');
+          _handlePresenceMessage(data);
           break;
           
         default:
@@ -1277,6 +1298,24 @@ class SyncEngine {
         
         await _applyRemoteTransaction(transaction);
       }
+    }
+  }
+
+  void _handlePresenceMessage(Map<String, dynamic> data) {
+    try {
+      InstantDBLogging.root.debug('SyncEngine: Processing presence message - type: ${data['type']}, roomId: ${data['roomId']}');
+      
+      // For now, just log the presence message
+      // In a complete implementation, this would forward to a PresenceManager
+      // The PresenceManager would then handle updating presence signals
+      
+      InstantDBLogging.root.info('Received presence update: ${data['type']} in room ${data['roomId']}');
+      
+      // TODO: Forward to PresenceManager when available
+      // _presenceManager?.handlePresenceMessage(data);
+      
+    } catch (e, stackTrace) {
+      InstantDBLogging.root.severe('Error handling presence message', e, stackTrace);
     }
   }
 }

@@ -525,7 +525,10 @@ class PresenceManager {
   }
 
   Future<void> _sendPresenceMessage(String roomId, String type, Map<String, dynamic> data) async {
-    if (_syncEngine == null) return;
+    if (_syncEngine == null) {
+      InstantDBLogging.root.warning('PresenceManager: Cannot send presence message - sync engine not available');
+      return;
+    }
 
     final message = {
       'op': 'presence',
@@ -535,9 +538,8 @@ class PresenceManager {
       'clientEventId': _uuid.v4(),
     };
 
-    // In a real implementation, you would send this via the sync engine
-    // For now, we'll just log it
-    InstantDBLogging.root.debug('Would send presence message: ${jsonEncode(message)}');
+    InstantDBLogging.root.debug('PresenceManager: Sending presence message - room: $roomId, type: $type');
+    _syncEngine!.sendPresence(message);
   }
 
   Signal<Map<String, PresenceData>> _getPresenceSignal(String roomId) {
