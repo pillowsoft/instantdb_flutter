@@ -823,6 +823,11 @@ class PresenceManager {
     try {
       InstantDBLogging.root.debug('PresenceManager: Processing refresh-presence for room $roomId with ${peersData.length} peers');
       
+      // CRITICAL: Save local user's presence before processing peers
+      // The server only sends peer data, not the local user's data
+      final localUserId = _getUserId();
+      final localPresence = _roomPresence[roomId]?[localUserId];
+      
       // Update local presence state for all peers
       for (final entry in peersData.entries) {
         final peerId = entry.key;
@@ -869,14 +874,23 @@ class PresenceManager {
             
             _roomPresence.putIfAbsent(roomId, () => {});
             _roomPresence[roomId]![peerId] = presenceData;
-            
-            // Notify presence signal listeners
-            if (_presenceSignals.containsKey(roomId)) {
-              _presenceSignals[roomId]!.value = Map.from(_roomPresence[roomId]!);
-            }
           }
         }
       }
+      
+      // CRITICAL: Re-add local user's presence after processing peers
+      // This ensures the local user always appears in their own presence list
+      if (localPresence != null) {
+        _roomPresence.putIfAbsent(roomId, () => {});
+        _roomPresence[roomId]![localUserId] = localPresence;
+        InstantDBLogging.root.debug('PresenceManager: Preserved local user $localUserId in presence list after refresh');
+      }
+      
+      // Notify presence signal listeners with complete data (local + peers)
+      if (_presenceSignals.containsKey(roomId)) {
+        _presenceSignals[roomId]!.value = Map.from(_roomPresence[roomId] ?? {});
+      }
+      
     } catch (e, stackTrace) {
       InstantDBLogging.root.severe('Error handling refresh-presence message', e, stackTrace);
     }
