@@ -26,6 +26,7 @@ class _TileGamePageState extends State<TileGamePage> {
     super.didChangeDependencies();
     if (_userId == null) {
       _initializeUser();
+      _cleanupStaleData();
     }
   }
   
@@ -38,10 +39,23 @@ class _TileGamePageState extends State<TileGamePage> {
       _userName = currentUser.email.split('@')[0];
       _userColor = UserColors.fromString(currentUser.email);
     } else {
-      final db = InstantProvider.of(context);
       _userId = db.getAnonymousUserId(); // Use consistent anonymous user ID
       _userName = 'Player ${_userId!.substring(_userId!.length - 4)}';
       _userColor = UserColors.fromString(_userId!);
+    }
+  }
+  
+  void _cleanupStaleData() {
+    final db = InstantProvider.of(context);
+    
+    // Get any existing tiles
+    final result = db.query({'tiles': {}}).value;
+    final tiles = result.data?['tiles'] as List? ?? [];
+    
+    if (tiles.isNotEmpty) {
+      // Clear any stale data from previous sessions
+      final transactions = tiles.map((tile) => db.delete(tile['id'])).toList();
+      db.transact(transactions);
     }
   }
   
@@ -73,21 +87,17 @@ class _TileGamePageState extends State<TileGamePage> {
   void _clearGrid() {
     final db = InstantProvider.of(context);
     
-    // Get all tiles
-    db.query({'tiles': {}});
-    Future(() async {
-      // Wait a bit for query to update
-      await Future.delayed(const Duration(milliseconds: 100));
-      
-      // Get tiles from signal
-      final result = db.query({'tiles': {}}).value;
-      final tiles = result.data?['tiles'] as List? ?? [];
+    // Get tiles from current query result
+    final result = db.query({'tiles': {}}).value;
+    final tiles = result.data?['tiles'] as List? ?? [];
+    
+    if (tiles.isNotEmpty) {
       final transactions = tiles.map((tile) => db.delete(tile['id'])).toList();
+      db.transact(transactions);
       
-      if (transactions.isNotEmpty) {
-        db.transact(transactions);
-      }
-    });
+      // Force UI update
+      setState(() {});
+    }
   }
   
   Offset? _getTilePosition(Offset localPosition, Size bounds) {

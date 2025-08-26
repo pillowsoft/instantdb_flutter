@@ -15,6 +15,7 @@ class _CustomCursorsPageState extends State<CustomCursorsPage> {
   String? _userName;
   Color? _userColor;
   Timer? _cursorTimer;
+  InstantRoom? _room;
   final _nameController = TextEditingController();
   bool _hasSetName = false;
 
@@ -23,6 +24,7 @@ class _CustomCursorsPageState extends State<CustomCursorsPage> {
     super.didChangeDependencies();
     if (_userId == null) {
       _initializeUser();
+      _joinRoom();
     }
   }
 
@@ -45,10 +47,16 @@ class _CustomCursorsPageState extends State<CustomCursorsPage> {
       _hasSetName = true;
     } else {
       final db = InstantProvider.of(context);
-      _userId = db.id(); // Generate proper UUID
+      _userId = db.getAnonymousUserId(); // Use consistent anonymous user ID
       _userName = 'Guest';
       _userColor = UserColors.fromString(_userId!);
     }
+  }
+
+  void _joinRoom() {
+    final db = InstantProvider.of(context);
+    // Join the custom cursors room using the presence API
+    _room = db.presence.joinRoom('custom-cursors-room');
   }
 
   void _setUserName() {
@@ -62,46 +70,32 @@ class _CustomCursorsPageState extends State<CustomCursorsPage> {
   }
 
   void _updateCursor(Offset position) {
-    if (_userId == null || !_hasSetName) return;
-    
-    final db = InstantProvider.of(context);
+    if (_userId == null || !_hasSetName || _room == null) return;
     
     // Cancel existing timer
     _cursorTimer?.cancel();
     
-    // Update cursor position
-    db.transact([
-      ...db.create('custom_cursors', {
-        'id': db.id(),
-        'userId': _userId,
-        'userName': _userName,
+    // Update cursor position using presence system
+    _room!.updateCursor(
+      x: position.dx,
+      y: position.dy,
+      userName: _userName,
+      userColor: _userColor?.toARGB32().toString(),
+      metadata: {
         'color': _userColor!.toARGB32(),
-        'x': position.dx,
-        'y': position.dy,
         'timestamp': DateTime.now().millisecondsSinceEpoch,
-      }),
-    ]);
+      },
+    );
     
     // Set timer to remove cursor after 5 seconds of inactivity
     _cursorTimer = Timer(const Duration(seconds: 5), _removeCursor);
   }
 
   void _removeCursor() {
-    if (_userId == null) return;
+    if (_userId == null || _room == null) return;
     
-    final db = InstantProvider.of(context);
-    
-    // Query for cursors by userId and delete them
-    final query = db.query({'custom_cursors': {
-      'where': {'userId': _userId}
-    }});
-    
-    final result = query.value;
-    final cursors = result.data?['custom_cursors'] as List? ?? [];
-    if (cursors.isNotEmpty) {
-      final deleteOps = cursors.map((cursor) => db.delete(cursor['id'])).toList();
-      db.transact(deleteOps);
-    }
+    // Remove cursor using presence system
+    _room!.removeCursor();
   }
 
   @override
@@ -225,38 +219,33 @@ class _CustomCursorsPageState extends State<CustomCursorsPage> {
                           ),
                         ),
                         
-                        // Cursors
-                        InstantBuilder(
-                          query: {'custom_cursors': {}},
-                          builder: (context, data) {
-                            final cursors = (data['custom_cursors'] as List? ?? [])
-                                .where((cursor) {
-                                  // Filter out stale cursors (older than 6 seconds)
-                                  final timestamp = cursor['timestamp'] ?? 0;
-                                  final age = DateTime.now().millisecondsSinceEpoch - timestamp;
-                                  return age < 6000;
-                                })
-                                .toList();
-                            
-                            return Stack(
-                              children: cursors.map((cursor) {
-                                final userId = cursor['userId'];
-                                final userName = cursor['userName'] ?? 'Unknown';
-                                final color = Color(cursor['color'] ?? Colors.purple.toARGB32());
-                                final x = (cursor['x'] ?? 0).toDouble();
-                                final y = (cursor['y'] ?? 0).toDouble();
-                                final isMe = userId == _userId;
-                                
-                                return _CustomCursorWidget(
-                                  position: Offset(x, y),
-                                  userName: userName,
-                                  color: color,
-                                  isMe: isMe,
-                                );
-                              }).toList(),
-                            );
-                          },
-                        ),
+                        // Cursors using presence system
+                        Watch((context) {
+                          if (_room == null) return const SizedBox.shrink();
+                          
+                          final cursors = _room!.getCursors().value;
+                          
+                          return Stack(
+                            children: cursors.entries.map((entry) {
+                              final userId = entry.key;
+                              final cursor = entry.value;
+                              final userName = cursor.userName ?? _userName ?? 'Unknown';
+                              // Get color from metadata or use user color
+                              final colorValue = cursor.metadata?['color'] as int?;
+                              final color = colorValue != null ? Color(colorValue) : _userColor ?? Colors.purple;
+                              final x = cursor.x;
+                              final y = cursor.y;
+                              final isMe = userId == _userId;
+                              
+                              return _CustomCursorWidget(
+                                position: Offset(x, y),
+                                userName: userName,
+                                color: color,
+                                isMe: isMe,
+                              );
+                            }).toList(),
+                          );
+                        }),
                       ],
                     ),
                   ),

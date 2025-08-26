@@ -251,6 +251,33 @@ class PresenceManager {
     }
   }
 
+  /// Remove cursor for current user in a room
+  Future<void> removeCursor(String roomId) async {
+    final userId = _getUserId();
+    
+    // Remove from local state
+    _roomCursors.putIfAbsent(roomId, () => {});
+    _roomCursors[roomId]!.remove(userId);
+    
+    // Notify signal listeners
+    _getCursorSignal(roomId).value = Map.from(_roomCursors[roomId]!);
+    
+    // Send cursor removal to server (using off-screen coordinates)
+    if (_syncEngine != null) {
+      await _ensureRoomJoined(roomId);
+      final removalData = {
+        'userId': userId,
+        'x': -1000, // Off-screen position to indicate removal
+        'y': -1000,
+        'userName': null,
+        'userColor': null,
+        'metadata': {'removed': true},
+        'lastUpdated': DateTime.now().toIso8601String(),
+      };
+      await _sendPresenceMessageWithRetry(roomId, 'cursor', removalData);
+    }
+  }
+
   /// Get cursor positions for a room
   Signal<Map<String, CursorData>> getCursors(String roomId) {
     return _getCursorSignal(roomId);
@@ -957,23 +984,31 @@ class PresenceManager {
       final metadata = data['metadata'] as Map<String, dynamic>?;
       
       if (userId != null) {
-        final cursorData = CursorData(
-          userId: userId,
-          userName: userName,
-          userColor: userColor,
-          x: x.toDouble(),
-          y: y.toDouble(),
-          metadata: metadata,
-          lastUpdated: DateTime.now(),
-        );
-        
         _roomCursors.putIfAbsent(roomId, () => {});
-        _roomCursors[roomId]![userId] = cursorData;
+        
+        // Check if this is a cursor removal (off-screen coordinates)
+        if (x < -500 || y < -500 || metadata?['removed'] == true) {
+          // Remove cursor from local state
+          _roomCursors[roomId]!.remove(userId);
+          InstantDBLogging.root.debug('PresenceManager: Removed cursor for user $userId in room $roomId');
+        } else {
+          // Update cursor position
+          final cursorData = CursorData(
+            userId: userId,
+            userName: userName,
+            userColor: userColor,
+            x: x.toDouble(),
+            y: y.toDouble(),
+            metadata: metadata,
+            lastUpdated: DateTime.now(),
+          );
+          
+          _roomCursors[roomId]![userId] = cursorData;
+          InstantDBLogging.root.debug('PresenceManager: Updated cursor for user $userId at ($x, $y) in room $roomId');
+        }
         
         // Notify signal listeners
         _getCursorSignal(roomId).value = Map.from(_roomCursors[roomId]!);
-        
-        InstantDBLogging.root.debug('PresenceManager: Added remote cursor from user $userId at ($x, $y) in room $roomId');
       }
     } catch (e, stackTrace) {
       InstantDBLogging.root.severe('Error handling incoming cursor', e, stackTrace);
@@ -1152,6 +1187,11 @@ class InstantRoom {
       userColor: userColor,
       metadata: metadata,
     );
+  }
+
+  /// Remove cursor for current user in this room
+  Future<void> removeCursor() async {
+    return _presenceManager.removeCursor(roomId);
   }
 
   /// Get cursor positions for all users in this room

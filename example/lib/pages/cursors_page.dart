@@ -59,12 +59,10 @@ class _CursorsPageState extends State<CursorsPage> {
   }
 
   void _removeCursor() {
-    if (_userId == null) return;
+    if (_userId == null || _room == null) return;
     
-    final db = InstantProvider.of(context);
-    
-    // Remove cursor using presence API (fallback to old API for leaving)
-    db.presence.leaveRoom('cursors-room');
+    // Remove cursor without leaving the room
+    _room!.removeCursor();
   }
 
   @override
