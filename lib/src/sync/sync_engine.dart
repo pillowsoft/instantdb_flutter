@@ -1019,10 +1019,24 @@ class SyncEngine {
                   }
                 }
                 
+                // Resolve entity type if it's 'unknown'
+                String entityType = op.entityType;
+                if (entityType == 'unknown' || entityType.isEmpty) {
+                  // Try to resolve from store, fallback to namespace or default
+                  final resolvedType = await _store.getEntityType(cleanEntityId);
+                  entityType = resolvedType ?? namespace ?? 'todos';
+                  
+                  if (resolvedType != null) {
+                    InstantDBLogging.root.debug('Resolved entity type for $cleanEntityId: $resolvedType');
+                  } else {
+                    InstantDBLogging.root.debug('Could not resolve entity type for $cleanEntityId, using fallback: $entityType');
+                  }
+                }
+                
                 txSteps.add([
                   'delete-entity',
                   cleanEntityId,
-                  namespace ?? 'todos',
+                  entityType,
                 ]);
               }
             }

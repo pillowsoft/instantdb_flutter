@@ -284,18 +284,23 @@ class QueryEngine {
   }
 
   bool _queryAffectedByChange(Map<String, dynamic> query, TripleChange change) {
-    // For todos, we'll just check if the query includes todos
-    // This is simpler and avoids async lookups
+    // Check if the query is affected by the change for any entity type
     
-    // If it's a __type change for todos, it affects todo queries
-    if (change.triple.attribute == '__type' && change.triple.value == 'todos') {
-      return query.containsKey('todos');
+    // If it's a __type change, check if the query includes that entity type
+    if (change.triple.attribute == '__type') {
+      final entityType = change.triple.value as String;
+      return query.containsKey(entityType);
     }
     
-    // For any other attribute changes, check if it's likely a todo
-    // by seeing if the query includes todos
-    // This is a simplified approach that works for the todo app
-    return query.containsKey('todos');
+    // For any other attribute changes, check all entity types in the query
+    // This ensures all queries (todos, tiles, messages, etc.) are properly updated
+    for (final entityType in query.keys) {
+      // This is a broad match - any change could affect any query
+      // In production, this could be optimized to check specific relationships
+      return true;
+    }
+    
+    return false;
   }
 
   String _generateQueryKey(Map<String, dynamic> query) {

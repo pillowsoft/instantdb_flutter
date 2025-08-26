@@ -34,6 +34,9 @@ abstract class StorageInterface {
   /// Get pending (unsynced) transactions
   Future<List<Transaction>> getPendingTransactions();
 
+  /// Get entity type for a specific entity ID
+  Future<String?> getEntityType(String entityId);
+
   /// Close the store and clean up resources  
   Future<void> close();
 }

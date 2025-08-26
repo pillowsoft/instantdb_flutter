@@ -93,10 +93,10 @@ void main() {
         }),
       ]);
 
-      // Update entity
-      await db.transact([
-        ...db.update(entityId, {'name': 'Updated Name'}),
-      ]);
+      // Update entity using tx namespace API
+      await db.transactChunk(
+        db.tx['users'][entityId].update({'name': 'Updated Name'})
+      );
 
       // Query updated entity
       final querySignal = db.query({
@@ -121,10 +121,10 @@ void main() {
         }),
       ]);
 
-      // Delete entity
-      await db.transact([
-        db.delete(entityId),
-      ]);
+      // Delete entity using tx namespace API
+      await db.transactChunk(
+        db.tx['users'][entityId].delete()
+      );
 
       // Query should return empty
       final querySignal = db.query({

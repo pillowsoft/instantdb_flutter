@@ -170,6 +170,22 @@ class TripleStore implements StorageInterface {
     return results.map((row) => row['entity_id'] as String).toList();
   }
 
+  /// Get entity type for a specific entity ID
+  Future<String?> getEntityType(String entityId) async {
+    final results = await _db.query(
+      'triples',
+      columns: ['value'],
+      where: 'entity_id = ? AND attribute = ? AND retracted = FALSE',
+      whereArgs: [entityId, '__type'],
+    );
+    
+    if (results.isNotEmpty) {
+      return results.first['value'] as String?;
+    }
+    
+    return null;
+  }
+
   /// Execute a complex query with WHERE conditions
   Future<List<Map<String, dynamic>>> queryEntities({
     String? entityType,
