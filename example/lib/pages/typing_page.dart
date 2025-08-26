@@ -36,8 +36,8 @@ class _TypingPageState extends State<TypingPage> {
     final db = InstantProvider.of(context);
     final currentUser = db.auth.currentUser.value;
     
-    // Use authenticated user ID or generate a temporary one
-    _userId = currentUser?.id ?? db.id(); // Generate proper UUID
+    // Use authenticated user ID or consistent anonymous user ID
+    _userId = currentUser?.id ?? db.getAnonymousUserId();
   }
 
   void _joinRoom() {

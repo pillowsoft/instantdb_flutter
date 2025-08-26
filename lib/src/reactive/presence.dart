@@ -134,6 +134,7 @@ class CursorData {
 class PresenceManager {
   dynamic _syncEngine; // SyncEngine? - using dynamic to avoid circular imports
   final AuthManager _authManager;
+  final dynamic _db; // InstantDB instance to get consistent anonymous user ID
   final _uuid = const Uuid();
 
   // Room-based presence data
@@ -164,15 +165,14 @@ class PresenceManager {
   // Track rooms that should be active (persist across reconnections)
   final Set<String> _activeRooms = {};
   final Map<String, Completer<void>> _roomJoinCompleters = {};
-  
-  // Anonymous user ID for testing (consistent per session)
-  String? _anonymousUserId;
 
   PresenceManager({
     required dynamic syncEngine, // SyncEngine? - using dynamic to avoid circular imports
     required AuthManager authManager,
+    required dynamic db, // InstantDB instance
   })  : _syncEngine = syncEngine,
-        _authManager = authManager;
+        _authManager = authManager,
+        _db = db;
 
   /// Get user ID (authenticated or anonymous)
   String _getUserId() {
@@ -181,9 +181,8 @@ class PresenceManager {
       return user.id;
     }
     
-    // For anonymous users, use consistent UUID per session
-    _anonymousUserId ??= _uuid.v4();
-    return _anonymousUserId!;
+    // For anonymous users, use consistent UUID from InstantDB instance
+    return _db.getAnonymousUserId();
   }
 
   /// Set user's presence data in a room
@@ -260,18 +259,18 @@ class PresenceManager {
   /// Set typing status for a user in a room
   Future<void> setTyping(String roomId, bool isTyping) async {
     final userId = _getUserId();
-
+    
+    // Update local typing state
     _roomTyping.putIfAbsent(roomId, () => {});
-
     if (isTyping) {
       _roomTyping[roomId]![userId] = DateTime.now();
     } else {
       _roomTyping[roomId]!.remove(userId);
     }
-
+    
     // Notify signal listeners
     _getTypingSignal(roomId).value = Map.from(_roomTyping[roomId]!);
-
+    
     // Send to server
     if (_syncEngine != null) {
       await _ensureRoomJoined(roomId);
@@ -281,13 +280,11 @@ class PresenceManager {
         'timestamp': DateTime.now().millisecondsSinceEpoch,
       });
     }
-
+    
     // Auto-clear typing after 3 seconds
     if (isTyping) {
       Timer(const Duration(seconds: 3), () {
-        if (_roomTyping[roomId]?[userId] != null) {
-          setTyping(roomId, false);
-        }
+        setTyping(roomId, false);
       });
     }
   }
@@ -834,9 +831,19 @@ class PresenceManager {
         final peerData = entry.value as Map<String, dynamic>;
         final presenceDataWrapper = peerData['data'] as Map<String, dynamic>? ?? {};
         
-        // Extract the nested user data - the structure is data.data, not just data
-        final userData = presenceDataWrapper['data'] as Map<String, dynamic>? ?? {};
+        // Extract user ID
         final peerUserId = presenceDataWrapper['userId'] as String?;
+        
+        // Try to get data - first check if it's directly in presenceDataWrapper (typing data),
+        // then check nested structure (other presence data)
+        Map<String, dynamic> userData;
+        if (presenceDataWrapper.containsKey('isTyping')) {
+          // Typing data comes directly in presenceDataWrapper
+          userData = Map<String, dynamic>.from(presenceDataWrapper);
+        } else {
+          // Other data is nested under 'data' key
+          userData = presenceDataWrapper['data'] as Map<String, dynamic>? ?? {};
+        }
         
         InstantDBLogging.root.debug('PresenceManager: Processing peer $peerId with userId $peerUserId, userData: $userData');
         
@@ -858,7 +865,7 @@ class PresenceManager {
             // This is typing data
             InstantDBLogging.root.debug('PresenceManager: Converting refresh-presence data to typing indicator: $userData');
             final typingData = Map<String, dynamic>.from(userData);
-            typingData['userId'] = peerUserId ?? peerId; // Use actual userId, fallback to peer ID
+            // Keep the userId from the data itself, it should already be there
             _handleIncomingTyping(roomId, typingData);
             
           } else if (userData.containsKey('userName') || userData.containsKey('status')) {
@@ -978,6 +985,13 @@ class PresenceManager {
       final timestamp = data['timestamp'] as int?;
       
       if (userId != null && isTyping != null) {
+        // Skip our own typing data - we don't want to see our own typing indicator
+        final currentUserId = _getUserId();
+        if (userId == currentUserId) {
+          InstantDBLogging.root.debug('PresenceManager: Skipping own typing data for user $userId in room $roomId');
+          return;
+        }
+        
         _roomTyping.putIfAbsent(roomId, () => {});
         
         if (isTyping && timestamp != null) {

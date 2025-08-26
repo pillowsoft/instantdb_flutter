@@ -149,6 +149,7 @@ class ExamplesNavigationScreen extends StatefulWidget {
 
 class _ExamplesNavigationScreenState extends State<ExamplesNavigationScreen> {
   int _selectedIndex = 0;
+  String? _userIdSuffix;
 
   static const List<_ExampleConfig> _examples = [
     _ExampleConfig(
@@ -208,12 +209,31 @@ class _ExamplesNavigationScreenState extends State<ExamplesNavigationScreen> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    
+    // Initialize user ID suffix once
+    if (_userIdSuffix == null) {
+      final db = InstantProvider.of(context);
+      final currentUser = db.auth.currentUser.value;
+      if (currentUser != null) {
+        final userId = currentUser.id;
+        _userIdSuffix = ' (${userId.substring(userId.length - 4)})';
+      } else {
+        // For guest users, use consistent anonymous user ID
+        final userId = db.getAnonymousUserId();
+        _userIdSuffix = ' (${userId.substring(userId.length - 4)})';
+      }
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final currentExample = _examples[_selectedIndex];
     
     return Scaffold(
       appBar: AppBar(
-        title: Text('InstantDB - ${currentExample.title}'),
+        title: Text('InstantDB - ${currentExample.title}${_userIdSuffix ?? ''}'),
         backgroundColor: currentExample.color,
         foregroundColor: Colors.white,
         actions: [

@@ -30,6 +30,7 @@ class InstantDB {
   final Signal<bool> _isReady = signal(false);
   final Signal<bool> _isOnline = signal(false);
   final _uuid = const Uuid();
+  String? _anonymousUserId;
 
   // Transaction namespace for fluent API
   late final TransactionBuilder _txBuilder;
@@ -103,6 +104,7 @@ class InstantDB {
       _presenceManager = PresenceManager(
         syncEngine: null, // Will be set later
         authManager: _authManager,
+        db: this, // Pass this InstantDB instance
       );
 
       // Initialize sync engine with presence manager
@@ -146,6 +148,12 @@ class InstantDB {
 
   /// Generate a new unique ID
   String id() => _uuid.v4();
+
+  /// Get the consistent anonymous user ID for this database instance
+  String getAnonymousUserId() {
+    _anonymousUserId ??= _uuid.v4();
+    return _anonymousUserId!;
+  }
 
   /// Execute a query and return a reactive signal
   Signal<QueryResult> query(Map<String, dynamic> query) {
