@@ -10,6 +10,7 @@ A real-time, offline-first database client for Flutter with reactive bindings. T
 - ✅ **Type-safe queries** - InstaQL query language with schema validation
 - ✅ **Transactions** - Atomic operations with optimistic updates and rollback
 - ✅ **Authentication** - Built-in user authentication and session management
+- ✅ **Presence system** - Real-time collaboration features (cursors, typing, reactions, avatars) with consistent multi-instance synchronization
 - ✅ **Conflict resolution** - Automatic handling of concurrent data modifications
 - ✅ **Flutter widgets** - Purpose-built reactive widgets for common patterns
 
