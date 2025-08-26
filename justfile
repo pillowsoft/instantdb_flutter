@@ -316,35 +316,29 @@ validate:
 # Push schema and permissions to InstantDB server
 schema-push:
     @echo "🚀 Pushing schema to InstantDB server..."
-    cd example && bunx instant-cli push --app $$(grep INSTANTDB_API_ID .env | cut -d= -f2) --yes
+    cd example/scripts && npx instant-cli@latest push --app $$(grep INSTANTDB_API_ID ../.env | cut -d= -f2) --yes
     @echo "✅ Schema pushed successfully"
 
 # Pull current schema from InstantDB server
 schema-pull:
     @echo "📥 Pulling schema from InstantDB server..."
-    cd example && bunx instant-cli pull-schema --app $$(grep INSTANTDB_API_ID .env | cut -d= -f2)
+    cd example/scripts && npx instant-cli@latest pull-schema --app $$(grep INSTANTDB_API_ID ../.env | cut -d= -f2)
     @echo "✅ Schema pulled successfully"
 
 # Validate local schema file without pushing
 schema-validate:
     @echo "🔍 Validating schema files..."
-    cd example && bun run schema:validate
+    cd example/scripts && npx typescript@latest --noEmit instant.schema.ts
     @echo "✅ Schema validation completed"
-
-# Install schema dependencies
-schema-deps:
-    @echo "📦 Installing schema dependencies..."
-    cd example && bun install
-    @echo "✅ Schema dependencies installed"
 
 # Show schema status
 schema-status:
     @echo "📊 Schema status:"
-    @echo "Schema file: example/instant.schema.ts"
-    @echo "Permissions file: example/instant.perms.ts"
-    @test -f example/instant.schema.ts && echo "✅ Schema file exists" || echo "❌ Schema file missing"
-    @test -f example/instant.perms.ts && echo "✅ Permissions file exists" || echo "❌ Permissions file missing"
-    @test -f example/package.json && echo "✅ Package.json exists" || echo "❌ Package.json missing"
+    @echo "Schema file: example/scripts/instant.schema.ts"
+    @echo "Permissions file: example/scripts/instant.perms.ts"
+    @test -f example/scripts/instant.schema.ts && echo "✅ Schema file exists" || echo "❌ Schema file missing"
+    @test -f example/scripts/instant.perms.ts && echo "✅ Permissions file exists" || echo "❌ Permissions file missing"
+    @echo "✅ Using npx - no Node.js dependencies required"
 
 # === HELP TASKS ===
 
