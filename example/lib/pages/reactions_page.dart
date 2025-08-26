@@ -68,12 +68,8 @@ class _ReactionsPageState extends State<ReactionsPage> {
       ));
     });
     
-    // Auto-delete reaction after animation completes (3 seconds)
-    Timer(const Duration(seconds: 3), () {
-      db.transact([
-        db.delete(reactionId),
-      ]);
-    });
+    // Note: Reactions are handled via presence system, no database cleanup needed
+    // Local reactions are automatically removed by their onComplete callback
   }
 
   @override

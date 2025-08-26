@@ -65,76 +65,20 @@ class _TodosPageState extends State<TodosPage> {
   }
 
   Future<void> _deleteTodo(String todoId) async {
-    print('=== DELETE TODO INITIATED ===');
-    print('TodosPage: Attempting to delete todo with ID: $todoId');
-    print('TodosPage: ID type: ${todoId.runtimeType}');
-    print('TodosPage: ID length: ${todoId.length}');
-    
     final db = InstantProvider.of(context);
     
     try {
-      print('TodosPage: Creating delete operation...');
-      final deleteOperation = db.delete(todoId);
-      print('TodosPage: Delete operation created - Type: ${deleteOperation.type}, EntityType: ${deleteOperation.entityType}, EntityId: ${deleteOperation.entityId}');
-      
-      print('TodosPage: Starting transaction...');
-      final transactionStopwatch = Stopwatch()..start();
-      
-      final result = await db.transact([deleteOperation]);
-      
-      transactionStopwatch.stop();
-      print('TodosPage: Transaction completed in ${transactionStopwatch.elapsedMilliseconds}ms');
-      print('TodosPage: Transaction result status: ${result.status}');
-      
-      if (result.status == TransactionStatus.pending) {
-        print('TodosPage: Delete operation successful (pending sync)');
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Todo deleted (syncing...)'),
-              backgroundColor: Colors.blue,
-              duration: Duration(seconds: 1),
-            ),
-          );
-        }
-      } else if (result.status == TransactionStatus.synced || result.status == TransactionStatus.committed) {
-        print('TodosPage: Delete operation successful and synced');
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Todo deleted successfully'),
-              backgroundColor: Colors.green,
-              duration: Duration(seconds: 2),
-            ),
-          );
-        }
-      } else {
-        print('TodosPage: Delete operation failed - Status: ${result.status}');
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Delete failed: ${result.status}'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-      }
-    } catch (e, stackTrace) {
-      print('TodosPage: Delete operation threw exception: $e');
-      print('TodosPage: Stack trace: $stackTrace');
-      
+      // Use the new tx namespace API for delete operations
+      await db.transactChunk(
+        db.tx['todos'][todoId].delete()
+      );
+    } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to delete todo: $e'),
-            backgroundColor: Colors.red,
-            duration: Duration(seconds: 4),
-          ),
+          SnackBar(content: Text('Failed to delete todo: $e')),
         );
       }
     }
-    
-    print('=== DELETE TODO COMPLETED ===');
   }
   
   Future<void> _clearAllTodos() async {
@@ -181,27 +125,23 @@ class _TodosPageState extends State<TodosPage> {
           return;
         }
         
-        // Create delete operations for all todos
-        final deleteOps = <Operation>[];
+        // Delete all todos using tx namespace API
         for (final todo in todos) {
           if (todo['id'] != null) {
-            deleteOps.add(db.delete(todo['id']));
+            await db.transactChunk(
+              db.tx['todos'][todo['id']].delete()
+            );
           }
         }
         
-        // Execute transaction
-        if (deleteOps.isNotEmpty) {
-          await db.transact(deleteOps);
-          
-          if (mounted) {
-            ScaffoldMessenger.of(context).clearSnackBars();
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('Deleted ${todos.length} todo${todos.length > 1 ? 's' : ''}'),
-                backgroundColor: Colors.green,
-              ),
-            );
-          }
+        if (mounted) {
+          ScaffoldMessenger.of(context).clearSnackBars();
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Deleted ${todos.length} todo${todos.length > 1 ? 's' : ''}'),
+              backgroundColor: Colors.green,
+            ),
+          );
         }
       }
     } catch (e) {

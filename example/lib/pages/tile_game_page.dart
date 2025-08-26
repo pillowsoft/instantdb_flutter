@@ -93,11 +93,24 @@ class _TileGamePageState extends State<TileGamePage> {
     final result = db.query({'tiles': {}}).value;
     final tiles = result.data?['tiles'] as List? ?? [];
     
+    print('DEBUG: Found ${tiles.length} tiles to delete');
+    for (final tile in tiles) {
+      print('DEBUG: Tile ID: ${tile['id']}, Type: ${tile['id']?.runtimeType}');
+    }
+    
     if (tiles.isNotEmpty) {
-      final transactions = tiles.map((tile) => 
-        db.tx['tiles'][tile['id']].delete().operations[0]
+      // Create delete operations for all tiles
+      final deleteChunks = tiles.map((tile) => 
+        db.tx['tiles'][tile['id']].delete()
       ).toList();
-      db.transact(transactions);
+      
+      // Execute all deletes in a single transaction for better performance
+      final allOperations = deleteChunks
+          .expand((chunk) => chunk.operations)
+          .toList();
+          
+      print('DEBUG: Creating transaction with ${allOperations.length} operations');
+      db.transact(allOperations);
       
       // Force UI update
       setState(() {});
