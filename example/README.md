@@ -90,6 +90,36 @@ Collaborative grid painting game
    flutter run
    ```
 
+## Debug Toggle Feature
+
+The example app includes a **debug toggle button** in the app bar (bug icon) that allows you to control logging verbosity in real-time:
+
+### Using the Debug Toggle
+
+- **🐛 Filled bug icon**: Debug logging is enabled (detailed output)
+- **🐛 Outlined bug icon**: Debug logging is disabled (production-friendly output)
+- **Click to toggle**: Switch between debug and production logging modes
+- **Persistent**: Your preference is saved and restored when you restart the app
+
+### What It Does
+
+**Debug Mode (ON):**
+- Shows detailed WebSocket messages
+- Logs query execution and results
+- Displays sync operations and conflicts
+- Provides transaction-level debugging
+- Useful for development and troubleshooting
+
+**Production Mode (OFF):**
+- Shows only warnings and errors
+- Clean console output
+- Minimal performance impact
+- Ready for end-user testing
+
+### Technical Details
+
+The toggle uses SharedPreferences to persist your choice and dynamically updates InstantDB's log level without requiring an app restart. This makes it perfect for testing and demonstrating the app to users while maintaining the ability to debug when needed.
+
 ## Testing Real-time Sync
 
 To see the real-time synchronization in action:

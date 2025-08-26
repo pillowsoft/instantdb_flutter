@@ -56,6 +56,7 @@ This is a fully functional InstantDB Flutter implementation with feature parity 
 - ✅ **Authentication**: User authentication and session management
 - ✅ **Presence System**: Real-time collaboration features (cursors, typing, reactions, avatars) with full multi-instance synchronization
 - ✅ **Multi-Entity Type Support**: Complete synchronization support for todos, tiles, messages, and all custom entity types
+- ✅ **Advanced Logging System**: Hierarchical logging with dynamic level control and debug toggle UI
 - ✅ **Platform Support**: Works on iOS, Android, Web, macOS, Windows, and Linux
 
 ## File Structure
@@ -92,4 +93,16 @@ lib/
 - **Real-time Sync**: WebSocket connection to InstantDB cloud for data synchronization
 - **Reactive Architecture**: Built on signals_flutter for efficient UI updates
 - **Platform Support**: Conditional imports handle platform-specific implementations
+- **Logging System**: Uses standard Dart `logging` package with hierarchical loggers for each component
+- **Debug Tools**: Example app includes debug toggle for runtime log level control
 - **Testing**: Comprehensive test suite with example applications demonstrating all features
+
+### Debugging and Development
+
+The package includes comprehensive debugging tools:
+
+- **Hierarchical Logging**: Component-specific loggers (sync, query, websocket, transaction, auth)
+- **Dynamic Log Levels**: Change verbosity at runtime without restart
+- **Debug Toggle UI**: Example app demonstrates user-friendly debug control
+- **Structured Logging**: Correlation IDs and metadata for easier troubleshooting
+- **Production Ready**: WARNING level default for clean console output

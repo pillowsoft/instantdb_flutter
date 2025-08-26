@@ -212,6 +212,7 @@ final db = await InstantDB.init(
   appId: 'your-app-id',
   config: const InstantConfig(
     syncEnabled: true,
+    verboseLogging: false, // Set to true for detailed debug output
   ),
 );
 
@@ -507,6 +508,69 @@ InstantDB Flutter is built on several key components:
 - **Reactive Layer**: Signals-based reactivity for automatic UI updates
 - **Cross-Platform**: Uses SQLite for robust local storage on all Flutter platforms (iOS, Android, Web, macOS, Windows, Linux)
 
+## Logging and Debugging
+
+InstantDB Flutter includes comprehensive logging to help with development and debugging:
+
+### Configuration Options
+
+```dart
+final db = await InstantDB.init(
+  appId: 'your-app-id',
+  config: const InstantConfig(
+    syncEnabled: true,
+    verboseLogging: true, // Enable detailed debug logging
+  ),
+);
+```
+
+### Dynamic Log Level Control
+
+Update log levels at runtime for testing and debugging:
+
+```dart
+import 'package:logging/logging.dart';
+import 'package:instantdb_flutter/src/core/logging_config.dart';
+
+// Change log level dynamically
+InstantDBLogging.updateLogLevel(Level.FINE);   // Verbose debugging
+InstantDBLogging.updateLogLevel(Level.INFO);   // General information
+InstantDBLogging.updateLogLevel(Level.WARNING); // Warnings and errors only
+```
+
+### Log Levels
+
+- **Level.FINE** - Detailed debug information (WebSocket messages, query execution, sync operations)
+- **Level.INFO** - General operational information (connections, transactions)
+- **Level.WARNING** - Important warnings and errors only (production-friendly)
+- **Level.SEVERE** - Critical errors only
+
+### Component-Specific Logging
+
+Enable logging for specific components:
+
+```dart
+// Set different log levels per component
+InstantDBLogging.setLevel('sync', Level.FINE);        // Sync engine details
+InstantDBLogging.setLevel('query', Level.INFO);       // Query operations
+InstantDBLogging.setLevel('websocket', Level.WARNING); // WebSocket errors only
+InstantDBLogging.setLevel('transaction', Level.FINE);  // Transaction details
+```
+
+### Production Usage
+
+For production apps, use WARNING level to minimize console output while preserving error information:
+
+```dart
+final db = await InstantDB.init(
+  appId: 'your-app-id',
+  config: const InstantConfig(
+    syncEnabled: true,
+    verboseLogging: false, // Production-friendly logging
+  ),
+);
+```
+
 ## Performance Tips
 
 1. **Use specific queries**: Avoid querying all data when you only need a subset
@@ -514,6 +578,7 @@ InstantDB Flutter is built on several key components:
 3. **Cache management**: The package automatically manages query caches
 4. **Dispose resources**: Properly dispose of InstantDB instances
 5. **UUID Generation**: Always use `db.id()` for entity IDs to ensure server compatibility
+6. **Log level optimization**: Use WARNING level in production to reduce console noise
 
 ```dart
 // Good: Specific query with UUID

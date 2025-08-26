@@ -493,6 +493,163 @@ try {
 }
 ```
 
+## Logging and Debugging
+
+InstantDB Flutter provides comprehensive logging and debugging capabilities to help you develop and troubleshoot your applications.
+
+### Hierarchical Logging System
+
+The package uses the standard Dart `logging` package with hierarchical loggers for different components:
+
+```dart
+import 'package:logging/logging.dart';
+import 'package:instantdb_flutter/src/core/logging_config.dart';
+
+// Configure logging on initialization
+InstantDBLogging.configure(
+  level: Level.INFO,           // Default log level
+  enableHierarchical: true,    // Enable per-component control
+  instanceId: 'MyApp-1',       // Custom instance identifier
+);
+```
+
+### Available Loggers
+
+Each InstantDB component has its own logger for granular control:
+
+```dart
+// Set different levels for different components
+InstantDBLogging.setLevel('sync', Level.FINE);        // Detailed sync operations
+InstantDBLogging.setLevel('query', Level.INFO);       // Query execution info
+InstantDBLogging.setLevel('websocket', Level.WARNING); // WebSocket errors only
+InstantDBLogging.setLevel('transaction', Level.FINE);  // Transaction details
+InstantDBLogging.setLevel('auth', Level.INFO);        // Authentication events
+```
+
+### Dynamic Log Level Changes
+
+Update log levels at runtime for testing and debugging:
+
+```dart
+// Change all logger levels dynamically
+InstantDBLogging.updateLogLevel(Level.FINE);    // Enable verbose debugging
+InstantDBLogging.updateLogLevel(Level.WARNING); // Production-friendly mode
+
+// The change takes effect immediately without restart
+```
+
+### Log Level Guide
+
+| Level | Usage | What You'll See |
+|-------|-------|----------------|
+| `Level.FINE` | **Development/Debugging** | WebSocket messages, query execution details, sync operations, transaction steps |
+| `Level.INFO` | **General Development** | Connections, transactions, authentication events, presence updates |
+| `Level.WARNING` | **Production** | Important warnings, errors, connection issues |
+| `Level.SEVERE` | **Critical Only** | Fatal errors, system failures |
+
+### Structured Logging
+
+Use correlation data for better debugging:
+
+```dart
+// Log with correlation data
+InstantDBLogging.logTransaction(
+  'COMMIT',
+  transactionId,
+  operationCount: 5,
+  entityType: 'todos',
+  duration: 150, // milliseconds
+);
+
+// Log query events
+InstantDBLogging.logQueryEvent(
+  'CACHE_HIT',
+  queryKey,
+  resultCount: 42,
+  reason: 'fresh-cache',
+);
+
+// Log WebSocket messages
+InstantDBLogging.logWebSocketMessage(
+  '<<<',
+  'refresh-ok',
+  eventId: 'event-123',
+  messageSize: 2048,
+);
+```
+
+### Debug Toggle in Example App
+
+The example app demonstrates a practical debug toggle implementation:
+
+```dart
+// Add to your app bar
+IconButton(
+  icon: Icon(
+    debugEnabled ? Icons.bug_report : Icons.bug_report_outlined,
+  ),
+  tooltip: debugEnabled ? 'Disable Debug Logging' : 'Enable Debug Logging',
+  onPressed: () {
+    // Toggle and persist preference
+    final newState = !debugEnabled;
+    SharedPreferences.getInstance().then((prefs) {
+      prefs.setBool('debug_enabled', newState);
+    });
+    
+    // Update log level immediately
+    InstantDBLogging.updateLogLevel(
+      newState ? Level.FINE : Level.WARNING
+    );
+    
+    setState(() => debugEnabled = newState);
+  },
+);
+```
+
+### Production Configuration
+
+For production apps, use minimal logging:
+
+```dart
+final db = await InstantDB.init(
+  appId: appId,
+  config: const InstantConfig(
+    syncEnabled: true,
+    verboseLogging: false, // Only warnings and errors
+  ),
+);
+
+// Or configure manually
+InstantDBLogging.configure(
+  level: Level.WARNING,
+  enableHierarchical: false, // Disable per-component control
+);
+```
+
+### Troubleshooting Common Issues
+
+#### Sync Not Working
+Enable detailed sync logging:
+```dart
+InstantDBLogging.setLevel('sync', Level.FINE);
+InstantDBLogging.setLevel('websocket', Level.FINE);
+```
+Look for: Connection issues, authentication failures, transaction conflicts
+
+#### Query Performance
+Enable query debugging:
+```dart
+InstantDBLogging.setLevel('query', Level.FINE);
+```
+Look for: Query execution times, cache hits/misses, result processing
+
+#### Transaction Failures
+Enable transaction logging:
+```dart
+InstantDBLogging.setLevel('transaction', Level.FINE);
+```
+Look for: Validation errors, constraint violations, rollback events
+
 ## Testing Advanced Features
 
 ### Testing Transactions
