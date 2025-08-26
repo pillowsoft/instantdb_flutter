@@ -42,8 +42,11 @@ class _TypingPageState extends State<TypingPage> {
 
   void _joinRoom() {
     final db = InstantProvider.of(context);
-    // Join the chat room using the new room-based API
-    _room = db.presence.joinRoom('chat-room');
+    // Join the chat room using the new room-based API with initial presence
+    _room = db.presence.joinRoom('chat-room', initialPresence: {
+      'userName': _getUserName(),
+      'status': 'online',
+    });
   }
 
   @override
@@ -247,9 +250,7 @@ class _TypingPageState extends State<TypingPage> {
                   const SizedBox(width: 8),
                   // Typing text
                   Text(
-                    indicators.length == 1
-                        ? 'Someone is typing...'
-                        : '${indicators.length} people are typing...',
+                    _buildTypingText(indicators),
                     style: TextStyle(
                       color: Colors.grey[600],
                       fontSize: 14,
@@ -307,6 +308,31 @@ class _TypingPageState extends State<TypingPage> {
         ),
       ],
     );
+  }
+
+  String _buildTypingText(List<MapEntry<String, DateTime>> indicators) {
+    if (indicators.isEmpty) return '';
+    if (_room == null) return 'Someone is typing...';
+
+    // Get presence data to look up user names
+    final presenceData = _room!.getPresence().value;
+    
+    // Map typing user IDs to their names
+    final typingUsers = indicators.map((entry) {
+      final userId = entry.key;
+      final presence = presenceData[userId];
+      final userName = presence?.data['userName'] as String?;
+      // Fallback to user ID fragment if no userName found
+      return userName ?? (userId.length > 4 ? userId.substring(userId.length - 4) : userId);
+    }).toList();
+
+    if (typingUsers.length == 1) {
+      return '${typingUsers[0]} is typing...';
+    } else if (typingUsers.length == 2) {
+      return '${typingUsers[0]} and ${typingUsers[1]} are typing...';
+    } else {
+      return '${typingUsers[0]} and ${typingUsers.length - 1} others are typing...';
+    }
   }
 
   String _formatTime(DateTime time) {
