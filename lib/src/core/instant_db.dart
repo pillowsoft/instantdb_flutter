@@ -99,19 +99,25 @@ class InstantDB {
         baseUrl: config.baseUrl!,
       );
 
-      // Initialize sync engine
+      // Initialize presence manager first (without sync engine)
+      _presenceManager = PresenceManager(
+        syncEngine: null, // Will be set later
+        authManager: _authManager,
+      );
+
+      // Initialize sync engine with presence manager
       _syncEngine = SyncEngine(
         appId: appId,
         store: _store,
         authManager: _authManager,
         config: config,
+        presenceManager: config.syncEnabled ? _presenceManager : null,
       );
 
-      // Initialize presence manager
-      _presenceManager = PresenceManager(
-        syncEngine: config.syncEnabled ? _syncEngine : null,
-        authManager: _authManager,
-      );
+      // Now wire up the presence manager to sync engine
+      if (config.syncEnabled) {
+        _presenceManager.setSyncEngine(_syncEngine);
+      }
 
       // Initialize transaction builder
       _txBuilder = TransactionBuilder();

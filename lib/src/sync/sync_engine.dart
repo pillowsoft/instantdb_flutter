@@ -9,6 +9,7 @@ import '../core/types.dart';
 import '../core/logging_config.dart';
 import '../storage/storage_interface.dart';
 import '../auth/auth_manager.dart';
+import '../reactive/presence.dart';
 
 // Platform-specific WebSocket imports
 import 'web_socket_stub.dart'
@@ -22,6 +23,7 @@ class SyncEngine {
   final AuthManager _authManager;
   final InstantConfig config;
   final Dio _dio;
+  final PresenceManager? _presenceManager;
   
   // Loggers for different aspects of sync
   static final _logger = InstantDBLogging.syncEngine;
@@ -66,8 +68,10 @@ class SyncEngine {
     required StorageInterface store,
     required AuthManager authManager,
     required this.config,
+    PresenceManager? presenceManager,
   })  : _store = store,
         _authManager = authManager,
+        _presenceManager = presenceManager,
         _dio = Dio(BaseOptions(
           baseUrl: config.baseUrl!,
           headers: {'X-App-ID': appId},
@@ -482,6 +486,12 @@ class SyncEngine {
           // Handle incoming presence messages (reactions, cursors, typing indicators)
           InstantDBLogging.root.debug('Received presence message: ${jsonEncode(data)}');
           _handlePresenceMessage(data);
+          break;
+
+        case 'refresh-presence':
+          // Handle refresh-presence messages containing all peer presence data
+          InstantDBLogging.root.debug('Received refresh-presence message for room: ${data['room-id']}');
+          _handleRefreshPresenceMessage(data);
           break;
           
         default:
@@ -1372,17 +1382,34 @@ class SyncEngine {
     try {
       InstantDBLogging.root.debug('SyncEngine: Processing presence message - type: ${data['type']}, roomId: ${data['roomId']}');
       
-      // For now, just log the presence message
-      // In a complete implementation, this would forward to a PresenceManager
-      // The PresenceManager would then handle updating presence signals
-      
-      InstantDBLogging.root.info('Received presence update: ${data['type']} in room ${data['roomId']}');
-      
-      // TODO: Forward to PresenceManager when available
-      // _presenceManager?.handlePresenceMessage(data);
+      // Forward to PresenceManager when available
+      if (_presenceManager != null) {
+        _presenceManager!.handlePresenceMessage(data);
+      } else {
+        InstantDBLogging.root.info('Received presence update: ${data['type']} in room ${data['roomId']} (no PresenceManager)');
+      }
       
     } catch (e, stackTrace) {
       InstantDBLogging.root.severe('Error handling presence message', e, stackTrace);
+    }
+  }
+
+  void _handleRefreshPresenceMessage(Map<String, dynamic> data) {
+    try {
+      final roomId = data['room-id']?.toString() ?? 'unknown';
+      final presenceData = data['data'] as Map<String, dynamic>? ?? {};
+      
+      InstantDBLogging.root.debug('SyncEngine: Processing refresh-presence for room $roomId with ${presenceData.length} peers');
+      
+      // Forward to PresenceManager when available
+      if (_presenceManager != null) {
+        _presenceManager!.handleRefreshPresenceMessage(roomId, presenceData);
+      } else {
+        InstantDBLogging.root.info('Received refresh-presence for room $roomId with ${presenceData.length} peers (no PresenceManager)');
+      }
+      
+    } catch (e, stackTrace) {
+      InstantDBLogging.root.severe('Error handling refresh-presence message', e, stackTrace);
     }
   }
 }
