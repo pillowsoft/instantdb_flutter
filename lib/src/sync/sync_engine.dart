@@ -126,6 +126,50 @@ class SyncEngine {
     InstantDBLogging.root.debug('SyncEngine: Query sent successfully');
   }
 
+  void sendJoinRoom(String roomType, String roomId) {
+    InstantDBLogging.root.debug('SyncEngine: sendJoinRoom called - roomType: $roomType, roomId: $roomId');
+    
+    if (!_connectionStatus.value || _webSocket == null || !_webSocket.isOpen) {
+      InstantDBLogging.root.warning('SyncEngine: Cannot send join-room - WebSocket not connected');
+      return;
+    }
+    
+    final joinMessage = {
+      'op': 'join-room',
+      'room-type': roomType,
+      'room-id': roomId,
+      'client-event-id': _generateEventId(),
+    };
+    
+    final joinJson = jsonEncode(joinMessage);
+    InstantDBLogging.root.debug('SyncEngine: Sending join-room message to WebSocket - roomType: $roomType, roomId: $roomId');
+    _wsLogger.fine('🏠 JOIN ROOM MESSAGE: ${joinJson}');
+    _webSocket.send(joinJson);
+    InstantDBLogging.root.debug('SyncEngine: Join room message sent successfully');
+  }
+
+  void sendLeaveRoom(String roomType, String roomId) {
+    InstantDBLogging.root.debug('SyncEngine: sendLeaveRoom called - roomType: $roomType, roomId: $roomId');
+    
+    if (!_connectionStatus.value || _webSocket == null || !_webSocket.isOpen) {
+      InstantDBLogging.root.warning('SyncEngine: Cannot send leave-room - WebSocket not connected');
+      return;
+    }
+    
+    final leaveMessage = {
+      'op': 'leave-room',
+      'room-type': roomType,
+      'room-id': roomId,
+      'client-event-id': _generateEventId(),
+    };
+    
+    final leaveJson = jsonEncode(leaveMessage);
+    InstantDBLogging.root.debug('SyncEngine: Sending leave-room message to WebSocket - roomType: $roomType, roomId: $roomId');
+    _wsLogger.fine('🚪 LEAVE ROOM MESSAGE: ${leaveJson}');
+    _webSocket.send(leaveJson);
+    InstantDBLogging.root.debug('SyncEngine: Leave room message sent successfully');
+  }
+
   void sendPresence(Map<String, dynamic> presenceMessage) {
     InstantDBLogging.root.debug('SyncEngine: sendPresence called with: ${jsonEncode(presenceMessage)}');
     
@@ -409,6 +453,29 @@ class SyncEngine {
           // Handle refresh-ok messages which contain updated query results
           InstantDBLogging.root.debug('Processing refresh-ok');
           _handleRefreshOk(data);
+          break;
+          
+        case 'join-room-ok':
+          // Handle successful room join
+          final roomType = data['room-type']?.toString();
+          final roomId = data['room-id']?.toString();
+          InstantDBLogging.root.info('Successfully joined room: $roomType/$roomId');
+          // TODO: Notify PresenceManager that room is ready
+          break;
+          
+        case 'join-room-error':
+          // Handle failed room join
+          final roomType = data['room-type']?.toString();
+          final roomId = data['room-id']?.toString();
+          final error = data['error']?.toString() ?? 'Unknown error';
+          InstantDBLogging.root.severe('Failed to join room $roomType/$roomId: $error');
+          break;
+          
+        case 'leave-room-ok':
+          // Handle successful room leave
+          final roomType = data['room-type']?.toString();
+          final roomId = data['room-id']?.toString();
+          InstantDBLogging.root.info('Successfully left room: $roomType/$roomId');
           break;
           
         case 'presence':

@@ -159,6 +159,10 @@ class PresenceManager {
   // Cleanup timers
   final Map<String, Timer> _cleanupTimers = {};
   
+  // Track joined rooms - key format: "roomType:roomId"
+  final Set<String> _joinedRooms = {};
+  final Map<String, Completer<void>> _roomJoinCompleters = {};
+  
   // Anonymous user ID for testing (consistent per session)
   String? _anonymousUserId;
 
@@ -338,27 +342,31 @@ class PresenceManager {
 
   /// Join a room and return a room-specific API
   InstantRoom joinRoom(String roomId, {Map<String, dynamic>? initialPresence}) {
+    // For now, we'll assume roomType is the same as roomId for backwards compatibility
+    // In a full implementation, this should accept roomType as a parameter
+    const roomType = 'presence-room';
+    final roomKey = '$roomType:$roomId';
+    
     // Initialize room data if needed
-    _roomPresence.putIfAbsent(roomId, () => {});
-    _roomCursors.putIfAbsent(roomId, () => {});
-    _roomTyping.putIfAbsent(roomId, () => {});
-    _roomReactions.putIfAbsent(roomId, () => []);
-    _roomTopics.putIfAbsent(roomId, () => {});
+    _roomPresence.putIfAbsent(roomKey, () => {});
+    _roomCursors.putIfAbsent(roomKey, () => {});
+    _roomTyping.putIfAbsent(roomKey, () => {});
+    _roomReactions.putIfAbsent(roomKey, () => []);
+    _roomTopics.putIfAbsent(roomKey, () => {});
 
-    // Set initial presence if provided
+    // Send proper join-room message to server first
+    if (_syncEngine != null && !_joinedRooms.contains(roomKey)) {
+      InstantDBLogging.root.debug('PresenceManager: Sending join-room for $roomKey');
+      _syncEngine!.sendJoinRoom(roomType, roomId);
+      _joinedRooms.add(roomKey);
+    }
+
+    // Set initial presence if provided (after joining room)
     if (initialPresence != null) {
-      setPresence(roomId, initialPresence);
+      setPresence(roomKey, initialPresence);
     }
 
-    // Send join message to server
-    if (_syncEngine != null) {
-      _sendPresenceMessage(roomId, 'join', {
-        'userId': _getUserId(),
-        'timestamp': DateTime.now().millisecondsSinceEpoch,
-      });
-    }
-
-    InstantDBLogging.root.debug('Joined room $roomId');
+    InstantDBLogging.root.debug('Joined room $roomKey');
     
     return InstantRoom._(this, roomId);
   }
@@ -530,15 +538,30 @@ class PresenceManager {
       return;
     }
 
+    // Check if room is joined (with fallback for backwards compatibility)
+    const roomType = 'presence-room';
+    final roomKey = '$roomType:$roomId';
+    
+    if (!_joinedRooms.contains(roomKey)) {
+      InstantDBLogging.root.warning('PresenceManager: Room $roomKey not joined, joining first...');
+      _syncEngine!.sendJoinRoom(roomType, roomId);
+      _joinedRooms.add(roomKey);
+      
+      // Give a small delay for the join to process
+      await Future.delayed(const Duration(milliseconds: 100));
+    }
+
+    // Update message format to include room-type and room-id
     final message = {
       'op': 'presence',
-      'roomId': roomId,
+      'room-type': roomType,
+      'room-id': roomId,
       'type': type,
       'data': data,
       'clientEventId': _uuid.v4(),
     };
 
-    InstantDBLogging.root.debug('PresenceManager: Sending presence message - room: $roomId, type: $type');
+    InstantDBLogging.root.debug('PresenceManager: Sending presence message - room: $roomKey, type: $type');
     _syncEngine!.sendPresence(message);
   }
 
