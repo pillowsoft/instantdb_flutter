@@ -80,7 +80,7 @@ class _TypingPageState extends State<TypingPage> {
   String _getUserName() {
     final db = InstantProvider.of(context);
     final currentUser = db.auth.currentUser.value;
-    return currentUser?.email ?? 'Anonymous $_userId';
+    return currentUser?.email ?? 'Guest ${_userId?.substring(_userId!.length - 4) ?? "User"}';
   }
 
   void _sendMessage() {

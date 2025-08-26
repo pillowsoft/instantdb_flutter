@@ -493,6 +493,13 @@ class SyncEngine {
           InstantDBLogging.root.debug('Received refresh-presence message for room: ${data['room-id']}');
           _handleRefreshPresenceMessage(data);
           break;
+
+        case 'set-presence-ok':
+          // Handle successful presence update acknowledgment
+          final roomId = data['room-id'] as String? ?? 'unknown';
+          final clientEventId = data['client-event-id'] as String?;
+          InstantDBLogging.root.debug('Presence update acknowledged for room $roomId${clientEventId != null ? ', event-id: $clientEventId' : ''}');
+          break;
           
         default:
           InstantDBLogging.root.warning('🚨 UNHANDLED MESSAGE: ${data['op']}');
