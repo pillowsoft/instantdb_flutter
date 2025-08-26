@@ -388,7 +388,7 @@ class PresenceManager {
 
     InstantDBLogging.root.debug('Joined room $roomKey');
     
-    return InstantRoom._(this, roomId);
+    return InstantRoom._(this, roomKey);
   }
 
   /// Leave a room (clear presence)
@@ -832,7 +832,13 @@ class PresenceManager {
       for (final entry in peersData.entries) {
         final peerId = entry.key;
         final peerData = entry.value as Map<String, dynamic>;
-        final userData = peerData['data'] as Map<String, dynamic>? ?? {};
+        final presenceDataWrapper = peerData['data'] as Map<String, dynamic>? ?? {};
+        
+        // Extract the nested user data - the structure is data.data, not just data
+        final userData = presenceDataWrapper['data'] as Map<String, dynamic>? ?? {};
+        final peerUserId = presenceDataWrapper['userId'] as String?;
+        
+        InstantDBLogging.root.debug('PresenceManager: Processing peer $peerId with userId $peerUserId, userData: $userData');
         
         if (userData.isNotEmpty) {
           // Detect and route different types of presence data based on contents
@@ -845,35 +851,36 @@ class PresenceManager {
             // This is cursor data (has coordinates but no emoji)
             InstantDBLogging.root.debug('PresenceManager: Converting refresh-presence data to cursor: $userData');
             final cursorData = Map<String, dynamic>.from(userData);
-            cursorData['userId'] = peerId; // Add userId from peer ID
+            cursorData['userId'] = peerUserId ?? peerId; // Use actual userId, fallback to peer ID
             _handleIncomingCursor(roomId, cursorData);
             
           } else if (userData.containsKey('isTyping')) {
             // This is typing data
             InstantDBLogging.root.debug('PresenceManager: Converting refresh-presence data to typing indicator: $userData');
             final typingData = Map<String, dynamic>.from(userData);
-            typingData['userId'] = peerId; // Add userId from peer ID
+            typingData['userId'] = peerUserId ?? peerId; // Use actual userId, fallback to peer ID
             _handleIncomingTyping(roomId, typingData);
             
           } else if (userData.containsKey('userName') || userData.containsKey('status')) {
             // This is avatar presence data (has userName or status)
             InstantDBLogging.root.debug('PresenceManager: Converting refresh-presence data to presence: $userData');
             final presenceDataMap = {
-              'userId': peerId,
+              'userId': peerUserId ?? peerId, // Use the actual userId, not peer ID
               'data': userData,
             };
             _handleIncomingPresenceSet(roomId, presenceDataMap);
             
           } else {
             // Generic presence data - store directly
+            final actualUserId = peerUserId ?? peerId;
             final presenceData = PresenceData(
-              userId: peerId,
+              userId: actualUserId,
               data: userData,
               lastSeen: DateTime.now(),
             );
             
             _roomPresence.putIfAbsent(roomId, () => {});
-            _roomPresence[roomId]![peerId] = presenceData;
+            _roomPresence[roomId]![actualUserId] = presenceData;
           }
         }
       }
