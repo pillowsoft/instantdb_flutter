@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:logging/logging.dart';
 import 'package:instantdb_flutter/instantdb_flutter.dart';
+import 'package:instantdb_flutter/src/core/logging_config.dart';
 
 // Import all example pages
 import 'pages/todos_page.dart';
@@ -48,11 +51,28 @@ class _ExamplesRootScreenState extends State<ExamplesRootScreen> {
   InstantDB? _db;
   bool _isLoading = true;
   String? _error;
+  bool _debugEnabled = true; // Default to debug enabled
 
   @override
   void initState() {
     super.initState();
-    _initializeDB();
+    _loadDebugPreferenceAndInitialize();
+  }
+
+  Future<void> _loadDebugPreferenceAndInitialize() async {
+    try {
+      // Load debug preference first
+      final prefs = await SharedPreferences.getInstance();
+      _debugEnabled = prefs.getBool('debug_enabled') ?? true;
+      
+      // Then initialize DB with the loaded preference
+      await _initializeDB();
+    } catch (e) {
+      setState(() {
+        _error = e.toString();
+        _isLoading = false;
+      });
+    }
   }
 
   Future<void> _initializeDB() async {
@@ -61,9 +81,9 @@ class _ExamplesRootScreenState extends State<ExamplesRootScreen> {
       
       _db = await InstantDB.init(
         appId: appId,
-        config: const InstantConfig(
+        config: InstantConfig(
           syncEnabled: true, // Enable real-time sync
-          verboseLogging: true, // Enable comprehensive logging for debugging
+          verboseLogging: _debugEnabled, // Use the debug preference
         ),
       );
 
@@ -75,6 +95,28 @@ class _ExamplesRootScreenState extends State<ExamplesRootScreen> {
         _error = e.toString();
         _isLoading = false;
       });
+    }
+  }
+
+  Future<void> _toggleDebug() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _debugEnabled = !_debugEnabled;
+    });
+    await prefs.setBool('debug_enabled', _debugEnabled);
+    
+    // Update logging level dynamically
+    InstantDBLogging.updateLogLevel(_debugEnabled ? Level.FINE : Level.WARNING);
+    
+    // Show feedback
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(_debugEnabled ? 'Debug logging enabled' : 'Debug logging disabled'),
+          duration: const Duration(seconds: 2),
+          backgroundColor: _debugEnabled ? Colors.green : Colors.orange,
+        ),
+      );
     }
   }
 
@@ -135,13 +177,23 @@ class _ExamplesRootScreenState extends State<ExamplesRootScreen> {
 
     return InstantProvider(
       db: _db!,
-      child: const ExamplesNavigationScreen(),
+      child: ExamplesNavigationScreen(
+        debugEnabled: _debugEnabled,
+        onToggleDebug: _toggleDebug,
+      ),
     );
   }
 }
 
 class ExamplesNavigationScreen extends StatefulWidget {
-  const ExamplesNavigationScreen({super.key});
+  final bool debugEnabled;
+  final VoidCallback onToggleDebug;
+  
+  const ExamplesNavigationScreen({
+    super.key,
+    required this.debugEnabled,
+    required this.onToggleDebug,
+  });
 
   @override
   State<ExamplesNavigationScreen> createState() => _ExamplesNavigationScreenState();
@@ -237,6 +289,14 @@ class _ExamplesNavigationScreenState extends State<ExamplesNavigationScreen> {
         backgroundColor: currentExample.color,
         foregroundColor: Colors.white,
         actions: [
+          IconButton(
+            icon: Icon(
+              widget.debugEnabled ? Icons.bug_report : Icons.bug_report_outlined,
+              color: Colors.white,
+            ),
+            tooltip: widget.debugEnabled ? 'Disable Debug Logging' : 'Enable Debug Logging',
+            onPressed: widget.onToggleDebug,
+          ),
           ConnectionStatusBuilder(
             builder: (context, isOnline) {
               return Padding(
