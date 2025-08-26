@@ -41,6 +41,7 @@
 * ✅ **Fixed entity type resolution during sync** - entities from server now properly stored with correct type (e.g., `todos:id` instead of `unknown:id`)
 * ✅ **Fixed delete synchronization between instances** - implemented differential sync to detect and apply deletions when entities are missing from server responses, including handling empty entity lists
 * ✅ **Fixed presence reactions not appearing in peer instances** - implemented proper refresh-presence message handling to convert reaction data to visible UI reactions
+* ✅ **Fixed cursors, typing indicators, and avatars not working in peer instances** - implemented complete presence data detection and routing in refresh-presence messages to handle all presence types
 * ✅ **Added comprehensive hierarchical logging system** - using `logging` package for better debugging and monitoring of sync operations
 * ✅ **Enhanced sync engine with proper attribute UUID mapping** - transactions now use correct InstantDB attribute UUIDs instead of attribute names
 

@@ -830,13 +830,37 @@ class PresenceManager {
         final userData = peerData['data'] as Map<String, dynamic>? ?? {};
         
         if (userData.isNotEmpty) {
-          // Check if this presence data contains reaction information
+          // Detect and route different types of presence data based on contents
           if (userData.containsKey('emoji') && userData.containsKey('x') && userData.containsKey('y')) {
             // This is reaction data - convert it to a visible reaction
             InstantDBLogging.root.debug('PresenceManager: Converting refresh-presence data to visible reaction: $userData');
             _handleIncomingReaction(roomId, userData);
+            
+          } else if (userData.containsKey('x') && userData.containsKey('y') && !userData.containsKey('emoji')) {
+            // This is cursor data (has coordinates but no emoji)
+            InstantDBLogging.root.debug('PresenceManager: Converting refresh-presence data to cursor: $userData');
+            final cursorData = Map<String, dynamic>.from(userData);
+            cursorData['userId'] = peerId; // Add userId from peer ID
+            _handleIncomingCursor(roomId, cursorData);
+            
+          } else if (userData.containsKey('isTyping')) {
+            // This is typing data
+            InstantDBLogging.root.debug('PresenceManager: Converting refresh-presence data to typing indicator: $userData');
+            final typingData = Map<String, dynamic>.from(userData);
+            typingData['userId'] = peerId; // Add userId from peer ID
+            _handleIncomingTyping(roomId, typingData);
+            
+          } else if (userData.containsKey('userName') || userData.containsKey('status')) {
+            // This is avatar presence data (has userName or status)
+            InstantDBLogging.root.debug('PresenceManager: Converting refresh-presence data to presence: $userData');
+            final presenceDataMap = {
+              'userId': peerId,
+              'data': userData,
+            };
+            _handleIncomingPresenceSet(roomId, presenceDataMap);
+            
           } else {
-            // Regular presence data
+            // Generic presence data - store directly
             final presenceData = PresenceData(
               userId: peerId,
               data: userData,
@@ -845,13 +869,13 @@ class PresenceManager {
             
             _roomPresence.putIfAbsent(roomId, () => {});
             _roomPresence[roomId]![peerId] = presenceData;
+            
+            // Notify presence signal listeners
+            if (_presenceSignals.containsKey(roomId)) {
+              _presenceSignals[roomId]!.value = Map.from(_roomPresence[roomId]!);
+            }
           }
         }
-      }
-      
-      // Notify presence signal listeners (for non-reaction presence data)
-      if (_presenceSignals.containsKey(roomId)) {
-        _presenceSignals[roomId]!.value = Map.from(_roomPresence[roomId] ?? {});
       }
     } catch (e, stackTrace) {
       InstantDBLogging.root.severe('Error handling refresh-presence message', e, stackTrace);
@@ -894,18 +918,86 @@ class PresenceManager {
   }
 
   void _handleIncomingCursor(String roomId, Map<String, dynamic> data) {
-    // Handle incoming cursor updates
-    InstantDBLogging.root.debug('PresenceManager: Handling incoming cursor for room $roomId');
+    try {
+      final userId = data['userId'] as String?;
+      final x = data['x'] as num? ?? 0;
+      final y = data['y'] as num? ?? 0;
+      final userName = data['userName'] as String?;
+      final userColor = data['userColor'] as String?;
+      final metadata = data['metadata'] as Map<String, dynamic>?;
+      
+      if (userId != null) {
+        final cursorData = CursorData(
+          userId: userId,
+          userName: userName,
+          userColor: userColor,
+          x: x.toDouble(),
+          y: y.toDouble(),
+          metadata: metadata,
+          lastUpdated: DateTime.now(),
+        );
+        
+        _roomCursors.putIfAbsent(roomId, () => {});
+        _roomCursors[roomId]![userId] = cursorData;
+        
+        // Notify signal listeners
+        _getCursorSignal(roomId).value = Map.from(_roomCursors[roomId]!);
+        
+        InstantDBLogging.root.debug('PresenceManager: Added remote cursor from user $userId at ($x, $y) in room $roomId');
+      }
+    } catch (e, stackTrace) {
+      InstantDBLogging.root.severe('Error handling incoming cursor', e, stackTrace);
+    }
   }
 
   void _handleIncomingTyping(String roomId, Map<String, dynamic> data) {
-    // Handle incoming typing indicators
-    InstantDBLogging.root.debug('PresenceManager: Handling incoming typing for room $roomId');
+    try {
+      final userId = data['userId'] as String?;
+      final isTyping = data['isTyping'] as bool?;
+      final timestamp = data['timestamp'] as int?;
+      
+      if (userId != null && isTyping != null) {
+        _roomTyping.putIfAbsent(roomId, () => {});
+        
+        if (isTyping && timestamp != null) {
+          _roomTyping[roomId]![userId] = DateTime.fromMillisecondsSinceEpoch(timestamp);
+        } else {
+          _roomTyping[roomId]!.remove(userId);
+        }
+        
+        // Notify signal listeners
+        _getTypingSignal(roomId).value = Map.from(_roomTyping[roomId]!);
+        
+        InstantDBLogging.root.debug('PresenceManager: Updated remote typing for user $userId in room $roomId - isTyping: $isTyping');
+      }
+    } catch (e, stackTrace) {
+      InstantDBLogging.root.severe('Error handling incoming typing', e, stackTrace);
+    }
   }
 
   void _handleIncomingPresenceSet(String roomId, Map<String, dynamic> data) {
-    // Handle incoming presence set updates
-    InstantDBLogging.root.debug('PresenceManager: Handling incoming presence set for room $roomId');
+    try {
+      final userId = data['userId'] as String?;
+      final presenceData = data['data'] as Map<String, dynamic>?;
+      
+      if (userId != null && presenceData != null) {
+        final presence = PresenceData(
+          userId: userId,
+          data: presenceData,
+          lastSeen: DateTime.now(),
+        );
+        
+        _roomPresence.putIfAbsent(roomId, () => {});
+        _roomPresence[roomId]![userId] = presence;
+        
+        // Notify signal listeners
+        _getPresenceSignal(roomId).value = Map.from(_roomPresence[roomId]!);
+        
+        InstantDBLogging.root.debug('PresenceManager: Updated remote presence for user $userId in room $roomId');
+      }
+    } catch (e, stackTrace) {
+      InstantDBLogging.root.severe('Error handling incoming presence set', e, stackTrace);
+    }
   }
 
   /// Dispose of the presence manager and cleanup resources
