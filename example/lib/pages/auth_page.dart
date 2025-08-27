@@ -12,7 +12,7 @@ class AuthPage extends StatefulWidget {
 class _AuthPageState extends State<AuthPage> {
   final _emailController = TextEditingController();
   final _codeController = TextEditingController();
-  
+
   bool _isLoading = false;
   bool _codeSent = false;
   String? _userEmail;
@@ -41,31 +41,45 @@ class _AuthPageState extends State<AuthPage> {
 
     try {
       final db = InstantProvider.of(context);
-      developer.log('AuthPage: Attempting to send magic code to: $email', name: 'AUTH');
-      
+      developer.log(
+        'AuthPage: Attempting to send magic code to: $email',
+        name: 'AUTH',
+      );
+
       await db.auth.sendMagicCode(email);
-      
+
       developer.log('AuthPage: Magic code sent successfully', name: 'AUTH');
-      
+
       setState(() {
         _codeSent = true;
         _userEmail = email;
         _isLoading = false;
       });
-      
+
       // Focus on code input
       WidgetsBinding.instance.addPostFrameCallback((_) {
         FocusScope.of(context).requestFocus();
       });
     } catch (e, stackTrace) {
-      developer.log('AuthPage: Error sending magic code', error: e, stackTrace: stackTrace, name: 'AUTH');
-      
+      developer.log(
+        'AuthPage: Error sending magic code',
+        error: e,
+        stackTrace: stackTrace,
+        name: 'AUTH',
+      );
+
       // Log additional details if it's an InstantException
       if (e is InstantException) {
-        developer.log('AuthPage: InstantException details - message: ${e.message}, code: ${e.code}', name: 'AUTH');
-        developer.log('AuthPage: Original error: ${e.originalError}', name: 'AUTH');
+        developer.log(
+          'AuthPage: InstantException details - message: ${e.message}, code: ${e.code}',
+          name: 'AUTH',
+        );
+        developer.log(
+          'AuthPage: Original error: ${e.originalError}',
+          name: 'AUTH',
+        );
       }
-      
+
       setState(() {
         _errorMessage = e.toString();
         _isLoading = false;
@@ -89,25 +103,25 @@ class _AuthPageState extends State<AuthPage> {
 
     try {
       final db = InstantProvider.of(context);
-      developer.log('AuthPage: Attempting to verify magic code for: $_userEmail', name: 'AUTH');
-      
-      await db.auth.verifyMagicCode(
-        email: _userEmail!,
-        code: code,
+      developer.log(
+        'AuthPage: Attempting to verify magic code for: $_userEmail',
+        name: 'AUTH',
       );
-      
+
+      await db.auth.verifyMagicCode(email: _userEmail!, code: code);
+
       developer.log('AuthPage: Magic code verified successfully', name: 'AUTH');
-      
+
       // Clear the form
       _emailController.clear();
       _codeController.clear();
-      
+
       setState(() {
         _isLoading = false;
         _codeSent = false;
         _userEmail = null;
       });
-      
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -117,14 +131,25 @@ class _AuthPageState extends State<AuthPage> {
         );
       }
     } catch (e, stackTrace) {
-      developer.log('AuthPage: Error verifying magic code', error: e, stackTrace: stackTrace, name: 'AUTH');
-      
+      developer.log(
+        'AuthPage: Error verifying magic code',
+        error: e,
+        stackTrace: stackTrace,
+        name: 'AUTH',
+      );
+
       // Log additional details if it's an InstantException
       if (e is InstantException) {
-        developer.log('AuthPage: InstantException details - message: ${e.message}, code: ${e.code}', name: 'AUTH');
-        developer.log('AuthPage: Original error: ${e.originalError}', name: 'AUTH');
+        developer.log(
+          'AuthPage: InstantException details - message: ${e.message}, code: ${e.code}',
+          name: 'AUTH',
+        );
+        developer.log(
+          'AuthPage: Original error: ${e.originalError}',
+          name: 'AUTH',
+        );
       }
-      
+
       setState(() {
         _errorMessage = e.toString();
         _isLoading = false;
@@ -144,22 +169,22 @@ class _AuthPageState extends State<AuthPage> {
   @override
   Widget build(BuildContext context) {
     final db = InstantProvider.of(context);
-    
+
     return StreamBuilder<AuthUser?>(
       stream: db.auth.onAuthStateChange,
       builder: (context, snapshot) {
         final user = snapshot.data;
-        
+
         if (user != null) {
           // User is signed in
           return _buildSignedInView(user);
         }
-        
+
         // User is not signed in
         if (_codeSent) {
           return _buildCodeVerificationView();
         }
-        
+
         return _buildEmailInputView();
       },
     );
@@ -175,11 +200,7 @@ class _AuthPageState extends State<AuthPage> {
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Icon(
-                Icons.mail_outline,
-                size: 64,
-                color: Colors.indigo,
-              ),
+              const Icon(Icons.mail_outline, size: 64, color: Colors.indigo),
               const SizedBox(height: 24),
               Text(
                 'Sign in with Magic Code',
@@ -215,7 +236,9 @@ class _AuthPageState extends State<AuthPage> {
                         width: 20,
                         child: CircularProgressIndicator(
                           strokeWidth: 2,
-                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            Colors.white,
+                          ),
                         ),
                       )
                     : const Text('Send Code'),
@@ -237,11 +260,7 @@ class _AuthPageState extends State<AuthPage> {
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Icon(
-                Icons.lock_outline,
-                size: 64,
-                color: Colors.indigo,
-              ),
+              const Icon(Icons.lock_outline, size: 64, color: Colors.indigo),
               const SizedBox(height: 24),
               Text(
                 'Enter Verification Code',
@@ -279,7 +298,9 @@ class _AuthPageState extends State<AuthPage> {
                         width: 20,
                         child: CircularProgressIndicator(
                           strokeWidth: 2,
-                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            Colors.white,
+                          ),
                         ),
                       )
                     : const Text('Verify Code'),
@@ -298,7 +319,7 @@ class _AuthPageState extends State<AuthPage> {
 
   Widget _buildSignedInView(AuthUser user) {
     final db = InstantProvider.of(context);
-    
+
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(24.0),
@@ -360,9 +381,7 @@ class _AuthPageState extends State<AuthPage> {
                   await db.auth.signOut();
                   if (mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Signed out successfully'),
-                      ),
+                      const SnackBar(content: Text('Signed out successfully')),
                     );
                   }
                 },
@@ -395,9 +414,7 @@ class _AuthPageState extends State<AuthPage> {
           Expanded(
             child: Text(
               value,
-              style: TextStyle(
-                fontFamily: isMonospace ? 'monospace' : null,
-              ),
+              style: TextStyle(fontFamily: isMonospace ? 'monospace' : null),
             ),
           ),
         ],

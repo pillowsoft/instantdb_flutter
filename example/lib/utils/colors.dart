@@ -22,7 +22,7 @@ class UserColors {
       hash = ((hash << 5) - hash) + str.codeUnitAt(i);
       hash = hash & hash; // Convert to 32-bit integer
     }
-    
+
     // Use the hash to pick a color from the palette
     final index = hash.abs() % _palette.length;
     return _palette[index];

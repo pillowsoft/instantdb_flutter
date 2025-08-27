@@ -21,7 +21,10 @@ DatabaseFactory getPlatformDatabaseFactory() {
   return databaseFactoryFfiWeb;
 }
 
-Future<String> getPlatformDatabasePath(String appId, {String? persistenceDir}) async {
+Future<String> getPlatformDatabasePath(
+  String appId, {
+  String? persistenceDir,
+}) async {
   // On web, we just use the app ID as the database name
   // The actual storage happens in IndexedDB
   if (persistenceDir != null) {

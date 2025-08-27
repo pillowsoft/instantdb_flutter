@@ -5,8 +5,8 @@ import 'package:sqflite/sqflite.dart';
 
 // Conditional imports based on platform
 import 'database_factory_stub.dart'
-  if (dart.library.html) 'database_factory_web.dart'
-  if (dart.library.ffi) 'database_factory_io.dart';
+    if (dart.library.html) 'database_factory_web.dart'
+    if (dart.library.ffi) 'database_factory_io.dart';
 
 /// Initializes the appropriate database factory for the current platform
 /// - Web: Uses sqflite_common_ffi_web

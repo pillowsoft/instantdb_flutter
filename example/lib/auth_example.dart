@@ -35,7 +35,7 @@ class _AuthExampleState extends State<AuthExample> {
         email: _emailController.text,
         password: _passwordController.text,
       );
-      
+
       // Navigation would happen here
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -65,7 +65,7 @@ class _AuthExampleState extends State<AuthExample> {
         email: _emailController.text,
         password: _passwordController.text,
       );
-      
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Account created successfully!')),
@@ -85,9 +85,7 @@ class _AuthExampleState extends State<AuthExample> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('InstantDB Auth Example'),
-      ),
+      appBar: AppBar(title: const Text('InstantDB Auth Example')),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
@@ -102,8 +100,9 @@ class _AuthExampleState extends State<AuthExample> {
                       padding: const EdgeInsets.all(16.0),
                       child: Column(
                         children: [
-                          const Icon(Icons.check_circle, 
-                            color: Colors.green, 
+                          const Icon(
+                            Icons.check_circle,
+                            color: Colors.green,
                             size: 48,
                           ),
                           const SizedBox(height: 8),
@@ -152,10 +151,7 @@ class _AuthExampleState extends State<AuthExample> {
                     ),
                     if (_error != null) ...[
                       const SizedBox(height: 16),
-                      Text(
-                        _error!,
-                        style: TextStyle(color: Colors.red[700]),
-                      ),
+                      Text(_error!, style: TextStyle(color: Colors.red[700])),
                     ],
                     const SizedBox(height: 24),
                     Row(

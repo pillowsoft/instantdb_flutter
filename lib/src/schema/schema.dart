@@ -1,5 +1,6 @@
 /// Simple schema system for InstantDB Flutter.
 /// This is a basic implementation - in production you'd want more sophisticated validation.
+library;
 
 /// Base class for schema validation
 abstract class SchemaValidator {
@@ -18,16 +19,17 @@ class StringSchema extends SchemaValidator {
   @override
   bool validate(dynamic value) {
     if (value is! String) return false;
-    
+
     if (minLength != null && value.length < minLength!) return false;
     if (maxLength != null && value.length > maxLength!) return false;
     if (pattern != null && !pattern!.hasMatch(value)) return false;
-    
+
     return true;
   }
 
   @override
-  String get description => 'String${minLength != null ? ' (min: $minLength)' : ''}${maxLength != null ? ' (max: $maxLength)' : ''}';
+  String get description =>
+      'String${minLength != null ? ' (min: $minLength)' : ''}${maxLength != null ? ' (max: $maxLength)' : ''}';
 }
 
 /// Number schema validator
@@ -40,15 +42,16 @@ class NumberSchema extends SchemaValidator {
   @override
   bool validate(dynamic value) {
     if (value is! num) return false;
-    
+
     if (min != null && value < min!) return false;
     if (max != null && value > max!) return false;
-    
+
     return true;
   }
 
   @override
-  String get description => 'Number${min != null ? ' (min: $min)' : ''}${max != null ? ' (max: $max)' : ''}';
+  String get description =>
+      'Number${min != null ? ' (min: $min)' : ''}${max != null ? ' (max: $max)' : ''}';
 }
 
 /// Boolean schema validator
@@ -71,10 +74,10 @@ class ArraySchema extends SchemaValidator {
   @override
   bool validate(dynamic value) {
     if (value is! List) return false;
-    
+
     if (minLength != null && value.length < minLength!) return false;
     if (maxLength != null && value.length > maxLength!) return false;
-    
+
     return value.every(itemSchema.validate);
   }
 
@@ -92,12 +95,12 @@ class ObjectSchema extends SchemaValidator {
   @override
   bool validate(dynamic value) {
     if (value is! Map<String, dynamic>) return false;
-    
+
     // Check required fields
     for (final field in required) {
       if (!value.containsKey(field)) return false;
     }
-    
+
     // Validate each property
     for (final entry in value.entries) {
       final schema = properties[entry.key];
@@ -105,7 +108,7 @@ class ObjectSchema extends SchemaValidator {
         return false;
       }
     }
-    
+
     return true;
   }
 
@@ -131,21 +134,34 @@ class OptionalSchema extends SchemaValidator {
 
 /// Schema builder with fluent API
 class Schema {
-  static StringSchema string({int? minLength, int? maxLength, RegExp? pattern}) =>
-      StringSchema(minLength: minLength, maxLength: maxLength, pattern: pattern);
+  static StringSchema string({
+    int? minLength,
+    int? maxLength,
+    RegExp? pattern,
+  }) => StringSchema(
+    minLength: minLength,
+    maxLength: maxLength,
+    pattern: pattern,
+  );
 
   static NumberSchema number({num? min, num? max}) =>
       NumberSchema(min: min, max: max);
 
   static BooleanSchema boolean() => BooleanSchema();
 
-  static ArraySchema array(SchemaValidator itemSchema, {int? minLength, int? maxLength}) =>
-      ArraySchema(itemSchema, minLength: minLength, maxLength: maxLength);
+  static ArraySchema array(
+    SchemaValidator itemSchema, {
+    int? minLength,
+    int? maxLength,
+  }) => ArraySchema(itemSchema, minLength: minLength, maxLength: maxLength);
 
-  static ObjectSchema object(Map<String, SchemaValidator> properties, {List<String> required = const []}) =>
-      ObjectSchema(properties, required: required);
+  static ObjectSchema object(
+    Map<String, SchemaValidator> properties, {
+    List<String> required = const [],
+  }) => ObjectSchema(properties, required: required);
 
-  static OptionalSchema optional(SchemaValidator schema) => OptionalSchema(schema);
+  static OptionalSchema optional(SchemaValidator schema) =>
+      OptionalSchema(schema);
 
   // Common patterns
   static StringSchema email() => StringSchema(
@@ -161,11 +177,7 @@ class Link {
   final EntityRef to;
   final LinkType type;
 
-  Link({
-    required this.from,
-    required this.to,
-    this.type = LinkType.oneToMany,
-  });
+  Link({required this.from, required this.to, this.type = LinkType.oneToMany});
 }
 
 /// Reference to an entity field
@@ -177,27 +189,20 @@ class EntityRef {
 }
 
 /// Type of relationship link
-enum LinkType { 
-  oneToOne, 
-  oneToMany, 
-  manyToMany,
-}
+enum LinkType { oneToOne, oneToMany, manyToMany }
 
 /// Complete schema definition for an InstantDB app
 class InstantSchema {
   final Map<String, SchemaValidator> entities;
   final Map<String, Link> links;
 
-  InstantSchema({
-    required this.entities,
-    this.links = const {},
-  });
+  InstantSchema({required this.entities, this.links = const {}});
 
   /// Validate an entity against its schema
   bool validateEntity(String entityType, Map<String, dynamic> data) {
     final schema = entities[entityType];
     if (schema == null) return false;
-    
+
     return schema.validate(data);
   }
 
@@ -218,15 +223,15 @@ class InstantSchemaBuilder {
       properties['id'] ??= Schema.id();
       properties['createdAt'] ??= Schema.number();
       properties['updatedAt'] ??= Schema.number();
-      
+
       final required = List<String>.from(schema.required);
       if (!required.contains('id')) required.add('id');
-      
+
       _entities[name] = ObjectSchema(properties, required: required);
     } else {
       _entities[name] = schema;
     }
-    
+
     return this;
   }
 

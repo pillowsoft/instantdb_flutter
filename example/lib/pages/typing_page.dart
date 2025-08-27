@@ -22,7 +22,7 @@ class _TypingPageState extends State<TypingPage> {
     super.initState();
     // Initialize user in didChangeDependencies to access context
   }
-  
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -35,7 +35,7 @@ class _TypingPageState extends State<TypingPage> {
   void _initializeUser() {
     final db = InstantProvider.of(context);
     final currentUser = db.auth.currentUser.value;
-    
+
     // Use authenticated user ID or consistent anonymous user ID
     _userId = currentUser?.id ?? db.getAnonymousUserId();
   }
@@ -43,10 +43,10 @@ class _TypingPageState extends State<TypingPage> {
   void _joinRoom() {
     final db = InstantProvider.of(context);
     // Join the chat room using the new room-based API with initial presence
-    _room = db.presence.joinRoom('chat-room', initialPresence: {
-      'userName': _getUserName(),
-      'status': 'online',
-    });
+    _room = db.presence.joinRoom(
+      'chat-room',
+      initialPresence: {'userName': _getUserName(), 'status': 'online'},
+    );
   }
 
   @override
@@ -59,20 +59,20 @@ class _TypingPageState extends State<TypingPage> {
 
   void _startTyping() {
     if (_userId == null || _room == null) return;
-    
+
     // Cancel existing timer
     _typingTimer?.cancel();
-    
+
     // Create typing indicator using new room-based API
     _room!.setTyping(true);
-    
+
     // Set timer to remove typing indicator after 3 seconds of inactivity
     _typingTimer = Timer(const Duration(seconds: 3), _stopTyping);
   }
 
   void _stopTyping() {
     if (_userId == null || _room == null) return;
-    
+
     // Remove typing indicator using new room-based API
     _room!.setTyping(false);
   }
@@ -80,15 +80,16 @@ class _TypingPageState extends State<TypingPage> {
   String _getUserName() {
     final db = InstantProvider.of(context);
     final currentUser = db.auth.currentUser.value;
-    return currentUser?.email ?? 'Guest ${_userId?.substring(_userId!.length - 4) ?? "User"}';
+    return currentUser?.email ??
+        'Guest ${_userId?.substring(_userId!.length - 4) ?? "User"}';
   }
 
   void _sendMessage() {
     final text = _messageController.text.trim();
     if (text.isEmpty || _userId == null) return;
-    
+
     final db = InstantProvider.of(context);
-    
+
     // Add message
     final message = ChatMessage(
       id: db.id(),
@@ -97,7 +98,7 @@ class _TypingPageState extends State<TypingPage> {
       text: text,
       timestamp: DateTime.now(),
     );
-    
+
     db.transact([
       ...db.create('messages', {
         'id': message.id,
@@ -107,11 +108,11 @@ class _TypingPageState extends State<TypingPage> {
         'timestamp': message.timestamp.millisecondsSinceEpoch,
       }),
     ]);
-    
+
     // Clear input and stop typing
     _messageController.clear();
     _stopTyping();
-    
+
     // Add to local messages for immediate feedback
     setState(() {
       _messages.add(message);
@@ -126,33 +127,38 @@ class _TypingPageState extends State<TypingPage> {
         Expanded(
           child: InstantBuilder(
             query: {'messages': {}},
-            loadingBuilder: (context) => const Center(child: CircularProgressIndicator()),
-            errorBuilder: (context, error) => Center(
-              child: Text('Error: $error'),
-            ),
+            loadingBuilder: (context) =>
+                const Center(child: CircularProgressIndicator()),
+            errorBuilder: (context, error) =>
+                Center(child: Text('Error: $error')),
             builder: (context, data) {
-              final messages = (data['messages'] as List? ?? [])
-                  .map((msg) => ChatMessage(
-                        id: msg['id'],
-                        userId: msg['userId'],
-                        userName: msg['userName'] ?? 'Unknown',
-                        text: msg['text'] ?? '',
-                        timestamp: DateTime.fromMillisecondsSinceEpoch(
-                          msg['timestamp'] ?? 0,
+              final messages =
+                  (data['messages'] as List? ?? [])
+                      .map(
+                        (msg) => ChatMessage(
+                          id: msg['id'],
+                          userId: msg['userId'],
+                          userName: msg['userName'] ?? 'Unknown',
+                          text: msg['text'] ?? '',
+                          timestamp: DateTime.fromMillisecondsSinceEpoch(
+                            msg['timestamp'] ?? 0,
+                          ),
                         ),
-                      ))
-                  .toList()
-                ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
-              
+                      )
+                      .toList()
+                    ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+
               return ListView.builder(
                 padding: const EdgeInsets.all(16),
                 itemCount: messages.length,
                 itemBuilder: (context, index) {
                   final message = messages[index];
                   final isMe = message.userId == _userId;
-                  
+
                   return Align(
-                    alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+                    alignment: isMe
+                        ? Alignment.centerRight
+                        : Alignment.centerLeft,
                     child: Container(
                       margin: const EdgeInsets.symmetric(vertical: 4),
                       constraints: BoxConstraints(
@@ -170,7 +176,9 @@ class _TypingPageState extends State<TypingPage> {
                                 style: TextStyle(
                                   fontSize: 12,
                                   fontWeight: FontWeight.bold,
-                                  color: isMe ? Colors.teal[100] : Colors.grey[600],
+                                  color: isMe
+                                      ? Colors.teal[100]
+                                      : Colors.grey[600],
                                 ),
                               ),
                               const SizedBox(height: 4),
@@ -185,7 +193,9 @@ class _TypingPageState extends State<TypingPage> {
                                 _formatTime(message.timestamp),
                                 style: TextStyle(
                                   fontSize: 10,
-                                  color: isMe ? Colors.teal[100] : Colors.grey[500],
+                                  color: isMe
+                                      ? Colors.teal[100]
+                                      : Colors.grey[500],
                                 ),
                               ),
                             ],
@@ -199,71 +209,70 @@ class _TypingPageState extends State<TypingPage> {
             },
           ),
         ),
-        
+
         // Typing indicators using new room-based API
         Watch((context) {
           if (_room == null) return const SizedBox.shrink();
-          
+
           final typingData = _room!.getTyping().value;
-          
+
           // Filter out current user (typing data is Map<String, DateTime>)
           final indicators = typingData.entries
               .where((entry) => entry.key != _userId)
               .toList();
-            
-            if (indicators.isEmpty) return const SizedBox.shrink();
-            
-            return Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              color: Colors.grey[100],
-              child: Row(
-                children: [
-                  // Avatar stack
-                  SizedBox(
-                    width: indicators.length * 20.0 + 20,
-                    height: 30,
-                    child: Stack(
-                      children: indicators.asMap().entries.map((mapEntry) {
-                        final index = mapEntry.key;
-                        final indicatorEntry = mapEntry.value;
-                        final userId = indicatorEntry.key;
-                        final userName = userId.startsWith('user_') ? userId.substring(5, 9) : userId.substring(0, 4);
-                        
-                        return Positioned(
-                          left: index * 20.0,
-                          child: CircleAvatar(
-                            radius: 15,
-                            backgroundColor: UserColors.fromString(userName),
-                            child: Text(
-                              userName.substring(0, 1).toUpperCase(),
-                              style: const TextStyle(
-                                fontSize: 12,
-                                color: Colors.white,
-                                fontWeight: FontWeight.bold,
-                              ),
+
+          if (indicators.isEmpty) return const SizedBox.shrink();
+
+          return Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            color: Colors.grey[100],
+            child: Row(
+              children: [
+                // Avatar stack
+                SizedBox(
+                  width: indicators.length * 20.0 + 20,
+                  height: 30,
+                  child: Stack(
+                    children: indicators.asMap().entries.map((mapEntry) {
+                      final index = mapEntry.key;
+                      final indicatorEntry = mapEntry.value;
+                      final userId = indicatorEntry.key;
+                      final userName = userId.startsWith('user_')
+                          ? userId.substring(5, 9)
+                          : userId.substring(0, 4);
+
+                      return Positioned(
+                        left: index * 20.0,
+                        child: CircleAvatar(
+                          radius: 15,
+                          backgroundColor: UserColors.fromString(userName),
+                          child: Text(
+                            userName.substring(0, 1).toUpperCase(),
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
                             ),
                           ),
-                        );
-                      }).toList(),
-                    ),
+                        ),
+                      );
+                    }).toList(),
                   ),
-                  const SizedBox(width: 8),
-                  // Typing text
-                  Text(
-                    _buildTypingText(indicators),
-                    style: TextStyle(
-                      color: Colors.grey[600],
-                      fontSize: 14,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  // Animated dots
-                  const _TypingDots(),
-                ],
-              ),
-            );
+                ),
+                const SizedBox(width: 8),
+                // Typing text
+                Text(
+                  _buildTypingText(indicators),
+                  style: TextStyle(color: Colors.grey[600], fontSize: 14),
+                ),
+                const SizedBox(width: 8),
+                // Animated dots
+                const _TypingDots(),
+              ],
+            ),
+          );
         }),
-        
+
         // Message input
         Container(
           padding: const EdgeInsets.all(16),
@@ -316,14 +325,15 @@ class _TypingPageState extends State<TypingPage> {
 
     // Get presence data to look up user names
     final presenceData = _room!.getPresence().value;
-    
+
     // Map typing user IDs to their names
     final typingUsers = indicators.map((entry) {
       final userId = entry.key;
       final presence = presenceData[userId];
       final userName = presence?.data['userName'] as String?;
       // Fallback to user ID fragment if no userName found
-      return userName ?? (userId.length > 4 ? userId.substring(userId.length - 4) : userId);
+      return userName ??
+          (userId.length > 4 ? userId.substring(userId.length - 4) : userId);
     }).toList();
 
     if (typingUsers.length == 1) {
@@ -338,7 +348,7 @@ class _TypingPageState extends State<TypingPage> {
   String _formatTime(DateTime time) {
     final now = DateTime.now();
     final difference = now.difference(time);
-    
+
     if (difference.inMinutes < 1) {
       return 'just now';
     } else if (difference.inHours < 1) {
@@ -386,11 +396,8 @@ class _TypingDotsState extends State<_TypingDots>
       duration: const Duration(milliseconds: 1500),
       vsync: this,
     )..repeat();
-    
-    _animation = CurvedAnimation(
-      parent: _controller,
-      curve: Curves.easeInOut,
-    );
+
+    _animation = CurvedAnimation(parent: _controller, curve: Curves.easeInOut);
   }
 
   @override
@@ -410,7 +417,7 @@ class _TypingDotsState extends State<_TypingDots>
             final delay = index * 0.3;
             final value = (_animation.value + delay) % 1.0;
             final opacity = value < 0.5 ? value * 2 : 2 - value * 2;
-            
+
             return Container(
               width: 6,
               height: 6,

@@ -7,17 +7,18 @@ import '../core/instant_db.dart';
 /// Main reactive widget for InstantDB queries
 class InstantBuilder extends StatefulWidget {
   final Map<String, dynamic> query;
-  final Widget Function(BuildContext context, Map<String, dynamic> data) builder;
+  final Widget Function(BuildContext context, Map<String, dynamic> data)
+  builder;
   final Widget Function(BuildContext context, String error)? errorBuilder;
   final Widget Function(BuildContext context)? loadingBuilder;
 
   const InstantBuilder({
-    Key? key,
+    super.key,
     required this.query,
     required this.builder,
     this.errorBuilder,
     this.loadingBuilder,
-  }) : super(key: key);
+  });
 
   @override
   State<InstantBuilder> createState() => _InstantBuilderState();
@@ -73,13 +74,13 @@ class InstantBuilderTyped<T> extends StatefulWidget {
   final Widget Function(BuildContext context)? loadingBuilder;
 
   const InstantBuilderTyped({
-    Key? key,
+    super.key,
     required this.query,
     required this.transformer,
     required this.builder,
     this.errorBuilder,
     this.loadingBuilder,
-  }) : super(key: key);
+  });
 
   @override
   State<InstantBuilderTyped<T>> createState() => _InstantBuilderTypedState<T>();
@@ -122,7 +123,10 @@ class _InstantBuilderTypedState<T> extends State<InstantBuilderTyped<T>> {
           final transformedData = widget.transformer(result.data!);
           return widget.builder(context, transformedData);
         } catch (e) {
-          return widget.errorBuilder?.call(context, 'Transformation error: $e') ??
+          return widget.errorBuilder?.call(
+                context,
+                'Transformation error: $e',
+              ) ??
               Center(child: Text('Transformation error: $e'));
         }
       }
@@ -145,17 +149,16 @@ Signal<QueryResult> useInstantQuery(
 class InstantProvider extends InheritedWidget {
   final InstantDB db;
 
-  const InstantProvider({
-    Key? key,
-    required this.db,
-    required Widget child,
-  }) : super(key: key, child: child);
+  const InstantProvider({super.key, required this.db, required super.child});
 
   static InstantDB of(BuildContext context) {
-    final provider = context.dependOnInheritedWidgetOfExactType<InstantProvider>();
+    final provider = context
+        .dependOnInheritedWidgetOfExactType<InstantProvider>();
     if (provider == null) {
-      throw Exception('InstantProvider not found in widget tree. '
-          'Make sure to wrap your app with InstantProvider.');
+      throw Exception(
+        'InstantProvider not found in widget tree. '
+        'Make sure to wrap your app with InstantProvider.',
+      );
     }
     return provider.db;
   }
@@ -168,15 +171,12 @@ class InstantProvider extends InheritedWidget {
 class AuthBuilder extends StatelessWidget {
   final Widget Function(BuildContext context, AuthUser? user) builder;
 
-  const AuthBuilder({
-    Key? key,
-    required this.builder,
-  }) : super(key: key);
+  const AuthBuilder({super.key, required this.builder});
 
   @override
   Widget build(BuildContext context) {
     final db = InstantProvider.of(context);
-    
+
     return Watch((context) {
       final user = db.auth.currentUser.value;
       return builder(context, user);
@@ -191,11 +191,11 @@ class AuthGuard extends StatelessWidget {
   final Widget Function(BuildContext context)? loginBuilder;
 
   const AuthGuard({
-    Key? key,
+    super.key,
     required this.child,
     this.fallback,
     this.loginBuilder,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -204,10 +204,10 @@ class AuthGuard extends StatelessWidget {
         if (user != null) {
           return child;
         }
-        
-        return fallback ?? 
-               loginBuilder?.call(context) ?? 
-               const Center(child: Text('Please sign in'));
+
+        return fallback ??
+            loginBuilder?.call(context) ??
+            const Center(child: Text('Please sign in'));
       },
     );
   }
@@ -217,15 +217,12 @@ class AuthGuard extends StatelessWidget {
 class ConnectionStatusBuilder extends StatelessWidget {
   final Widget Function(BuildContext context, bool isOnline) builder;
 
-  const ConnectionStatusBuilder({
-    Key? key,
-    required this.builder,
-  }) : super(key: key);
+  const ConnectionStatusBuilder({super.key, required this.builder});
 
   @override
   Widget build(BuildContext context) {
     final db = InstantProvider.of(context);
-    
+
     return Watch((context) {
       final isOnline = db.isOnline.value;
       return builder(context, isOnline);
@@ -244,7 +241,11 @@ extension InstantBuilderExtensions on InstantBuilder {
     int? limit,
     int? offset,
     Map<String, dynamic>? include,
-    required Widget Function(BuildContext context, List<Map<String, dynamic>> items) builder,
+    required Widget Function(
+      BuildContext context,
+      List<Map<String, dynamic>> items,
+    )
+    builder,
     Widget Function(BuildContext context, String error)? errorBuilder,
     Widget Function(BuildContext context)? loadingBuilder,
   }) {
@@ -261,7 +262,8 @@ extension InstantBuilderExtensions on InstantBuilder {
     return InstantBuilderTyped<List<Map<String, dynamic>>>(
       key: key,
       query: query,
-      transformer: (data) => (data[entityType] as List).cast<Map<String, dynamic>>(),
+      transformer: (data) =>
+          (data[entityType] as List).cast<Map<String, dynamic>>(),
       builder: builder,
       errorBuilder: errorBuilder,
       loadingBuilder: loadingBuilder,
@@ -274,7 +276,8 @@ extension InstantBuilderExtensions on InstantBuilder {
     required String entityType,
     required String id,
     Map<String, dynamic>? include,
-    required Widget Function(BuildContext context, Map<String, dynamic>? item) builder,
+    required Widget Function(BuildContext context, Map<String, dynamic>? item)
+    builder,
     Widget Function(BuildContext context, String error)? errorBuilder,
     Widget Function(BuildContext context)? loadingBuilder,
   }) {

@@ -5,7 +5,7 @@ import 'package:instantdb_flutter/instantdb_flutter.dart';
 void main() {
   group('Authentication Integration Tests', () {
     late InstantDB db;
-    
+
     setUpAll(() async {
       // Initialize database factory for testing
       sqfliteFfiInit();
@@ -37,23 +37,26 @@ void main() {
 
       test('should emit authentication state changes', () async {
         var stateChanges = <AuthUser?>[];
-        
+
         // Subscribe to auth state changes
         final subscription = db.auth.onAuthStateChange.listen((user) {
           stateChanges.add(user);
         });
-        
+
         // Initial state should be null
         expect(stateChanges.length, equals(0));
-        
+
         // Sign in should fail in test environment but we can test the flow
         try {
-          await db.auth.signIn(email: 'test@example.com', password: 'password123');
+          await db.auth.signIn(
+            email: 'test@example.com',
+            password: 'password123',
+          );
         } catch (e) {
           // Expected to fail without real server
           expect(e, isNotNull);
         }
-        
+
         // Clean up
         await subscription.cancel();
       });
@@ -156,7 +159,10 @@ void main() {
     group('Error Handling', () {
       test('should handle network errors gracefully', () async {
         try {
-          await db.auth.signIn(email: 'test@example.com', password: 'wrongpassword');
+          await db.auth.signIn(
+            email: 'test@example.com',
+            password: 'wrongpassword',
+          );
         } catch (e) {
           expect(e, isA<Exception>());
         }
@@ -164,7 +170,10 @@ void main() {
 
       test('should handle invalid credentials', () async {
         try {
-          await db.auth.signIn(email: 'nonexistent@example.com', password: 'password');
+          await db.auth.signIn(
+            email: 'nonexistent@example.com',
+            password: 'password',
+          );
         } catch (e) {
           expect(e, isA<Exception>());
         }
@@ -180,8 +189,9 @@ void main() {
 
       test('should handle expired tokens', () async {
         // Mock an expired JWT token
-        const expiredToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyLCJleHAiOjE1MTYyMzkwMjJ9.invalid';
-        
+        const expiredToken =
+            'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyLCJleHAiOjE1MTYyMzkwMjJ9.invalid';
+
         try {
           await db.auth.signInWithToken(expiredToken);
         } catch (e) {
@@ -192,7 +202,10 @@ void main() {
       test('should handle server unavailable', () async {
         // This test simulates server being down
         try {
-          await db.auth.signUp(email: 'test@example.com', password: 'password123');
+          await db.auth.signUp(
+            email: 'test@example.com',
+            password: 'password123',
+          );
         } catch (e) {
           expect(e, isA<Exception>());
         }
@@ -265,7 +278,10 @@ void main() {
             await db.auth.signUp(email: email, password: 'ValidPass123!');
           } catch (e) {
             // Will fail due to no server, but email validation should pass
-            expect(e.toString().toLowerCase().contains('email format'), isFalse);
+            expect(
+              e.toString().toLowerCase().contains('email format'),
+              isFalse,
+            );
           }
         }
       });
@@ -291,13 +307,13 @@ void main() {
       test('should update presence when authentication changes', () async {
         // Test that presence is affected by auth state
         final roomId = 'test-room';
-        
+
         // Initially, should work with anonymous user
         await db.presence.setPresence(roomId, {'status': 'online'});
-        
+
         final presenceSignal = db.presence.getPresence(roomId);
         expect(presenceSignal.value.isNotEmpty, isTrue);
-        
+
         // The user ID should be anonymous
         final userId = presenceSignal.value.keys.first;
         expect(userId.startsWith('anonymous-'), isTrue);
@@ -305,13 +321,13 @@ void main() {
 
       test('should clear presence data on sign out', () async {
         final roomId = 'test-room';
-        
+
         // Set presence
         await db.presence.setPresence(roomId, {'status': 'online'});
-        
+
         // Sign out (even if not signed in, it should work)
         await db.auth.signOut();
-        
+
         // Presence should still exist for anonymous user
         // (In a real implementation, you might want to clear it)
         final presenceSignal = db.presence.getPresence(roomId);
@@ -322,19 +338,20 @@ void main() {
     group('Performance and Reliability', () {
       test('should handle rapid authentication attempts', () async {
         final futures = <Future>[];
-        
+
         // Attempt multiple simultaneous sign-ins
         for (int i = 0; i < 10; i++) {
           futures.add(
-            db.auth.signIn(
-              email: 'user$i@example.com',
-              password: 'password123',
-            ).catchError((e) => AuthUser(id: '', email: '')), // Return dummy AuthUser on error
+            db.auth
+                .signIn(email: 'user$i@example.com', password: 'password123')
+                .catchError(
+                  (e) => AuthUser(id: '', email: ''),
+                ), // Return dummy AuthUser on error
           );
         }
-        
+
         await Future.wait(futures);
-        
+
         // Should not crash or cause issues
         expect(db.auth.currentUser.value, isNull);
       });
@@ -342,9 +359,12 @@ void main() {
       test('should handle authentication timeout', () async {
         // This would test timeout scenarios in a real environment
         final stopwatch = Stopwatch()..start();
-        
+
         try {
-          await db.auth.signIn(email: 'test@example.com', password: 'password123');
+          await db.auth.signIn(
+            email: 'test@example.com',
+            password: 'password123',
+          );
         } catch (e) {
           stopwatch.stop();
           // Should fail reasonably quickly
@@ -356,7 +376,7 @@ void main() {
         // In a real implementation, this would test token persistence
         // For now, we just verify the mechanism exists
         expect(db.auth.currentUser, isA<ReadonlySignal<AuthUser?>>());
-        
+
         // The auth state should be persisted somewhere
         // This is a placeholder for actual persistence testing
       });
@@ -365,7 +385,7 @@ void main() {
     group('Edge Cases', () {
       test('should handle extremely long email addresses', () async {
         final longEmail = 'a' * 250 + '@example.com';
-        
+
         try {
           await db.auth.signUp(email: longEmail, password: 'ValidPass123!');
         } catch (e) {
@@ -394,15 +414,33 @@ void main() {
 
       test('should handle concurrent auth operations', () async {
         final futures = <Future>[];
-        
+
         // Try multiple different operations simultaneously
-        futures.add(db.auth.signIn(email: 'test1@example.com', password: 'pass1').catchError((e) => AuthUser(id: '', email: '')));
-        futures.add(db.auth.signUp(email: 'test2@example.com', password: 'pass2').catchError((e) => AuthUser(id: '', email: '')));
-        futures.add(db.auth.sendMagicLink('test3@example.com').then((_) => null).catchError((e) => null));
-        futures.add(db.auth.resetPassword('test4@example.com').then((_) => null).catchError((e) => null));
-        
+        futures.add(
+          db.auth
+              .signIn(email: 'test1@example.com', password: 'pass1')
+              .catchError((e) => AuthUser(id: '', email: '')),
+        );
+        futures.add(
+          db.auth
+              .signUp(email: 'test2@example.com', password: 'pass2')
+              .catchError((e) => AuthUser(id: '', email: '')),
+        );
+        futures.add(
+          db.auth
+              .sendMagicLink('test3@example.com')
+              .then((_) => null)
+              .catchError((e) => null),
+        );
+        futures.add(
+          db.auth
+              .resetPassword('test4@example.com')
+              .then((_) => null)
+              .catchError((e) => null),
+        );
+
         await Future.wait(futures);
-        
+
         // Should not crash
         expect(db.auth.currentUser.value, isNull);
       });

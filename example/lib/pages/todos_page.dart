@@ -22,7 +22,7 @@ class _TodosPageState extends State<TodosPage> {
     if (text.isEmpty) return;
 
     final db = InstantProvider.of(context);
-    
+
     try {
       // Using the traditional transaction API (more reliable for now)
       final todoId = db.id();
@@ -38,52 +38,48 @@ class _TodosPageState extends State<TodosPage> {
       _textController.clear();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to add todo: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to add todo: $e')));
       }
     }
   }
 
   Future<void> _toggleTodo(Map<String, dynamic> todo) async {
     final db = InstantProvider.of(context);
-    
+
     try {
       // Using the tx namespace API (aligned with React)
       await db.transact(
-        db.tx['todos'][todo['id']].update({
-          'completed': !todo['completed'],
-        })
+        db.tx['todos'][todo['id']].update({'completed': !todo['completed']}),
       );
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to update todo: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to update todo: $e')));
       }
     }
   }
 
   Future<void> _deleteTodo(String todoId) async {
     final db = InstantProvider.of(context);
-    
+
     try {
       // Use the tx namespace API for delete operations (aligned with React)
-      await db.transact(
-        db.tx['todos'][todoId].delete()
-      );
+      await db.transact(db.tx['todos'][todoId].delete());
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to delete todo: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to delete todo: $e')));
       }
     }
   }
-  
+
   Future<void> _clearAllTodos() async {
     final db = InstantProvider.of(context);
-    
+
     try {
       // Show loading
       if (mounted) {
@@ -107,38 +103,38 @@ class _TodosPageState extends State<TodosPage> {
           ),
         );
       }
-      
+
       // Get a fresh query result
       final queryResult = await db.queryOnce({'todos': {}});
-      
+
       if (queryResult.data != null && queryResult.data!['todos'] is List) {
         final todos = (queryResult.data!['todos'] as List)
             .cast<Map<String, dynamic>>();
-        
+
         if (todos.isEmpty) {
           if (mounted) {
             ScaffoldMessenger.of(context).clearSnackBars();
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('No todos to delete')),
-            );
+            ScaffoldMessenger.of(
+              context,
+            ).showSnackBar(const SnackBar(content: Text('No todos to delete')));
           }
           return;
         }
-        
+
         // Delete all todos using tx namespace API (aligned with React)
         for (final todo in todos) {
           if (todo['id'] != null) {
-            await db.transact(
-              db.tx['todos'][todo['id']].delete()
-            );
+            await db.transact(db.tx['todos'][todo['id']].delete());
           }
         }
-        
+
         if (mounted) {
           ScaffoldMessenger.of(context).clearSnackBars();
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Deleted ${todos.length} todo${todos.length > 1 ? 's' : ''}'),
+              content: Text(
+                'Deleted ${todos.length} todo${todos.length > 1 ? 's' : ''}',
+              ),
               backgroundColor: Colors.green,
             ),
           );
@@ -171,9 +167,7 @@ class _TodosPageState extends State<TodosPage> {
               TextButton.icon(
                 icon: const Icon(Icons.storage, size: 20),
                 label: const Text('Clear DB'),
-                style: TextButton.styleFrom(
-                  foregroundColor: Colors.purple,
-                ),
+                style: TextButton.styleFrom(foregroundColor: Colors.purple),
                 onPressed: () async {
                   final confirmed = await showDialog<bool>(
                     context: context,
@@ -197,7 +191,7 @@ class _TodosPageState extends State<TodosPage> {
                       ],
                     ),
                   );
-                  
+
                   if (confirmed == true) {
                     final db = InstantProvider.of(context);
                     try {
@@ -205,7 +199,9 @@ class _TodosPageState extends State<TodosPage> {
                       if (mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
-                            content: Text('Local database cleared successfully'),
+                            content: Text(
+                              'Local database cleared successfully',
+                            ),
                             backgroundColor: Colors.green,
                           ),
                         );
@@ -250,7 +246,7 @@ class _TodosPageState extends State<TodosPage> {
                       ],
                     ),
                   );
-                  
+
                   if (confirmed == true) {
                     await _clearAllTodos();
                   }
@@ -264,9 +260,7 @@ class _TodosPageState extends State<TodosPage> {
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
             color: Colors.grey[50],
-            border: Border(
-              bottom: BorderSide(color: Colors.grey[300]!),
-            ),
+            border: Border(bottom: BorderSide(color: Colors.grey[300]!)),
           ),
           child: Row(
             children: [
@@ -285,22 +279,18 @@ class _TodosPageState extends State<TodosPage> {
                 ),
               ),
               const SizedBox(width: 8),
-              ElevatedButton(
-                onPressed: _addTodo,
-                child: const Text('Add'),
-              ),
+              ElevatedButton(onPressed: _addTodo, child: const Text('Add')),
             ],
           ),
         ),
-        
+
         // Todo list
         Expanded(
           child: InstantBuilderTyped<List<Map<String, dynamic>>>(
-            query: {
-              'todos': {},
-            },
+            query: {'todos': {}},
             transformer: (data) {
-              final todos = (data['todos'] as List).cast<Map<String, dynamic>>();
+              final todos = (data['todos'] as List)
+                  .cast<Map<String, dynamic>>();
               // Sort client-side by createdAt in descending order
               todos.sort((a, b) {
                 final aTime = a['createdAt'] as int? ?? 0;
@@ -309,18 +299,13 @@ class _TodosPageState extends State<TodosPage> {
               });
               return todos;
             },
-            loadingBuilder: (context) => const Center(
-              child: CircularProgressIndicator(),
-            ),
+            loadingBuilder: (context) =>
+                const Center(child: CircularProgressIndicator()),
             errorBuilder: (context, error) => Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(
-                    Icons.error_outline,
-                    size: 64,
-                    color: Colors.red[300],
-                  ),
+                  Icon(Icons.error_outline, size: 64, color: Colors.red[300]),
                   const SizedBox(height: 16),
                   Text(
                     'Error loading todos',
@@ -345,17 +330,12 @@ class _TodosPageState extends State<TodosPage> {
                       SizedBox(height: 16),
                       Text(
                         'No todos yet',
-                        style: TextStyle(
-                          fontSize: 18,
-                          color: Colors.grey,
-                        ),
+                        style: TextStyle(fontSize: 18, color: Colors.grey),
                       ),
                       SizedBox(height: 8),
                       Text(
                         'Add your first todo above!',
-                        style: TextStyle(
-                          color: Colors.grey,
-                        ),
+                        style: TextStyle(color: Colors.grey),
                       ),
                     ],
                   ),
@@ -403,7 +383,7 @@ class _TodoTileState extends State<TodoTile> {
   @override
   Widget build(BuildContext context) {
     final isCompleted = widget.todo['completed'] == true;
-    
+
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       decoration: BoxDecoration(
@@ -427,15 +407,14 @@ class _TodoTileState extends State<TodoTile> {
           widget.todo['text'] ?? '',
           style: TextStyle(
             decoration: isCompleted ? TextDecoration.lineThrough : null,
-            color: isCompleted ? Colors.grey : (_isDeleting ? Colors.grey[400] : null),
+            color: isCompleted
+                ? Colors.grey
+                : (_isDeleting ? Colors.grey[400] : null),
           ),
         ),
         subtitle: Text(
           _formatDate(widget.todo['createdAt']),
-          style: TextStyle(
-            fontSize: 12,
-            color: Colors.grey[600],
-          ),
+          style: TextStyle(fontSize: 12, color: Colors.grey[600]),
         ),
         trailing: _isDeleting
             ? SizedBox(
@@ -457,11 +436,11 @@ class _TodoTileState extends State<TodoTile> {
 
   Future<void> _handleDelete() async {
     if (_isDeleting) return;
-    
+
     setState(() {
       _isDeleting = true;
     });
-    
+
     try {
       await widget.onDelete();
     } finally {
@@ -475,7 +454,7 @@ class _TodoTileState extends State<TodoTile> {
 
   String _formatDate(dynamic timestamp) {
     if (timestamp == null) return '';
-    
+
     try {
       final date = DateTime.fromMillisecondsSinceEpoch(timestamp as int);
       final now = DateTime.now();

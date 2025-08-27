@@ -41,11 +41,11 @@ class EntityBuilder {
   /// Create a new entity of this type
   TransactionChunk create(Map<String, dynamic> data) {
     final entityId = data['id'] as String? ?? _uuid.v4();
-    
+
     // Ensure __type is included
     final fullData = Map<String, dynamic>.from(data);
     fullData['__type'] = entityType;
-    
+
     return TransactionChunk([
       Operation(
         type: OperationType.add,
@@ -79,64 +79,72 @@ class EntityInstanceBuilder {
   /// Link this entity to another entity or entities
   TransactionChunk link(Map<String, dynamic> links) {
     final operations = <Operation>[];
-    
+
     for (final entry in links.entries) {
       final relationName = entry.key;
       final targetIds = entry.value;
-      
+
       if (targetIds is List) {
         // Link to multiple entities
         for (final targetId in targetIds) {
-          operations.add(Operation(
-            type: OperationType.link,
-            entityType: entityType,
-            entityId: entityId,
-            data: {relationName: targetId},
-          ));
+          operations.add(
+            Operation(
+              type: OperationType.link,
+              entityType: entityType,
+              entityId: entityId,
+              data: {relationName: targetId},
+            ),
+          );
         }
       } else {
         // Link to single entity
-        operations.add(Operation(
-          type: OperationType.link,
-          entityType: entityType,
-          entityId: entityId,
-          data: {relationName: targetIds},
-        ));
+        operations.add(
+          Operation(
+            type: OperationType.link,
+            entityType: entityType,
+            entityId: entityId,
+            data: {relationName: targetIds},
+          ),
+        );
       }
     }
-    
+
     return TransactionChunk(operations);
   }
 
   /// Unlink this entity from another entity or entities
   TransactionChunk unlink(Map<String, dynamic> unlinks) {
     final operations = <Operation>[];
-    
+
     for (final entry in unlinks.entries) {
       final relationName = entry.key;
       final targetIds = entry.value;
-      
+
       if (targetIds is List) {
         // Unlink from multiple entities
         for (final targetId in targetIds) {
-          operations.add(Operation(
-            type: OperationType.unlink,
-            entityType: entityType,
-            entityId: entityId,
-            data: {relationName: targetId},
-          ));
+          operations.add(
+            Operation(
+              type: OperationType.unlink,
+              entityType: entityType,
+              entityId: entityId,
+              data: {relationName: targetId},
+            ),
+          );
         }
       } else {
         // Unlink from single entity
-        operations.add(Operation(
-          type: OperationType.unlink,
-          entityType: entityType,
-          entityId: entityId,
-          data: {relationName: targetIds},
-        ));
+        operations.add(
+          Operation(
+            type: OperationType.unlink,
+            entityType: entityType,
+            entityId: entityId,
+            data: {relationName: targetIds},
+          ),
+        );
       }
     }
-    
+
     return TransactionChunk(operations);
   }
 
@@ -166,11 +174,7 @@ class EntityInstanceBuilder {
 
 /// Create a lookup reference for transactions
 LookupRef lookup(String entityType, String attribute, dynamic value) {
-  return LookupRef(
-    entityType: entityType,
-    attribute: attribute,
-    value: value,
-  );
+  return LookupRef(entityType: entityType, attribute: attribute, value: value);
 }
 
 /// Helper function to combine multiple transaction chunks

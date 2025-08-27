@@ -269,6 +269,272 @@ website-open:
 
 # === PUBLISHING & RELEASE TASKS ===
 
+# Complete pre-publish validation
+publish-check:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "🔍 Running complete pre-publish validation..."
+    echo ""
+    
+    # Check static analysis
+    echo "1. Static Analysis Check"
+    if flutter analyze --fatal-infos 2>/dev/null; then
+        echo "✅ Static analysis passed"
+    else
+        echo "❌ Static analysis failed - fix issues before publishing"
+        echo "💡 Run 'just publish-fix' to auto-fix some issues"
+        exit 1
+    fi
+    echo ""
+    
+    # Check LICENSE file
+    echo "2. LICENSE File Check"
+    if [ -f LICENSE ]; then
+        if grep -q "TODO" LICENSE; then
+            echo "❌ LICENSE file contains placeholder text"
+            exit 1
+        else
+            echo "✅ LICENSE file looks good"
+        fi
+    else
+        echo "❌ LICENSE file missing"
+        exit 1
+    fi
+    echo ""
+    
+    # Check version consistency
+    echo "3. Version Consistency Check"
+    just version-check
+    echo ""
+    
+    # Check for gitignored files
+    echo "4. Gitignored Files Check"
+    if flutter pub publish --dry-run 2>&1 | grep -q "gitignored"; then
+        echo "⚠️  Found gitignored files that would be published"
+        echo "💡 Consider creating .pubignore file"
+    else
+        echo "✅ No problematic gitignored files"
+    fi
+    echo ""
+    
+    # Check pubspec metadata
+    echo "5. Pubspec Metadata Check"
+    if grep -q "^description:" pubspec.yaml && grep -q "^homepage:" pubspec.yaml; then
+        echo "✅ Basic pubspec metadata present"
+    else
+        echo "❌ Missing required pubspec metadata"
+        exit 1
+    fi
+    echo ""
+    
+    echo "✅ All pre-publish checks passed!"
+
+# Auto-fix common publishing issues
+publish-fix:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "🔧 Auto-fixing publishing issues..."
+    echo ""
+    
+    echo "1. Formatting code..."
+    just format
+    echo ""
+    
+    echo "2. Removing unused imports and fixing lints..."
+    dart fix --apply lib/
+    echo ""
+    
+    echo "3. Re-running analysis..."
+    flutter analyze --fatal-warnings
+    echo ""
+    
+    echo "✅ Auto-fixes completed!"
+    echo "💡 Run 'just publish-check' to validate all issues are resolved"
+
+# Estimate pub.dev package score
+publish-score:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "📊 Estimating pub.dev package score..."
+    echo ""
+    
+    # Install pana if not available
+    if ! command -v pana &> /dev/null; then
+        echo "📦 Installing pana (pub.dev scoring tool)..."
+        dart pub global activate pana
+    fi
+    echo ""
+    
+    echo "🔍 Running pana analysis..."
+    pana --no-warning .
+    echo ""
+    
+    echo "💡 This score estimation helps predict your pub.dev score"
+    echo "🎯 Aim for 130+ points for a good score"
+
+# Interactive publishing wizard
+publish-interactive:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "🧙 Interactive Publishing Wizard"
+    echo "================================="
+    echo ""
+    
+    # Get current version
+    VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: //' | tr -d ' ')
+    echo "📋 Current version: $VERSION"
+    echo ""
+    
+    # Confirm version
+    read -p "Is this the correct version to publish? (y/N): " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        echo "❌ Publishing cancelled"
+        echo "💡 Update version in pubspec.yaml first"
+        exit 1
+    fi
+    echo ""
+    
+    # Run checks
+    echo "🔍 Running pre-publish checks..."
+    if just publish-check; then
+        echo "✅ All checks passed!"
+    else
+        echo "❌ Checks failed - fix issues before continuing"
+        exit 1
+    fi
+    echo ""
+    
+    # Show what will be published
+    echo "📦 Package contents preview:"
+    flutter pub publish --dry-run | head -30
+    echo ""
+    
+    # Final confirmation
+    echo "⚠️  Ready to publish to pub.dev!"
+    read -p "Continue with publishing? (y/N): " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        flutter pub publish
+        echo "🎉 Package published successfully!"
+        echo "🌐 View at: https://pub.dev/packages/instantdb_flutter"
+    else
+        echo "❌ Publishing cancelled"
+    fi
+
+# Semantic version bumping helpers
+version-patch:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "📈 Bumping patch version..."
+    
+    # Get current version
+    CURRENT=$(grep '^version:' pubspec.yaml | sed 's/version: //' | tr -d ' ')
+    
+    # Parse version parts
+    IFS='.' read -ra PARTS <<< "$CURRENT"
+    MAJOR=${PARTS[0]}
+    MINOR=${PARTS[1]}
+    PATCH=${PARTS[2]%+*}  # Remove build number if present
+    
+    # Increment patch
+    NEW_PATCH=$((PATCH + 1))
+    NEW_VERSION="$MAJOR.$MINOR.$NEW_PATCH"
+    
+    echo "📋 Current: $CURRENT"
+    echo "📋 New: $NEW_VERSION"
+    
+    # Update pubspec.yaml
+    sed -i.bak "s/^version: .*/version: $NEW_VERSION/" pubspec.yaml
+    rm pubspec.yaml.bak
+    
+    echo "✅ Version updated to $NEW_VERSION"
+
+version-minor:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "📈 Bumping minor version..."
+    
+    # Get current version
+    CURRENT=$(grep '^version:' pubspec.yaml | sed 's/version: //' | tr -d ' ')
+    
+    # Parse version parts
+    IFS='.' read -ra PARTS <<< "$CURRENT"
+    MAJOR=${PARTS[0]}
+    MINOR=${PARTS[1]}
+    
+    # Increment minor, reset patch
+    NEW_MINOR=$((MINOR + 1))
+    NEW_VERSION="$MAJOR.$NEW_MINOR.0"
+    
+    echo "📋 Current: $CURRENT"
+    echo "📋 New: $NEW_VERSION"
+    
+    # Update pubspec.yaml
+    sed -i.bak "s/^version: .*/version: $NEW_VERSION/" pubspec.yaml
+    rm pubspec.yaml.bak
+    
+    echo "✅ Version updated to $NEW_VERSION"
+
+version-major:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "📈 Bumping major version..."
+    
+    # Get current version
+    CURRENT=$(grep '^version:' pubspec.yaml | sed 's/version: //' | tr -d ' ')
+    
+    # Parse version parts
+    IFS='.' read -ra PARTS <<< "$CURRENT"
+    MAJOR=${PARTS[0]}
+    
+    # Increment major, reset minor and patch
+    NEW_MAJOR=$((MAJOR + 1))
+    NEW_VERSION="$NEW_MAJOR.0.0"
+    
+    echo "📋 Current: $CURRENT"
+    echo "📋 New: $NEW_VERSION"
+    
+    # Update pubspec.yaml
+    sed -i.bak "s/^version: .*/version: $NEW_VERSION/" pubspec.yaml
+    rm pubspec.yaml.bak
+    
+    echo "✅ Version updated to $NEW_VERSION"
+
+# Generate changelog from git commits
+changelog-generate:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "📝 Generating changelog from git history..."
+    
+    # Get current version
+    VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: //' | tr -d ' ')
+    
+    # Get last tag or first commit
+    LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || git rev-list --max-parents=0 HEAD)
+    
+    echo "📋 Generating changelog for version $VERSION since $LAST_TAG"
+    echo ""
+    
+    # Generate changelog entry
+    CHANGELOG_ENTRY=$(mktemp)
+    echo "## $VERSION ($(date +%Y-%m-%d))" > "$CHANGELOG_ENTRY"
+    echo "" >> "$CHANGELOG_ENTRY"
+    
+    # Get commits since last tag
+    git log --oneline --pretty=format:"- %s" "$LAST_TAG"..HEAD >> "$CHANGELOG_ENTRY"
+    echo "" >> "$CHANGELOG_ENTRY"
+    echo "" >> "$CHANGELOG_ENTRY"
+    
+    # Prepend to CHANGELOG.md
+    if [ -f CHANGELOG.md ]; then
+        cat CHANGELOG.md >> "$CHANGELOG_ENTRY"
+    fi
+    mv "$CHANGELOG_ENTRY" CHANGELOG.md
+    
+    echo "✅ Changelog updated with $VERSION entries"
+    echo "💡 Edit CHANGELOG.md to improve the generated entries"
+
 # Dry run for package publishing
 publish-dry:
     @echo "🚀 Running publish dry run..."
@@ -279,19 +545,57 @@ publish:
     @echo "🚀 Publishing to pub.dev..."
     flutter pub publish
 
-# Bump version number
+# Bump version number (deprecated - use version-patch/minor/major)
 version-bump type="patch":
     @echo "📈 Bumping {{type}} version..."
-    @echo "Manual task: Update version in pubspec.yaml"
+    @echo "⚠️  Deprecated: Use 'just version-{{type}}' instead"
+    @just version-{{type}}
 
-# Update changelog
+# Update changelog (deprecated - use changelog-generate)
 changelog:
     @echo "📝 Updating changelog..."
-    @echo "Manual task: Update CHANGELOG.md with recent changes"
+    @echo "⚠️  Deprecated: Use 'just changelog-generate' instead"
+    @just changelog-generate
 
-# Full release process
+# Complete publishing workflow
+publish-workflow:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "🚀 Complete Publishing Workflow"
+    echo "==============================="
+    echo ""
+    
+    # Step 1: Pre-publish validation
+    echo "Step 1: Pre-publish validation"
+    just publish-check
+    echo ""
+    
+    # Step 2: Run tests
+    echo "Step 2: Running tests..."
+    just test
+    echo ""
+    
+    # Step 3: Build documentation
+    echo "Step 3: Building documentation..."
+    just docs
+    echo ""
+    
+    # Step 4: Dry run
+    echo "Step 4: Publish dry run..."
+    just publish-dry
+    echo ""
+    
+    echo "✅ All workflow checks passed!"
+    echo ""
+    echo "🎯 Ready for publishing. Choose next step:"
+    echo "   • just publish-interactive  - Interactive publishing wizard"
+    echo "   • just publish             - Direct publish to pub.dev"
+    echo "   • just tag-create          - Create version tag first"
+    echo "   • just release-create      - Create GitHub release"
+
+# Full release process (maintained for compatibility)
 release: check test-coverage docs publish-dry
-    @echo "🎉 Ready for release! Run 'just publish' to complete."
+    @echo "🎉 Ready for release! Run 'just publish-workflow' for the complete flow."
 
 # === GITHUB RELEASES ===
 

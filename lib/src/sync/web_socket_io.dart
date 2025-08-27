@@ -13,18 +13,18 @@ class WebSocketManager {
 
 class WebSocketAdapter {
   final WebSocket _webSocket;
-  
+
   WebSocketAdapter(this._webSocket);
-  
+
   Stream<dynamic> get stream => _webSocket;
-  
+
   void send(String data) {
     _webSocket.add(data);
   }
-  
+
   Future<void> close() async {
     await _webSocket.close();
   }
-  
+
   bool get isOpen => _webSocket.readyState == WebSocket.open;
 }

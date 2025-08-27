@@ -39,7 +39,7 @@ class _CustomCursorsPageState extends State<CustomCursorsPage> {
   void _initializeUser() {
     final db = InstantProvider.of(context);
     final currentUser = db.auth.currentUser.value;
-    
+
     if (currentUser != null) {
       _userId = currentUser.id;
       _userName = currentUser.email.split('@')[0];
@@ -71,10 +71,10 @@ class _CustomCursorsPageState extends State<CustomCursorsPage> {
 
   void _updateCursor(Offset position) {
     if (_userId == null || !_hasSetName || _room == null) return;
-    
+
     // Cancel existing timer
     _cursorTimer?.cancel();
-    
+
     // Update cursor position using presence system
     _room!.updateCursor(
       x: position.dx,
@@ -86,14 +86,14 @@ class _CustomCursorsPageState extends State<CustomCursorsPage> {
         'timestamp': DateTime.now().millisecondsSinceEpoch,
       },
     );
-    
+
     // Set timer to remove cursor after 5 seconds of inactivity
     _cursorTimer = Timer(const Duration(seconds: 5), _removeCursor);
   }
 
   void _removeCursor() {
     if (_userId == null || _room == null) return;
-    
+
     // Remove cursor using presence system
     _room!.removeCursor();
   }
@@ -142,10 +142,7 @@ class _CustomCursorsPageState extends State<CustomCursorsPage> {
                       ),
                       Text(
                         'Your cursor color',
-                        style: TextStyle(
-                          color: Colors.grey[600],
-                          fontSize: 14,
-                        ),
+                        style: TextStyle(color: Colors.grey[600], fontSize: 14),
                       ),
                     ],
                   ),
@@ -159,7 +156,7 @@ class _CustomCursorsPageState extends State<CustomCursorsPage> {
             ],
           ),
         ),
-        
+
         // Cursor tracking area
         Expanded(
           child: LayoutBuilder(
@@ -167,9 +164,12 @@ class _CustomCursorsPageState extends State<CustomCursorsPage> {
               return MouseRegion(
                 onHover: (event) {
                   // Get position relative to the tracking area
-                  final RenderBox? renderBox = context.findRenderObject() as RenderBox?;
+                  final RenderBox? renderBox =
+                      context.findRenderObject() as RenderBox?;
                   if (renderBox != null) {
-                    final localPosition = renderBox.globalToLocal(event.position);
+                    final localPosition = renderBox.globalToLocal(
+                      event.position,
+                    );
                     _updateCursor(localPosition);
                   }
                 },
@@ -185,10 +185,7 @@ class _CustomCursorsPageState extends State<CustomCursorsPage> {
                       gradient: LinearGradient(
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
-                        colors: [
-                          Colors.deepPurple[50]!,
-                          Colors.indigo[50]!,
-                        ],
+                        colors: [Colors.deepPurple[50]!, Colors.indigo[50]!],
                       ),
                       border: Border.all(
                         color: Colors.deepPurple[200]!,
@@ -218,25 +215,29 @@ class _CustomCursorsPageState extends State<CustomCursorsPage> {
                             ],
                           ),
                         ),
-                        
+
                         // Cursors using presence system
                         Watch((context) {
                           if (_room == null) return const SizedBox.shrink();
-                          
+
                           final cursors = _room!.getCursors().value;
-                          
+
                           return Stack(
                             children: cursors.entries.map((entry) {
                               final userId = entry.key;
                               final cursor = entry.value;
-                              final userName = cursor.userName ?? _userName ?? 'Unknown';
+                              final userName =
+                                  cursor.userName ?? _userName ?? 'Unknown';
                               // Get color from metadata or use user color
-                              final colorValue = cursor.metadata?['color'] as int?;
-                              final color = colorValue != null ? Color(colorValue) : _userColor ?? Colors.purple;
+                              final colorValue =
+                                  cursor.metadata?['color'] as int?;
+                              final color = colorValue != null
+                                  ? Color(colorValue)
+                                  : _userColor ?? Colors.purple;
                               final x = cursor.x;
                               final y = cursor.y;
                               final isMe = userId == _userId;
-                              
+
                               return _CustomCursorWidget(
                                 position: Offset(x, y),
                                 userName: userName,
@@ -337,19 +338,13 @@ class _CustomCursorWidget extends StatelessWidget {
                 angle: -0.2,
                 child: CustomPaint(
                   size: const Size(20, 20),
-                  painter: _CursorPainter(
-                    color: color,
-                    isMe: isMe,
-                  ),
+                  painter: _CursorPainter(color: color, isMe: isMe),
                 ),
               ),
               // Name label
               Container(
                 margin: const EdgeInsets.only(left: 16, top: 2),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 8,
-                  vertical: 4,
-                ),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
                   color: color,
                   borderRadius: BorderRadius.circular(12),
@@ -376,10 +371,7 @@ class _CustomCursorWidget extends StatelessWidget {
                       const SizedBox(width: 4),
                       const Text(
                         '(You)',
-                        style: TextStyle(
-                          color: Colors.white70,
-                          fontSize: 11,
-                        ),
+                        style: TextStyle(color: Colors.white70, fontSize: 11),
                       ),
                     ],
                   ],
@@ -397,22 +389,19 @@ class _CursorPainter extends CustomPainter {
   final Color color;
   final bool isMe;
 
-  _CursorPainter({
-    required this.color,
-    required this.isMe,
-  });
+  _CursorPainter({required this.color, required this.isMe});
 
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
       ..color = color
       ..style = PaintingStyle.fill;
-    
+
     final outlinePaint = Paint()
       ..color = Colors.white
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2.0;
-    
+
     // Cursor path
     final path = Path()
       ..moveTo(0, 0)
@@ -422,20 +411,20 @@ class _CursorPainter extends CustomPainter {
       ..lineTo(size.width * 0.35, size.height * 0.45)
       ..lineTo(size.width * 0.65, size.height * 0.45)
       ..close();
-    
+
     // Draw white outline
     canvas.drawPath(path, outlinePaint);
-    
+
     // Draw colored fill
     canvas.drawPath(path, paint);
-    
+
     // Add glow effect for current user
     if (isMe) {
       final glowPaint = Paint()
         ..color = color.withValues(alpha: 0.3)
         ..style = PaintingStyle.fill
         ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4);
-      
+
       canvas.drawPath(path, glowPaint);
     }
   }

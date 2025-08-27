@@ -10,7 +10,10 @@ DatabaseFactory getPlatformDatabaseFactory() {
   return databaseFactory;
 }
 
-Future<String> getPlatformDatabasePath(String appId, {String? persistenceDir}) async {
+Future<String> getPlatformDatabasePath(
+  String appId, {
+  String? persistenceDir,
+}) async {
   if (persistenceDir != null) {
     return join(persistenceDir, '$appId.db');
   }

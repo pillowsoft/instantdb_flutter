@@ -15,7 +15,16 @@ class _ReactionsPageState extends State<ReactionsPage> {
   final List<_AnimatedReaction> _localReactions = [];
   InstantRoom? _room;
 
-  static const List<String> _emojis = ['❤️', '👍', '😄', '🎉', '🚀', '✨', '🔥', '💯'];
+  static const List<String> _emojis = [
+    '❤️',
+    '👍',
+    '😄',
+    '🎉',
+    '🚀',
+    '✨',
+    '🔥',
+    '💯',
+  ];
 
   @override
   void didChangeDependencies() {
@@ -29,7 +38,9 @@ class _ReactionsPageState extends State<ReactionsPage> {
   void _initializeUser() {
     final db = InstantProvider.of(context);
     final currentUser = db.auth.currentUser.value;
-    _userId = currentUser?.id ?? db.getAnonymousUserId(); // Use consistent anonymous user ID
+    _userId =
+        currentUser?.id ??
+        db.getAnonymousUserId(); // Use consistent anonymous user ID
   }
 
   void _joinRoom() {
@@ -40,34 +51,37 @@ class _ReactionsPageState extends State<ReactionsPage> {
 
   void _sendReaction(String emoji, Offset globalPosition) {
     if (_userId == null || _room == null) return;
-    
+
     final db = InstantProvider.of(context);
-    
+
     // Convert global position to local position relative to the screen
     final RenderBox? renderBox = context.findRenderObject() as RenderBox?;
-    final localPosition = renderBox?.globalToLocal(globalPosition) ?? globalPosition;
-    
+    final localPosition =
+        renderBox?.globalToLocal(globalPosition) ?? globalPosition;
+
     // Create reaction using the new room-based API
-    _room!.sendReaction(emoji, metadata: {
-      'x': localPosition.dx,
-      'y': localPosition.dy,
-    });
-    
+    _room!.sendReaction(
+      emoji,
+      metadata: {'x': localPosition.dx, 'y': localPosition.dy},
+    );
+
     // Add local reaction for immediate feedback
     final reactionId = db.id();
     setState(() {
-      _localReactions.add(_AnimatedReaction(
-        id: reactionId,
-        emoji: emoji,
-        position: localPosition,
-        onComplete: () {
-          setState(() {
-            _localReactions.removeWhere((r) => r.id == reactionId);
-          });
-        },
-      ));
+      _localReactions.add(
+        _AnimatedReaction(
+          id: reactionId,
+          emoji: emoji,
+          position: localPosition,
+          onComplete: () {
+            setState(() {
+              _localReactions.removeWhere((r) => r.id == reactionId);
+            });
+          },
+        ),
+      );
     });
-    
+
     // Note: Reactions are handled via presence system, no database cleanup needed
     // Local reactions are automatically removed by their onComplete callback
   }
@@ -102,7 +116,7 @@ class _ReactionsPageState extends State<ReactionsPage> {
                 ],
               ),
             ),
-            
+
             // Emoji selector
             Container(
               height: 80,
@@ -112,18 +126,20 @@ class _ReactionsPageState extends State<ReactionsPage> {
                 children: _emojis.map((emoji) {
                   return _EmojiButton(
                     emoji: emoji,
-                    onTap: (globalPosition) => _sendReaction(emoji, globalPosition),
+                    onTap: (globalPosition) =>
+                        _sendReaction(emoji, globalPosition),
                   );
                 }).toList(),
               ),
             ),
-            
+
             // Reaction area
             Expanded(
               child: GestureDetector(
                 onTapDown: (details) {
                   // Send random emoji on tap
-                  final randomEmoji = _emojis[math.Random().nextInt(_emojis.length)];
+                  final randomEmoji =
+                      _emojis[math.Random().nextInt(_emojis.length)];
                   _sendReaction(randomEmoji, details.globalPosition);
                 },
                 child: Container(
@@ -153,13 +169,13 @@ class _ReactionsPageState extends State<ReactionsPage> {
             ),
           ],
         ),
-        
+
         // Remote reactions from new room-based API
         Watch((context) {
           if (_room == null) return const SizedBox.shrink();
-          
+
           final reactionsData = _room!.getReactions().value;
-          
+
           return Stack(
             children: reactionsData.map((reaction) {
               final id = reaction.id;
@@ -167,10 +183,10 @@ class _ReactionsPageState extends State<ReactionsPage> {
               final x = (reaction.metadata?['x'] ?? 0.0).toDouble();
               final y = (reaction.metadata?['y'] ?? 0.0).toDouble();
               final isLocal = _localReactions.any((r) => r.id == id);
-              
+
               // Skip if we're already showing this as a local reaction
               if (isLocal) return const SizedBox.shrink();
-              
+
               return _AnimatedReaction(
                 id: id,
                 emoji: emoji,
@@ -180,7 +196,7 @@ class _ReactionsPageState extends State<ReactionsPage> {
             }).toList(),
           );
         }),
-        
+
         // Local reactions (for immediate feedback)
         ..._localReactions,
       ],
@@ -192,10 +208,7 @@ class _EmojiButton extends StatelessWidget {
   final String emoji;
   final Function(Offset) onTap;
 
-  const _EmojiButton({
-    required this.emoji,
-    required this.onTap,
-  });
+  const _EmojiButton({required this.emoji, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -207,17 +220,9 @@ class _EmojiButton extends StatelessWidget {
         decoration: BoxDecoration(
           color: Colors.grey[100],
           borderRadius: BorderRadius.circular(28),
-          border: Border.all(
-            color: Colors.grey[300]!,
-            width: 2,
-          ),
+          border: Border.all(color: Colors.grey[300]!, width: 2),
         ),
-        child: Center(
-          child: Text(
-            emoji,
-            style: const TextStyle(fontSize: 28),
-          ),
-        ),
+        child: Center(child: Text(emoji, style: const TextStyle(fontSize: 28))),
       ),
     );
   }
@@ -250,56 +255,50 @@ class _AnimatedReactionState extends State<_AnimatedReaction>
   @override
   void initState() {
     super.initState();
-    
+
     _controller = AnimationController(
       duration: const Duration(seconds: 3),
       vsync: this,
     );
-    
+
     // Scale animation - grow then shrink
     _scaleAnimation = TweenSequence<double>([
       TweenSequenceItem(
-        tween: Tween<double>(begin: 0.0, end: 1.2)
-            .chain(CurveTween(curve: Curves.easeOut)),
+        tween: Tween<double>(
+          begin: 0.0,
+          end: 1.2,
+        ).chain(CurveTween(curve: Curves.easeOut)),
         weight: 20,
       ),
       TweenSequenceItem(
-        tween: Tween<double>(begin: 1.2, end: 1.0)
-            .chain(CurveTween(curve: Curves.easeInOut)),
+        tween: Tween<double>(
+          begin: 1.2,
+          end: 1.0,
+        ).chain(CurveTween(curve: Curves.easeInOut)),
         weight: 30,
       ),
       TweenSequenceItem(
-        tween: Tween<double>(begin: 1.0, end: 0.0)
-            .chain(CurveTween(curve: Curves.easeIn)),
+        tween: Tween<double>(
+          begin: 1.0,
+          end: 0.0,
+        ).chain(CurveTween(curve: Curves.easeIn)),
         weight: 50,
       ),
     ]).animate(_controller);
-    
+
     // Fade animation
     _fadeAnimation = TweenSequence<double>([
-      TweenSequenceItem(
-        tween: Tween<double>(begin: 0.0, end: 1.0),
-        weight: 10,
-      ),
-      TweenSequenceItem(
-        tween: Tween<double>(begin: 1.0, end: 1.0),
-        weight: 60,
-      ),
-      TweenSequenceItem(
-        tween: Tween<double>(begin: 1.0, end: 0.0),
-        weight: 30,
-      ),
+      TweenSequenceItem(tween: Tween<double>(begin: 0.0, end: 1.0), weight: 10),
+      TweenSequenceItem(tween: Tween<double>(begin: 1.0, end: 1.0), weight: 60),
+      TweenSequenceItem(tween: Tween<double>(begin: 1.0, end: 0.0), weight: 30),
     ]).animate(_controller);
-    
+
     // Position animation - float upward
     _positionAnimation = Tween<Offset>(
       begin: widget.position,
       end: Offset(widget.position.dx, widget.position.dy - 150),
-    ).animate(CurvedAnimation(
-      parent: _controller,
-      curve: Curves.easeOut,
-    ));
-    
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOut));
+
     _controller.forward().then((_) {
       if (mounted) {
         widget.onComplete();

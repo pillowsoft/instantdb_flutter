@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'package:sqflite/sqflite.dart' hide Transaction;
 
 import '../core/types.dart';
-import '../core/logging.dart';
 import '../core/logging_config.dart';
 import 'database_factory.dart';
 import 'storage_interface.dart';
@@ -12,9 +11,11 @@ import 'storage_interface.dart';
 class TripleStore implements StorageInterface {
   late final Database _db;
   final String appId;
-  final StreamController<TripleChange> _changeController = StreamController.broadcast();
+  final StreamController<TripleChange> _changeController =
+      StreamController.broadcast();
 
   /// Stream of all changes to the triple store
+  @override
   Stream<TripleChange> get changes => _changeController.stream;
 
   TripleStore._(this.appId, this._db);
@@ -26,10 +27,10 @@ class TripleStore implements StorageInterface {
   }) async {
     // Initialize the platform-specific database factory
     await initializeDatabaseFactory();
-    
+
     // Get the platform-specific database path
     final dbPath = await getDatabasePath(appId, persistenceDir: persistenceDir);
-    
+
     // Get the platform-specific database factory
     final factory = getDatabaseFactory();
 
@@ -85,7 +86,11 @@ class TripleStore implements StorageInterface {
     ''');
   }
 
-  static Future<void> _upgradeTables(Database db, int oldVersion, int newVersion) async {
+  static Future<void> _upgradeTables(
+    Database db,
+    int oldVersion,
+    int newVersion,
+  ) async {
     // Handle database schema migrations here
     if (oldVersion < newVersion) {
       // Future migration logic
@@ -94,23 +99,16 @@ class TripleStore implements StorageInterface {
 
   /// Add a triple to the store
   Future<void> addTriple(Triple triple) async {
-    await _db.insert(
-      'triples',
-      {
-        'entity_id': triple.entityId,
-        'attribute': triple.attribute,
-        'value': jsonEncode(triple.value),
-        'tx_id': triple.txId,
-        'created_at': triple.createdAt.millisecondsSinceEpoch,
-        'retracted': triple.retracted ? 1 : 0,
-      },
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    await _db.insert('triples', {
+      'entity_id': triple.entityId,
+      'attribute': triple.attribute,
+      'value': jsonEncode(triple.value),
+      'tx_id': triple.txId,
+      'created_at': triple.createdAt.millisecondsSinceEpoch,
+      'retracted': triple.retracted ? 1 : 0,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
 
-    _changeController.add(TripleChange(
-      type: ChangeType.add,
-      triple: triple,
-    ));
+    _changeController.add(TripleChange(type: ChangeType.add, triple: triple));
   }
 
   /// Retract a triple (soft delete)
@@ -127,10 +125,9 @@ class TripleStore implements StorageInterface {
       ],
     );
 
-    _changeController.add(TripleChange(
-      type: ChangeType.retract,
-      triple: triple,
-    ));
+    _changeController.add(
+      TripleChange(type: ChangeType.retract, triple: triple),
+    );
   }
 
   /// Query triples by entity ID
@@ -171,6 +168,7 @@ class TripleStore implements StorageInterface {
   }
 
   /// Get entity type for a specific entity ID
+  @override
   Future<String?> getEntityType(String entityId) async {
     final results = await _db.query(
       'triples',
@@ -178,15 +176,16 @@ class TripleStore implements StorageInterface {
       where: 'entity_id = ? AND attribute = ? AND retracted = FALSE',
       whereArgs: [entityId, '__type'],
     );
-    
+
     if (results.isNotEmpty) {
       return results.first['value'] as String?;
     }
-    
+
     return null;
   }
 
   /// Execute a complex query with WHERE conditions
+  @override
   Future<List<Map<String, dynamic>>> queryEntities({
     String? entityType,
     String? entityId,
@@ -266,7 +265,8 @@ class TripleStore implements StorageInterface {
         if (value is List) {
           bool matchesAny = false;
           for (final condition in value) {
-            if (condition is Map<String, dynamic> && _matchesWhere(entity, condition)) {
+            if (condition is Map<String, dynamic> &&
+                _matchesWhere(entity, condition)) {
               matchesAny = true;
               break;
             }
@@ -279,7 +279,8 @@ class TripleStore implements StorageInterface {
       if (key == '\$and') {
         if (value is List) {
           for (final condition in value) {
-            if (condition is Map<String, dynamic> && !_matchesWhere(entity, condition)) {
+            if (condition is Map<String, dynamic> &&
+                !_matchesWhere(entity, condition)) {
               return false;
             }
           }
@@ -319,23 +320,39 @@ class TripleStore implements StorageInterface {
         // Standard comparison operators
         case '>':
         case '\$gt':
-          if (entityValue is! Comparable || operandValue is! Comparable) return false;
-          if ((entityValue as Comparable).compareTo(operandValue) <= 0) return false;
+          if (entityValue is! Comparable || operandValue is! Comparable) {
+            return false;
+          }
+          if ((entityValue).compareTo(operandValue) <= 0) {
+            return false;
+          }
           break;
         case '>=':
         case '\$gte':
-          if (entityValue is! Comparable || operandValue is! Comparable) return false;
-          if ((entityValue as Comparable).compareTo(operandValue) < 0) return false;
+          if (entityValue is! Comparable || operandValue is! Comparable) {
+            return false;
+          }
+          if ((entityValue).compareTo(operandValue) < 0) {
+            return false;
+          }
           break;
         case '<':
         case '\$lt':
-          if (entityValue is! Comparable || operandValue is! Comparable) return false;
-          if ((entityValue as Comparable).compareTo(operandValue) >= 0) return false;
+          if (entityValue is! Comparable || operandValue is! Comparable) {
+            return false;
+          }
+          if ((entityValue).compareTo(operandValue) >= 0) {
+            return false;
+          }
           break;
         case '<=':
         case '\$lte':
-          if (entityValue is! Comparable || operandValue is! Comparable) return false;
-          if ((entityValue as Comparable).compareTo(operandValue) > 0) return false;
+          if (entityValue is! Comparable || operandValue is! Comparable) {
+            return false;
+          }
+          if ((entityValue).compareTo(operandValue) > 0) {
+            return false;
+          }
           break;
         case '!=':
         case '\$ne':
@@ -343,11 +360,15 @@ class TripleStore implements StorageInterface {
           break;
         case 'in':
         case '\$in':
-          if (operandValue is List && !operandValue.contains(entityValue)) return false;
+          if (operandValue is List && !operandValue.contains(entityValue)) {
+            return false;
+          }
           break;
         case 'not_in':
         case '\$nin':
-          if (operandValue is List && operandValue.contains(entityValue)) return false;
+          if (operandValue is List && operandValue.contains(entityValue)) {
+            return false;
+          }
           break;
 
         // String pattern matching operators
@@ -364,7 +385,7 @@ class TripleStore implements StorageInterface {
           if (!regex.hasMatch(entityValue.toLowerCase())) return false;
           break;
 
-        // Null checking operators  
+        // Null checking operators
         case '\$isNull':
           final shouldBeNull = operandValue == true;
           final isNull = entityValue == null;
@@ -417,24 +438,30 @@ class TripleStore implements StorageInterface {
   }
 
   /// Resolve a lookup reference to find entity ID by attribute value
-  Future<String?> resolveLookup(String entityType, String attribute, dynamic value) async {
+  Future<String?> resolveLookup(
+    String entityType,
+    String attribute,
+    dynamic value,
+  ) async {
     final results = await queryEntities(
       entityType: entityType,
       where: {attribute: value},
       limit: 1,
     );
-    
+
     if (results.isNotEmpty) {
       return results.first['id'] as String?;
     }
-    
+
     return null;
   }
 
   /// Resolve multiple lookup references at once
-  Future<Map<LookupRef, String?>> resolveLookupsMap(List<LookupRef> lookups) async {
+  Future<Map<LookupRef, String?>> resolveLookupsMap(
+    List<LookupRef> lookups,
+  ) async {
     final results = <LookupRef, String?>{};
-    
+
     for (final lookup in lookups) {
       final entityId = await resolveLookup(
         lookup.entityType,
@@ -443,11 +470,15 @@ class TripleStore implements StorageInterface {
       );
       results[lookup] = entityId;
     }
-    
+
     return results;
   }
 
-  int _compareEntities(Map<String, dynamic> a, Map<String, dynamic> b, dynamic orderBy) {
+  int _compareEntities(
+    Map<String, dynamic> a,
+    Map<String, dynamic> b,
+    dynamic orderBy,
+  ) {
     if (orderBy is String) {
       // Simple single field ordering
       final parts = orderBy.split(' ');
@@ -471,11 +502,16 @@ class TripleStore implements StorageInterface {
       final direction = orderBy[field]?.toString().toLowerCase() ?? 'asc';
       return _compareSingleField(a, b, field, direction);
     }
-    
+
     return 0;
   }
 
-  int _compareSingleField(Map<String, dynamic> a, Map<String, dynamic> b, String field, String direction) {
+  int _compareSingleField(
+    Map<String, dynamic> a,
+    Map<String, dynamic> b,
+    String field,
+    String direction,
+  ) {
     final aValue = a[field];
     final bValue = b[field];
 
@@ -485,12 +521,12 @@ class TripleStore implements StorageInterface {
 
     int comparison;
     if (aValue is Comparable && bValue is Comparable) {
-      comparison = (aValue as Comparable).compareTo(bValue as Comparable);
+      comparison = (aValue).compareTo(bValue);
     } else {
       // Fallback to string comparison
       comparison = aValue.toString().compareTo(bValue.toString());
     }
-    
+
     return direction == 'desc' ? -comparison : comparison;
   }
 
@@ -502,24 +538,26 @@ class TripleStore implements StorageInterface {
     if (groupBy != null && groupBy.isNotEmpty) {
       // Group by specified fields
       final groups = <String, List<Map<String, dynamic>>>{};
-      
+
       for (final entity in entities) {
-        final groupKey = groupBy.map((field) => entity[field]?.toString() ?? '').join('|');
+        final groupKey = groupBy
+            .map((field) => entity[field]?.toString() ?? '')
+            .join('|');
         groups.putIfAbsent(groupKey, () => []);
         groups[groupKey]!.add(entity);
       }
-      
+
       // Apply aggregations to each group
       return groups.entries.map((entry) {
         final group = entry.value;
         final result = _calculateAggregates(group, aggregate);
-        
+
         // Add group fields to result
         final groupKeys = entry.key.split('|');
         for (int i = 0; i < groupBy.length && i < groupKeys.length; i++) {
           result[groupBy[i]] = _parseValue(groupKeys[i]);
         }
-        
+
         return result;
       }).toList();
     } else {
@@ -533,62 +571,68 @@ class TripleStore implements StorageInterface {
     Map<String, dynamic> aggregate,
   ) {
     final result = <String, dynamic>{};
-    
+
     for (final entry in aggregate.entries) {
       final aggregateType = entry.key;
       final field = entry.value;
-      
+
       switch (aggregateType) {
         case 'count':
           result['count'] = entities.length;
           break;
-          
+
         case 'sum':
           if (field is String && field != '*') {
             final values = entities
                 .map((e) => e[field])
-                .where((v) => v is num)
+                .whereType<num>()
                 .cast<num>();
             result['sum'] = values.isEmpty ? 0 : values.reduce((a, b) => a + b);
           }
           break;
-          
+
         case 'avg':
           if (field is String && field != '*') {
             final values = entities
                 .map((e) => e[field])
-                .where((v) => v is num)
+                .whereType<num>()
                 .cast<num>();
-            result['avg'] = values.isEmpty ? 0 : values.reduce((a, b) => a + b) / values.length;
+            result['avg'] = values.isEmpty
+                ? 0
+                : values.reduce((a, b) => a + b) / values.length;
           }
           break;
-          
+
         case 'min':
           if (field is String && field != '*') {
             final values = entities
                 .map((e) => e[field])
-                .where((v) => v is Comparable)
+                .whereType<Comparable>()
                 .cast<Comparable>();
             if (values.isNotEmpty) {
-              result['min'] = values.reduce((a, b) => a.compareTo(b) < 0 ? a : b);
+              result['min'] = values.reduce(
+                (a, b) => a.compareTo(b) < 0 ? a : b,
+              );
             }
           }
           break;
-          
+
         case 'max':
           if (field is String && field != '*') {
             final values = entities
                 .map((e) => e[field])
-                .where((v) => v is Comparable)
+                .whereType<Comparable>()
                 .cast<Comparable>();
             if (values.isNotEmpty) {
-              result['max'] = values.reduce((a, b) => a.compareTo(b) > 0 ? a : b);
+              result['max'] = values.reduce(
+                (a, b) => a.compareTo(b) > 0 ? a : b,
+              );
             }
           }
           break;
       }
     }
-    
+
     return result;
   }
 
@@ -618,6 +662,7 @@ class TripleStore implements StorageInterface {
   }
 
   /// Apply a transaction to the store
+  @override
   Future<void> applyTransaction(Transaction transaction) async {
     // Check if transaction already exists
     final existing = await _db.query(
@@ -626,19 +671,23 @@ class TripleStore implements StorageInterface {
       whereArgs: [transaction.id],
       limit: 1,
     );
-    
+
     if (existing.isNotEmpty) {
       // Transaction already applied, skip
-      InstantDBLogging.root.debug('Transaction ${transaction.id} already applied, skipping');
+      InstantDBLogging.root.debug(
+        'Transaction ${transaction.id} already applied, skipping',
+      );
       return;
     }
 
     // Resolve any lookup references first (outside DB transaction)
-    final resolvedOperations = await _resolveLookupReferences(transaction.operations);
-    
+    final resolvedOperations = await _resolveLookupReferences(
+      transaction.operations,
+    );
+
     // Collect change events to emit after the transaction completes
     final pendingChanges = <TripleChange>[];
-    
+
     await _db.transaction((txn) async {
       // Store transaction record
       await txn.insert('transactions', {
@@ -651,43 +700,58 @@ class TripleStore implements StorageInterface {
 
       // Apply resolved operations and collect changes
       for (final operation in resolvedOperations) {
-        final changes = await _applyOperationWithChanges(txn, operation, transaction.id);
+        final changes = await _applyOperationWithChanges(
+          txn,
+          operation,
+          transaction.id,
+        );
         pendingChanges.addAll(changes);
       }
     });
-    
+
     // Emit all changes after transaction completes
-    InstantDBLogging.root.debug('TripleStore: Transaction ${transaction.id} complete, emitting ${pendingChanges.length} changes');
+    InstantDBLogging.root.debug(
+      'TripleStore: Transaction ${transaction.id} complete, emitting ${pendingChanges.length} changes',
+    );
     for (final change in pendingChanges) {
-      InstantDBLogging.root.debug('TripleStore: Emitting change - ${change.type} for entity ${change.triple.entityId}, attribute ${change.triple.attribute}');
+      InstantDBLogging.root.debug(
+        'TripleStore: Emitting change - ${change.type} for entity ${change.triple.entityId}, attribute ${change.triple.attribute}',
+      );
       _changeController.add(change);
     }
   }
 
   /// Resolve any LookupRef references in operation data to actual entity IDs
-  Future<List<Operation>> _resolveLookupReferences(List<Operation> operations) async {
+  Future<List<Operation>> _resolveLookupReferences(
+    List<Operation> operations,
+  ) async {
     final resolvedOperations = <Operation>[];
-    
+
     for (final operation in operations) {
       if (operation.data == null) {
         resolvedOperations.add(operation);
         continue;
       }
-      
+
       final resolvedData = <String, dynamic>{};
       bool hasChanges = false;
-      
+
       for (final entry in operation.data!.entries) {
         final value = entry.value;
         if (value is LookupRef) {
           // Resolve the lookup reference
-          final entityId = await resolveLookup(value.entityType, value.attribute, value.value);
+          final entityId = await resolveLookup(
+            value.entityType,
+            value.attribute,
+            value.value,
+          );
           if (entityId != null) {
             resolvedData[entry.key] = entityId;
             hasChanges = true;
           } else {
             throw InstantException(
-              message: 'Could not resolve lookup reference: ${value.entityType}.${value.attribute} = ${value.value}',
+              message:
+                  'Could not resolve lookup reference: ${value.entityType}.${value.attribute} = ${value.value}',
               code: 'lookup_failed',
             );
           }
@@ -695,24 +759,30 @@ class TripleStore implements StorageInterface {
           resolvedData[entry.key] = value;
         }
       }
-      
+
       if (hasChanges) {
-        resolvedOperations.add(Operation(
-          type: operation.type,
-          entityType: operation.entityType,
-          entityId: operation.entityId,
-          data: resolvedData,
-          options: operation.options,
-        ));
+        resolvedOperations.add(
+          Operation(
+            type: operation.type,
+            entityType: operation.entityType,
+            entityId: operation.entityId,
+            data: resolvedData,
+            options: operation.options,
+          ),
+        );
       } else {
         resolvedOperations.add(operation);
       }
     }
-    
+
     return resolvedOperations;
   }
 
-  Future<List<TripleChange>> _applyOperationWithChanges(DatabaseExecutor txn, Operation operation, String txId) async {
+  Future<List<TripleChange>> _applyOperationWithChanges(
+    DatabaseExecutor txn,
+    Operation operation,
+    String txId,
+  ) async {
     final changes = <TripleChange>[];
     final now = DateTime.now();
 
@@ -730,16 +800,18 @@ class TripleStore implements StorageInterface {
               'retracted': 0,
             });
 
-            changes.add(TripleChange(
-              type: ChangeType.add,
-              triple: Triple(
-                entityId: operation.entityId,
-                attribute: entry.key,
-                value: entry.value,
-                txId: txId,
-                createdAt: now,
+            changes.add(
+              TripleChange(
+                type: ChangeType.add,
+                triple: Triple(
+                  entityId: operation.entityId,
+                  attribute: entry.key,
+                  value: entry.value,
+                  txId: txId,
+                  createdAt: now,
+                ),
               ),
-            ));
+            );
           }
         }
         break;
@@ -766,16 +838,18 @@ class TripleStore implements StorageInterface {
               'retracted': 0,
             });
 
-            changes.add(TripleChange(
-              type: ChangeType.add,
-              triple: Triple(
-                entityId: operation.entityId,
-                attribute: entry.key,
-                value: entry.value,
-                txId: txId,
-                createdAt: now,
+            changes.add(
+              TripleChange(
+                type: ChangeType.add,
+                triple: Triple(
+                  entityId: operation.entityId,
+                  attribute: entry.key,
+                  value: entry.value,
+                  txId: txId,
+                  createdAt: now,
+                ),
               ),
-            ));
+            );
           }
         }
         break;
@@ -787,15 +861,17 @@ class TripleStore implements StorageInterface {
           where: 'entity_id = ? AND retracted = FALSE',
           whereArgs: [operation.entityId],
         );
-        
+
         final existingData = <String, dynamic>{};
         for (final triple in existingTriples) {
-          existingData[triple['attribute'] as String] = jsonDecode(triple['value'] as String);
+          existingData[triple['attribute'] as String] = jsonDecode(
+            triple['value'] as String,
+          );
         }
-        
+
         if (operation.data != null) {
           final mergedData = _deepMerge(existingData, operation.data!);
-          
+
           // Update changed fields
           for (final entry in mergedData.entries) {
             if (existingData[entry.key] != entry.value) {
@@ -817,16 +893,18 @@ class TripleStore implements StorageInterface {
                 'retracted': 0,
               });
 
-              changes.add(TripleChange(
-                type: ChangeType.add,
-                triple: Triple(
-                  entityId: operation.entityId,
-                  attribute: entry.key,
-                  value: entry.value,
-                  txId: txId,
-                  createdAt: now,
+              changes.add(
+                TripleChange(
+                  type: ChangeType.add,
+                  triple: Triple(
+                    entityId: operation.entityId,
+                    attribute: entry.key,
+                    value: entry.value,
+                    txId: txId,
+                    createdAt: now,
+                  ),
                 ),
-              ));
+              );
             }
           }
         }
@@ -846,16 +924,18 @@ class TripleStore implements StorageInterface {
               'retracted': 0,
             });
 
-            changes.add(TripleChange(
-              type: ChangeType.add,
-              triple: Triple(
-                entityId: operation.entityId,
-                attribute: entry.key,
-                value: entry.value,
-                txId: txId,
-                createdAt: now,
+            changes.add(
+              TripleChange(
+                type: ChangeType.add,
+                triple: Triple(
+                  entityId: operation.entityId,
+                  attribute: entry.key,
+                  value: entry.value,
+                  txId: txId,
+                  createdAt: now,
+                ),
               ),
-            ));
+            );
           }
         }
         break;
@@ -867,21 +947,28 @@ class TripleStore implements StorageInterface {
             await txn.update(
               'triples',
               {'retracted': 1},
-              where: 'entity_id = ? AND attribute = ? AND value = ? AND retracted = FALSE',
-              whereArgs: [operation.entityId, entry.key, jsonEncode(entry.value)],
+              where:
+                  'entity_id = ? AND attribute = ? AND value = ? AND retracted = FALSE',
+              whereArgs: [
+                operation.entityId,
+                entry.key,
+                jsonEncode(entry.value),
+              ],
             );
 
-            changes.add(TripleChange(
-              type: ChangeType.retract,
-              triple: Triple(
-                entityId: operation.entityId,
-                attribute: entry.key,
-                value: entry.value,
-                txId: txId,
-                createdAt: now,
-                retracted: true,
+            changes.add(
+              TripleChange(
+                type: ChangeType.retract,
+                triple: Triple(
+                  entityId: operation.entityId,
+                  attribute: entry.key,
+                  value: entry.value,
+                  txId: txId,
+                  createdAt: now,
+                  retracted: true,
+                ),
               ),
-            ));
+            );
           }
         }
         break;
@@ -893,7 +980,7 @@ class TripleStore implements StorageInterface {
           where: 'entity_id = ? AND retracted = FALSE',
           whereArgs: [operation.entityId],
         );
-        
+
         // Retract all triples for this entity
         await txn.update(
           'triples',
@@ -901,20 +988,24 @@ class TripleStore implements StorageInterface {
           where: 'entity_id = ? AND retracted = FALSE',
           whereArgs: [operation.entityId],
         );
-        
+
         // Emit change events for each retracted triple
         for (final tripleData in triplesToDelete) {
-          changes.add(TripleChange(
-            type: ChangeType.retract,
-            triple: Triple(
-              entityId: tripleData['entity_id'] as String,
-              attribute: tripleData['attribute'] as String,
-              value: jsonDecode(tripleData['value'] as String),
-              txId: txId,
-              createdAt: DateTime.fromMillisecondsSinceEpoch(tripleData['created_at'] as int),
-              retracted: true,
+          changes.add(
+            TripleChange(
+              type: ChangeType.retract,
+              triple: Triple(
+                entityId: tripleData['entity_id'] as String,
+                attribute: tripleData['attribute'] as String,
+                value: jsonDecode(tripleData['value'] as String),
+                txId: txId,
+                createdAt: DateTime.fromMillisecondsSinceEpoch(
+                  tripleData['created_at'] as int,
+                ),
+                retracted: true,
+              ),
             ),
-          ));
+          );
         }
         break;
 
@@ -925,21 +1016,28 @@ class TripleStore implements StorageInterface {
             await txn.update(
               'triples',
               {'retracted': 1},
-              where: 'entity_id = ? AND attribute = ? AND value = ? AND retracted = FALSE',
-              whereArgs: [operation.entityId, entry.key, jsonEncode(entry.value)],
+              where:
+                  'entity_id = ? AND attribute = ? AND value = ? AND retracted = FALSE',
+              whereArgs: [
+                operation.entityId,
+                entry.key,
+                jsonEncode(entry.value),
+              ],
             );
 
-            changes.add(TripleChange(
-              type: ChangeType.retract,
-              triple: Triple(
-                entityId: operation.entityId,
-                attribute: entry.key,
-                value: entry.value,
-                txId: txId,
-                createdAt: now,
-                retracted: true,
+            changes.add(
+              TripleChange(
+                type: ChangeType.retract,
+                triple: Triple(
+                  entityId: operation.entityId,
+                  attribute: entry.key,
+                  value: entry.value,
+                  txId: txId,
+                  createdAt: now,
+                  retracted: true,
+                ),
               ),
-            ));
+            );
           }
         }
         break;
@@ -949,24 +1047,29 @@ class TripleStore implements StorageInterface {
   }
 
   /// Deep merge two maps, recursively merging nested maps
-  Map<String, dynamic> _deepMerge(Map<String, dynamic> target, Map<String, dynamic> source) {
+  Map<String, dynamic> _deepMerge(
+    Map<String, dynamic> target,
+    Map<String, dynamic> source,
+  ) {
     final result = Map<String, dynamic>.from(target);
-    
+
     for (final entry in source.entries) {
       final key = entry.key;
       final value = entry.value;
-      
-      if (value is Map<String, dynamic> && result[key] is Map<String, dynamic>) {
+
+      if (value is Map<String, dynamic> &&
+          result[key] is Map<String, dynamic>) {
         result[key] = _deepMerge(result[key] as Map<String, dynamic>, value);
       } else {
         result[key] = value;
       }
     }
-    
+
     return result;
   }
 
   /// Rollback a transaction
+  @override
   Future<void> rollbackTransaction(String txId) async {
     await _db.transaction((txn) async {
       // Mark transaction as failed
@@ -1004,6 +1107,7 @@ class TripleStore implements StorageInterface {
   }
 
   /// Get all pending transactions
+  @override
   Future<List<Transaction>> getPendingTransactions() async {
     final results = await _db.query(
       'transactions',
@@ -1014,27 +1118,29 @@ class TripleStore implements StorageInterface {
 
     final transactions = <Transaction>[];
     final corruptedIds = <String>[];
-    
+
     for (final row in results) {
       try {
         final data = jsonDecode(row['data'] as String) as Map<String, dynamic>;
         final transaction = Transaction.fromJson(data);
-        
+
         // Check if this transaction has corrupted entity IDs
         bool hasCorruptedIds = false;
         for (final op in transaction.operations) {
-          if (op.type == OperationType.delete && 
-              op.entityId.startsWith('[') && 
+          if (op.type == OperationType.delete &&
+              op.entityId.startsWith('[') &&
               op.entityId.endsWith(']')) {
             hasCorruptedIds = true;
             break;
           }
         }
-        
+
         if (hasCorruptedIds) {
           // Mark corrupted transactions as failed
           corruptedIds.add(transaction.id);
-          InstantDBLogging.root.debug('Found corrupted transaction ${transaction.id}, marking as failed');
+          InstantDBLogging.root.debug(
+            'Found corrupted transaction ${transaction.id}, marking as failed',
+          );
         } else {
           transactions.add(transaction);
         }
@@ -1042,19 +1148,19 @@ class TripleStore implements StorageInterface {
         InstantDBLogging.root.severe('Error parsing transaction', e);
       }
     }
-    
+
     // Mark corrupted transactions as failed so they won't be retried
     if (corruptedIds.isNotEmpty) {
       await _markTransactionsAsFailed(corruptedIds);
     }
-    
+
     return transactions;
   }
-  
+
   /// Mark multiple transactions as failed
   Future<void> _markTransactionsAsFailed(List<String> txIds) async {
     if (txIds.isEmpty) return;
-    
+
     final batch = _db.batch();
     for (final txId in txIds) {
       batch.update(
@@ -1068,6 +1174,7 @@ class TripleStore implements StorageInterface {
   }
 
   /// Mark transaction as synced
+  @override
   Future<void> markTransactionSynced(String txId) async {
     await _db.update(
       'transactions',
@@ -1078,6 +1185,7 @@ class TripleStore implements StorageInterface {
   }
 
   /// Clear all data from the database (useful for development/debugging)
+  @override
   Future<void> clearAll() async {
     await _db.transaction((txn) async {
       await txn.delete('triples');
@@ -1085,12 +1193,13 @@ class TripleStore implements StorageInterface {
       await txn.delete('entities');
       await txn.delete('attributes');
     });
-    
+
     // Emit a change event to update any listeners
     _changeController.add(TripleChange.clear());
   }
 
   /// Close the database
+  @override
   Future<void> close() async {
     await _changeController.close();
     await _db.close();

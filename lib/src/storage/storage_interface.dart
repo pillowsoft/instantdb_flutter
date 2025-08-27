@@ -37,6 +37,6 @@ abstract class StorageInterface {
   /// Get entity type for a specific entity ID
   Future<String?> getEntityType(String entityId);
 
-  /// Close the store and clean up resources  
+  /// Close the store and clean up resources
   Future<void> close();
 }

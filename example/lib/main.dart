@@ -17,10 +17,10 @@ import 'pages/tile_game_page.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
+
   // Load environment variables
   await dotenv.load(fileName: '.env');
-  
+
   runApp(const InstantDBExamplesApp());
 }
 
@@ -31,10 +31,7 @@ class InstantDBExamplesApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'InstantDB Examples',
-      theme: ThemeData(
-        primarySwatch: Colors.blue,
-        useMaterial3: true,
-      ),
+      theme: ThemeData(primarySwatch: Colors.blue, useMaterial3: true),
       home: const ExamplesRootScreen(),
     );
   }
@@ -64,7 +61,7 @@ class _ExamplesRootScreenState extends State<ExamplesRootScreen> {
       // Load debug preference first
       final prefs = await SharedPreferences.getInstance();
       _debugEnabled = prefs.getBool('debug_enabled') ?? true;
-      
+
       // Then initialize DB with the loaded preference
       await _initializeDB();
     } catch (e) {
@@ -78,7 +75,7 @@ class _ExamplesRootScreenState extends State<ExamplesRootScreen> {
   Future<void> _initializeDB() async {
     try {
       final appId = dotenv.env['INSTANTDB_API_ID']!;
-      
+
       _db = await InstantDB.init(
         appId: appId,
         config: InstantConfig(
@@ -104,15 +101,17 @@ class _ExamplesRootScreenState extends State<ExamplesRootScreen> {
       _debugEnabled = !_debugEnabled;
     });
     await prefs.setBool('debug_enabled', _debugEnabled);
-    
+
     // Update logging level dynamically
     InstantDBLogging.updateLogLevel(_debugEnabled ? Level.FINE : Level.WARNING);
-    
+
     // Show feedback
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(_debugEnabled ? 'Debug logging enabled' : 'Debug logging disabled'),
+          content: Text(
+            _debugEnabled ? 'Debug logging enabled' : 'Debug logging disabled',
+          ),
           duration: const Duration(seconds: 2),
           backgroundColor: _debugEnabled ? Colors.green : Colors.orange,
         ),
@@ -129,11 +128,7 @@ class _ExamplesRootScreenState extends State<ExamplesRootScreen> {
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
-      return const Scaffold(
-        body: Center(
-          child: CircularProgressIndicator(),
-        ),
-      );
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
     if (_error != null) {
@@ -142,11 +137,7 @@ class _ExamplesRootScreenState extends State<ExamplesRootScreen> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(
-                Icons.error_outline,
-                size: 64,
-                color: Colors.red[300],
-              ),
+              Icon(Icons.error_outline, size: 64, color: Colors.red[300]),
               const SizedBox(height: 16),
               Text(
                 'Failed to initialize InstantDB',
@@ -188,7 +179,7 @@ class _ExamplesRootScreenState extends State<ExamplesRootScreen> {
 class ExamplesNavigationScreen extends StatefulWidget {
   final bool debugEnabled;
   final VoidCallback onToggleDebug;
-  
+
   const ExamplesNavigationScreen({
     super.key,
     required this.debugEnabled,
@@ -196,7 +187,8 @@ class ExamplesNavigationScreen extends StatefulWidget {
   });
 
   @override
-  State<ExamplesNavigationScreen> createState() => _ExamplesNavigationScreenState();
+  State<ExamplesNavigationScreen> createState() =>
+      _ExamplesNavigationScreenState();
 }
 
 class _ExamplesNavigationScreenState extends State<ExamplesNavigationScreen> {
@@ -263,7 +255,7 @@ class _ExamplesNavigationScreenState extends State<ExamplesNavigationScreen> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    
+
     // Initialize user ID suffix once
     if (_userIdSuffix == null) {
       final db = InstantProvider.of(context);
@@ -282,19 +274,25 @@ class _ExamplesNavigationScreenState extends State<ExamplesNavigationScreen> {
   @override
   Widget build(BuildContext context) {
     final currentExample = _examples[_selectedIndex];
-    
+
     return Scaffold(
       appBar: AppBar(
-        title: Text('InstantDB - ${currentExample.title}${_userIdSuffix ?? ''}'),
+        title: Text(
+          'InstantDB - ${currentExample.title}${_userIdSuffix ?? ''}',
+        ),
         backgroundColor: currentExample.color,
         foregroundColor: Colors.white,
         actions: [
           IconButton(
             icon: Icon(
-              widget.debugEnabled ? Icons.bug_report : Icons.bug_report_outlined,
+              widget.debugEnabled
+                  ? Icons.bug_report
+                  : Icons.bug_report_outlined,
               color: Colors.white,
             ),
-            tooltip: widget.debugEnabled ? 'Disable Debug Logging' : 'Enable Debug Logging',
+            tooltip: widget.debugEnabled
+                ? 'Disable Debug Logging'
+                : 'Enable Debug Logging',
             onPressed: widget.onToggleDebug,
           ),
           ConnectionStatusBuilder(

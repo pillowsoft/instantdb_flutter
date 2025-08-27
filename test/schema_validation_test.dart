@@ -6,7 +6,7 @@ void main() {
   group('Schema Validation Tests', () {
     late InstantDB db;
     late InstantSchema schema;
-    
+
     setUpAll(() async {
       // Initialize database factory for testing
       sqfliteFfiInit();
@@ -23,33 +23,61 @@ void main() {
           persistenceDir: 'test_db_schema_$testId',
         ),
       );
-      
+
       // Create a comprehensive schema for testing
       schema = InstantSchemaBuilder()
-        .addEntity('users', Schema.object({
-          'id': Schema.id(),
-          'name': Schema.string(minLength: 1, maxLength: 100),
-          'email': Schema.email(),
-          'age': Schema.number(min: 0, max: 150),
-          'isActive': Schema.boolean(),
-          'preferences': Schema.optional(Schema.object({
-            'theme': Schema.string(),
-            'notifications': Schema.boolean(),
-          })),
-          'tags': Schema.optional(Schema.array(Schema.string(), minLength: 0, maxLength: 10)),
-          'metadata': Schema.optional(Schema.object({})),
-        }, required: ['id', 'name', 'email']))
-        .addEntity('posts', Schema.object({
-          'id': Schema.id(),
-          'title': Schema.string(minLength: 1, maxLength: 200),
-          'content': Schema.string(minLength: 10),
-          'authorId': Schema.id(),
-          'published': Schema.boolean(),
-          'publishedAt': Schema.optional(Schema.number()),
-          'categories': Schema.array(Schema.string(), minLength: 1, maxLength: 5),
-          'viewCount': Schema.number(min: 0),
-        }, required: ['id', 'title', 'content', 'authorId', 'published', 'categories', 'viewCount']))
-        .build();
+          .addEntity(
+            'users',
+            Schema.object(
+              {
+                'id': Schema.id(),
+                'name': Schema.string(minLength: 1, maxLength: 100),
+                'email': Schema.email(),
+                'age': Schema.number(min: 0, max: 150),
+                'isActive': Schema.boolean(),
+                'preferences': Schema.optional(
+                  Schema.object({
+                    'theme': Schema.string(),
+                    'notifications': Schema.boolean(),
+                  }),
+                ),
+                'tags': Schema.optional(
+                  Schema.array(Schema.string(), minLength: 0, maxLength: 10),
+                ),
+                'metadata': Schema.optional(Schema.object({})),
+              },
+              required: ['id', 'name', 'email'],
+            ),
+          )
+          .addEntity(
+            'posts',
+            Schema.object(
+              {
+                'id': Schema.id(),
+                'title': Schema.string(minLength: 1, maxLength: 200),
+                'content': Schema.string(minLength: 10),
+                'authorId': Schema.id(),
+                'published': Schema.boolean(),
+                'publishedAt': Schema.optional(Schema.number()),
+                'categories': Schema.array(
+                  Schema.string(),
+                  minLength: 1,
+                  maxLength: 5,
+                ),
+                'viewCount': Schema.number(min: 0),
+              },
+              required: [
+                'id',
+                'title',
+                'content',
+                'authorId',
+                'published',
+                'categories',
+                'viewCount',
+              ],
+            ),
+          )
+          .build();
     });
 
     tearDown(() async {
@@ -170,10 +198,7 @@ void main() {
           'id': 'user123',
           'name': 'John Doe',
           'email': 'john@example.com',
-          'preferences': {
-            'theme': 'dark',
-            'notifications': true,
-          },
+          'preferences': {'theme': 'dark', 'notifications': true},
         };
 
         expect(schema.validateEntity('users', validPreferences), isTrue);
@@ -250,7 +275,8 @@ void main() {
         final validPost = {
           'id': 'post123',
           'title': 'My Post',
-          'content': 'This is a long post content with more than 10 characters.',
+          'content':
+              'This is a long post content with more than 10 characters.',
           'authorId': 'user123',
           'published': true,
           'categories': ['tech', 'programming'],
@@ -262,7 +288,8 @@ void main() {
         final missingCategories = {
           'id': 'post123',
           'title': 'My Post',
-          'content': 'This is a long post content with more than 10 characters.',
+          'content':
+              'This is a long post content with more than 10 characters.',
           'authorId': 'user123',
           'published': true,
           // categories is required but missing
@@ -274,7 +301,8 @@ void main() {
         final emptyCategoriesArray = {
           'id': 'post123',
           'title': 'My Post',
-          'content': 'This is a long post content with more than 10 characters.',
+          'content':
+              'This is a long post content with more than 10 characters.',
           'authorId': 'user123',
           'published': true,
           'categories': [], // Empty array, but min length is 1
@@ -293,10 +321,7 @@ void main() {
           'email': 'john@example.com',
           'age': 30,
           'isActive': true,
-          'preferences': {
-            'theme': 'dark',
-            'notifications': false,
-          },
+          'preferences': {'theme': 'dark', 'notifications': false},
           'tags': ['developer', 'flutter'],
           'metadata': {
             'lastLogin': '2024-01-15T10:30:00Z',
@@ -320,9 +345,7 @@ void main() {
           'metadata': {
             'level1': {
               'level2': {
-                'level3': {
-                  'data': 'deep value',
-                },
+                'level3': {'data': 'deep value'},
               },
             },
           },
@@ -342,10 +365,7 @@ void main() {
           'email': 'jane@example.com',
           'age': 28,
           'isActive': true,
-          'preferences': {
-            'theme': 'light',
-            'notifications': true,
-          },
+          'preferences': {'theme': 'light', 'notifications': true},
           'tags': ['designer', 'ui/ux'],
         };
 
@@ -355,7 +375,7 @@ void main() {
 
         // Store in database
         await db.transact([...db.create('users', userData)]);
-        
+
         // Wait for storage
         await Future.delayed(const Duration(milliseconds: 100));
 
@@ -365,7 +385,7 @@ void main() {
 
         final users = querySignal.value.data!['users'] as List;
         expect(users.length, equals(1));
-        
+
         final retrievedUser = users.first;
         expect(retrievedUser['name'], equals('Jane Smith'));
         expect(retrievedUser['email'], equals('jane@example.com'));
@@ -403,13 +423,12 @@ void main() {
 
       test('should create entity schemas with automatic fields', () {
         final schema = InstantSchemaBuilder()
-          .addEntity('testEntity', Schema.object({
-            'name': Schema.string(),
-          }))
-          .build();
+            .addEntity('testEntity', Schema.object({'name': Schema.string()}))
+            .build();
 
-        final entitySchema = schema.getEntitySchema('testEntity') as ObjectSchema;
-        
+        final entitySchema =
+            schema.getEntitySchema('testEntity') as ObjectSchema;
+
         // Should automatically add id, createdAt, updatedAt
         expect(entitySchema.properties.containsKey('id'), isTrue);
         expect(entitySchema.properties.containsKey('createdAt'), isTrue);
@@ -441,7 +460,11 @@ void main() {
         expect(boolSchema.validate(1), isFalse);
 
         // Array validation
-        final arraySchema = Schema.array(Schema.string(), minLength: 1, maxLength: 3);
+        final arraySchema = Schema.array(
+          Schema.string(),
+          minLength: 1,
+          maxLength: 3,
+        );
         expect(arraySchema.validate(['one']), isTrue);
         expect(arraySchema.validate(['one', 'two']), isTrue);
         expect(arraySchema.validate([]), isFalse);
@@ -450,21 +473,39 @@ void main() {
       });
 
       test('should handle edge cases in validation', () {
-        final schema = Schema.object({
-          'optionalString': Schema.optional(Schema.string()),
-          'requiredNumber': Schema.number(),
-        }, required: ['requiredNumber']);
+        final schema = Schema.object(
+          {
+            'optionalString': Schema.optional(Schema.string()),
+            'requiredNumber': Schema.number(),
+          },
+          required: ['requiredNumber'],
+        );
 
         // Valid cases
         expect(schema.validate({'requiredNumber': 42}), isTrue);
-        expect(schema.validate({'requiredNumber': 42, 'optionalString': 'hello'}), isTrue);
-        expect(schema.validate({'requiredNumber': 42, 'optionalString': null}), isTrue);
+        expect(
+          schema.validate({'requiredNumber': 42, 'optionalString': 'hello'}),
+          isTrue,
+        );
+        expect(
+          schema.validate({'requiredNumber': 42, 'optionalString': null}),
+          isTrue,
+        );
 
         // Invalid cases
         expect(schema.validate({}), isFalse); // Missing required field
-        expect(schema.validate({'optionalString': 'hello'}), isFalse); // Missing required field
-        expect(schema.validate({'requiredNumber': '42'}), isFalse); // Wrong type
-        expect(schema.validate({'requiredNumber': 42, 'optionalString': 123}), isFalse); // Wrong optional type
+        expect(
+          schema.validate({'optionalString': 'hello'}),
+          isFalse,
+        ); // Missing required field
+        expect(
+          schema.validate({'requiredNumber': '42'}),
+          isFalse,
+        ); // Wrong type
+        expect(
+          schema.validate({'requiredNumber': 42, 'optionalString': 123}),
+          isFalse,
+        ); // Wrong optional type
       });
     });
 
@@ -474,7 +515,10 @@ void main() {
         expect(Schema.string(minLength: 5).description, contains('min: 5'));
         expect(Schema.number(min: 0, max: 100).description, contains('min: 0'));
         expect(Schema.boolean().description, equals('Boolean'));
-        expect(Schema.array(Schema.string()).description, equals('Array<String>'));
+        expect(
+          Schema.array(Schema.string()).description,
+          equals('Array<String>'),
+        );
         expect(Schema.optional(Schema.string()).description, equals('String?'));
       });
 
@@ -482,7 +526,7 @@ void main() {
         final userSchema = schema.getEntitySchema('users');
         expect(userSchema, isNotNull);
         expect(userSchema, isA<ObjectSchema>());
-        
+
         final objectSchema = userSchema as ObjectSchema;
         expect(objectSchema.properties.containsKey('name'), isTrue);
         expect(objectSchema.properties.containsKey('email'), isTrue);
@@ -498,44 +542,50 @@ void main() {
           'name': 'John Doe',
           'email': 'john@example.com',
         };
-        
+
         // Add many optional fields
         for (int i = 0; i < 100; i++) {
           largeObject['field$i'] = 'value$i';
         }
 
         final stopwatch = Stopwatch()..start();
-        
+
         final isValid = schema.validateEntity('users', largeObject);
-        
+
         stopwatch.stop();
-        
+
         expect(isValid, isTrue);
         expect(stopwatch.elapsedMilliseconds, lessThan(100)); // Should be fast
       });
 
       test('should validate many objects efficiently', () {
-        final users = List.generate(1000, (i) => {
-          'id': 'user$i',
-          'name': 'User $i',
-          'email': 'user$i@example.com',
-          'age': 20 + (i % 50),
-          'isActive': i % 2 == 0,
-        });
+        final users = List.generate(
+          1000,
+          (i) => {
+            'id': 'user$i',
+            'name': 'User $i',
+            'email': 'user$i@example.com',
+            'age': 20 + (i % 50),
+            'isActive': i % 2 == 0,
+          },
+        );
 
         final stopwatch = Stopwatch()..start();
-        
+
         int validCount = 0;
         for (final user in users) {
           if (schema.validateEntity('users', user)) {
             validCount++;
           }
         }
-        
+
         stopwatch.stop();
-        
+
         expect(validCount, equals(1000));
-        expect(stopwatch.elapsedMilliseconds, lessThan(1000)); // Should validate 1000 objects in under 1s
+        expect(
+          stopwatch.elapsedMilliseconds,
+          lessThan(1000),
+        ); // Should validate 1000 objects in under 1s
       });
     });
   });

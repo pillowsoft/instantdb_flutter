@@ -12,7 +12,7 @@ void main() {
       // Initialize database factory for testing
       sqfliteFfiInit();
       databaseFactory = databaseFactoryFfi;
-      
+
       // Load .env file for testing
       try {
         await dotenv.load(fileName: '.env');
@@ -47,7 +47,7 @@ void main() {
     test('should generate unique IDs', () {
       final id1 = db.id();
       final id2 = db.id();
-      
+
       expect(id1, isNotEmpty);
       expect(id2, isNotEmpty);
       expect(id1, isNot(equals(id2)));
@@ -76,7 +76,7 @@ void main() {
 
       expect(querySignal.value.isLoading, isFalse);
       expect(querySignal.value.hasData, isTrue);
-      
+
       final users = querySignal.value.data!['users'] as List;
       expect(users, hasLength(1));
       expect(users.first['name'], equals('Test User'));
@@ -87,15 +87,12 @@ void main() {
       // Create entity
       final entityId = db.id();
       await db.transact([
-        ...db.create('users', {
-          'id': entityId,
-          'name': 'Original Name',
-        }),
+        ...db.create('users', {'id': entityId, 'name': 'Original Name'}),
       ]);
 
       // Update entity using tx namespace API (aligned with React)
       await db.transact(
-        db.tx['users'][entityId].update({'name': 'Updated Name'})
+        db.tx['users'][entityId].update({'name': 'Updated Name'}),
       );
 
       // Query updated entity
@@ -115,16 +112,11 @@ void main() {
       // Create entity
       final entityId = db.id();
       await db.transact([
-        ...db.create('users', {
-          'id': entityId,
-          'name': 'To Be Deleted',
-        }),
+        ...db.create('users', {'id': entityId, 'name': 'To Be Deleted'}),
       ]);
 
       // Delete entity using tx namespace API (aligned with React)
-      await db.transact(
-        db.tx['users'][entityId].delete()
-      );
+      await db.transact(db.tx['users'][entityId].delete());
 
       // Query should return empty
       final querySignal = db.query({
@@ -183,9 +175,11 @@ void main() {
       final querySignal = db.query({
         'items': {
           '\$': {
-            'where': {'value': {'\$gte': 10}},
+            'where': {
+              'value': {'\$gte': 10},
+            },
             'order': {'value': 'asc'},
-          }
+          },
         },
       });
 
@@ -202,7 +196,7 @@ void main() {
     group('Schema validation', () {
       test('should validate string schema', () {
         final schema = Schema.string(minLength: 3, maxLength: 10);
-        
+
         expect(schema.validate('hello'), isTrue);
         expect(schema.validate('hi'), isFalse); // Too short
         expect(schema.validate('this is too long'), isFalse); // Too long
@@ -210,32 +204,45 @@ void main() {
       });
 
       test('should validate object schema', () {
-        final userSchema = Schema.object({
-          'name': Schema.string(minLength: 1),
-          'age': Schema.number(min: 0, max: 150),
-          'email': Schema.email(),
-        }, required: ['name', 'email']);
+        final userSchema = Schema.object(
+          {
+            'name': Schema.string(minLength: 1),
+            'age': Schema.number(min: 0, max: 150),
+            'email': Schema.email(),
+          },
+          required: ['name', 'email'],
+        );
 
-        expect(userSchema.validate({
-          'name': 'John',
-          'age': 30,
-          'email': 'john@example.com',
-        }), isTrue);
+        expect(
+          userSchema.validate({
+            'name': 'John',
+            'age': 30,
+            'email': 'john@example.com',
+          }),
+          isTrue,
+        );
 
-        expect(userSchema.validate({
-          'name': 'John',
-          // Missing required email
-        }), isFalse);
+        expect(
+          userSchema.validate({
+            'name': 'John',
+            // Missing required email
+          }),
+          isFalse,
+        );
 
-        expect(userSchema.validate({
-          'name': 'John',
-          'email': 'invalid-email',
-        }), isFalse);
+        expect(
+          userSchema.validate({'name': 'John', 'email': 'invalid-email'}),
+          isFalse,
+        );
       });
 
       test('should validate array schema', () {
-        final numbersSchema = Schema.array(Schema.number(), minLength: 1, maxLength: 5);
-        
+        final numbersSchema = Schema.array(
+          Schema.number(),
+          minLength: 1,
+          maxLength: 5,
+        );
+
         expect(numbersSchema.validate([1, 2, 3]), isTrue);
         expect(numbersSchema.validate([]), isFalse); // Too short
         expect(numbersSchema.validate([1, 2, 3, 4, 5, 6]), isFalse); // Too long

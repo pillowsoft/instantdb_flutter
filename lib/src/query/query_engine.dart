@@ -16,43 +16,54 @@ class QueryEngine {
   Timer? _batchTimer;
   final Set<String> _pendingQueryUpdates = {};
   final Set<String> _subscribedQueries = {};
-  
+
   // Logger for query engine
   static final _logger = InstantDBLogging.queryEngine;
 
   QueryEngine(this._store, [this._syncEngine]) {
     // Listen to store changes and invalidate affected queries
-    _logger.debug('Setting up store change listener - StoreType: ${_store.runtimeType}');
+    _logger.debug(
+      'Setting up store change listener - StoreType: ${_store.runtimeType}',
+    );
     _storeSubscription = _store.changes.listen((change) {
-      InstantDBLogging.logQueryEvent('CHANGE_RECEIVED', 'store', 
-        reason: '${change.type}:${change.triple.entityId}');
+      InstantDBLogging.logQueryEvent(
+        'CHANGE_RECEIVED',
+        'store',
+        reason: '${change.type}:${change.triple.entityId}',
+      );
       _handleStoreChange(change);
     });
   }
-  
+
   /// Set the sync engine (called after initialization)
   void setSyncEngine(SyncEngine syncEngine) {
     _syncEngine = syncEngine;
-    
+
     // When sync engine is connected, send all queries to establish subscriptions
     if (syncEngine.connectionStatus.value) {
-      InstantDBLogging.root.debug('QueryEngine: Already connected, sending ${_queryCache.length} queries to establish subscriptions');
+      InstantDBLogging.root.debug(
+        'QueryEngine: Already connected, sending ${_queryCache.length} queries to establish subscriptions',
+      );
       for (final queryKey in _queryCache.keys) {
         final query = _parseQueryKey(queryKey);
         syncEngine.sendQuery(query);
         _subscribedQueries.add(queryKey);
       }
     }
-    
+
     // Use effect to react to connection status changes
     effect(() {
       final isConnected = syncEngine.connectionStatus.value;
       if (isConnected) {
-        InstantDBLogging.root.debug('QueryEngine: Connection established, checking for unsubscribed queries');
+        InstantDBLogging.root.debug(
+          'QueryEngine: Connection established, checking for unsubscribed queries',
+        );
         // When connected, send any queries that haven't been subscribed yet
         for (final queryKey in _queryCache.keys) {
           if (!_subscribedQueries.contains(queryKey)) {
-            InstantDBLogging.root.debug('QueryEngine: Sending unsubscribed query: $queryKey');
+            InstantDBLogging.root.debug(
+              'QueryEngine: Sending unsubscribed query: $queryKey',
+            );
             final query = _parseQueryKey(queryKey);
             syncEngine.sendQuery(query);
             _subscribedQueries.add(queryKey);
@@ -73,18 +84,22 @@ class QueryEngine {
     }
 
     InstantDBLogging.logQueryEvent('NEW_QUERY', queryKey);
-    
+
     // Create new reactive query
     final resultSignal = signal(QueryResult.loading());
     _queryCache[queryKey] = resultSignal;
 
     // Send query to InstantDB to establish subscription
     if (_syncEngine != null && !_subscribedQueries.contains(queryKey)) {
-      InstantDBLogging.root.debug('QueryEngine: Sending query to sync engine for subscription');
+      InstantDBLogging.root.debug(
+        'QueryEngine: Sending query to sync engine for subscription',
+      );
       _syncEngine!.sendQuery(query);
       _subscribedQueries.add(queryKey);
     } else {
-      InstantDBLogging.root.debug('QueryEngine: Not sending query - syncEngine: ${_syncEngine != null}, already subscribed: ${_subscribedQueries.contains(queryKey)}');
+      InstantDBLogging.root.debug(
+        'QueryEngine: Not sending query - syncEngine: ${_syncEngine != null}, already subscribed: ${_subscribedQueries.contains(queryKey)}',
+      );
     }
 
     // Execute query asynchronously
@@ -111,12 +126,12 @@ class QueryEngine {
 
     for (final entry in query.entries) {
       final entityType = entry.key;
-      
+
       // Handle different types of query values
       Map<String, dynamic> entityQuery = {};
       if (entry.value is Map) {
         final queryValue = entry.value as Map;
-        
+
         // Check for React-style $ syntax
         if (queryValue.containsKey('\$')) {
           // Extract query from $ clause (React API compatibility)
@@ -144,10 +159,10 @@ class QueryEngine {
   ) async {
     // Extract query parameters
     final where = query['where'] as Map<String, dynamic>?;
-    
+
     // Support both 'order' (React/server style) and 'orderBy' (Flutter style)
     final orderByInput = query['order'] ?? query['orderBy'];
-    
+
     // Convert orderBy to expected List<String> format if it's a Map
     List<String>? orderBy;
     if (orderByInput is Map) {
@@ -155,7 +170,7 @@ class QueryEngine {
       orderBy = orderByInput.entries.map((e) => '${e.key} ${e.value}').toList();
     } else if (orderByInput is List) {
       // Handle List<Map> format like [{'createdAt': 'desc'}]
-      final listItems = orderByInput as List;
+      final listItems = orderByInput;
       orderBy = listItems.map((item) {
         if (item is Map) {
           // Convert {'field': 'direction'} to 'field direction'
@@ -167,7 +182,7 @@ class QueryEngine {
     } else if (orderByInput is String) {
       orderBy = [orderByInput];
     }
-    
+
     final limit = query['limit'] as int?;
     final offset = query['offset'] as int?;
     final include = query['include'] as Map<String, dynamic>?;
@@ -200,7 +215,7 @@ class QueryEngine {
     for (final entity in entities) {
       for (final includeEntry in includes.entries) {
         final relationName = includeEntry.key;
-        final relationQuery = includeEntry.value is Map 
+        final relationQuery = includeEntry.value is Map
             ? Map<String, dynamic>.from(includeEntry.value as Map)
             : null;
 
@@ -208,30 +223,33 @@ class QueryEngine {
         if (relationName.endsWith('s')) {
           // One-to-many relation (e.g., "posts")
           // Keep the relationName as-is since it's already plural (which matches our entity types)
-          
+
           // For one-to-many relationships, we need to determine the foreign key
           // Convention: posts belong to a user via 'authorId', 'userId', etc.
           // Try common patterns
           String foreignKey;
           final parentType = entity['__type']?.toString() ?? '';
-          final singularParentType = parentType.endsWith('s') ? parentType.substring(0, parentType.length - 1) : parentType;
-          
+          final singularParentType = parentType.endsWith('s')
+              ? parentType.substring(0, parentType.length - 1)
+              : parentType;
+
           // Try specific naming patterns first
           if (relationName == 'posts') {
             foreignKey = 'authorId'; // posts commonly use authorId
           } else {
-            foreignKey = '${singularParentType}Id'; // fallback to standard pattern
+            foreignKey =
+                '${singularParentType}Id'; // fallback to standard pattern
           }
 
           final whereClause = <String, dynamic>{foreignKey: entity['id']};
-          
+
           // Merge with any additional where conditions from the relation query
           if (relationQuery != null && relationQuery['where'] != null) {
             whereClause.addAll(relationQuery['where'] as Map<String, dynamic>);
           }
 
           final queryMap = <String, dynamic>{'where': whereClause};
-          
+
           // Add other query parameters
           if (relationQuery != null) {
             for (final entry in relationQuery.entries) {
@@ -246,7 +264,7 @@ class QueryEngine {
         } else {
           // One-to-one relation (e.g., "author")
           final foreignKey = '${relationName}Id';
-          
+
           if (entity.containsKey(foreignKey)) {
             // Map common relationship names to actual entity types
             String entityType;
@@ -260,12 +278,12 @@ class QueryEngine {
               default:
                 entityType = '${relationName}s'; // Pluralize by default
             }
-            
+
             final queryMap = <String, dynamic>{
               'where': {'id': entity[foreignKey]},
               'limit': 1,
             };
-            
+
             // Add other query parameters
             if (relationQuery != null) {
               for (final entry in relationQuery.entries) {
@@ -277,10 +295,12 @@ class QueryEngine {
                 }
               }
             }
-            
+
             final relatedEntity = await _queryEntities(entityType, queryMap);
 
-            entity[relationName] = relatedEntity.isNotEmpty ? relatedEntity.first : null;
+            entity[relationName] = relatedEntity.isNotEmpty
+                ? relatedEntity.first
+                : null;
           }
         }
       }
@@ -294,7 +314,7 @@ class QueryEngine {
     if (change.triple.entityId == '__query_invalidation') {
       return;
     }
-    
+
     // Collect queries that need updating
     for (final entry in _queryCache.entries) {
       final query = _parseQueryKey(entry.key);
@@ -320,13 +340,13 @@ class QueryEngine {
 
   bool _queryAffectedByChange(Map<String, dynamic> query, TripleChange change) {
     // Check if the query is affected by the change for any entity type
-    
+
     // If it's a __type change, check if the query includes that entity type
     if (change.triple.attribute == '__type') {
       final entityType = change.triple.value as String;
       return query.containsKey(entityType);
     }
-    
+
     // For any other attribute changes, check all entity types in the query
     // This ensures all queries (todos, tiles, messages, etc.) are properly updated
     for (final entityType in query.keys) {
@@ -334,7 +354,7 @@ class QueryEngine {
       // In production, this could be optimized to check specific relationships
       return true;
     }
-    
+
     return false;
   }
 
@@ -367,7 +387,8 @@ class QueryBuilder {
   QueryBuilder(this._engine);
 
   /// Add an entity query
-  QueryBuilder entity(String entityType, {
+  QueryBuilder entity(
+    String entityType, {
     Map<String, dynamic>? where,
     Map<String, dynamic>? orderBy,
     int? limit,
@@ -375,7 +396,7 @@ class QueryBuilder {
     Map<String, dynamic>? include,
   }) {
     final entityQuery = <String, dynamic>{};
-    
+
     if (where != null) entityQuery['where'] = where;
     if (orderBy != null) entityQuery['orderBy'] = orderBy;
     if (limit != null) entityQuery['limit'] = limit;

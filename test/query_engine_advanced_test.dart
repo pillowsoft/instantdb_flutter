@@ -5,7 +5,7 @@ import 'package:instantdb_flutter/instantdb_flutter.dart';
 void main() {
   group('Advanced Query Engine Tests', () {
     late InstantDB db;
-    
+
     setUpAll(() async {
       // Initialize database factory for testing
       sqfliteFfiInit();
@@ -32,16 +32,40 @@ void main() {
       setUp(() async {
         // Create test data
         final users = [
-          {'id': 'user1', 'name': 'Alice', 'age': 25, 'score': 85.5, 'active': true},
-          {'id': 'user2', 'name': 'Bob', 'age': 30, 'score': 92.0, 'active': false},
-          {'id': 'user3', 'name': 'Charlie', 'age': 35, 'score': 78.3, 'active': true},
-          {'id': 'user4', 'name': 'Diana', 'age': 28, 'score': 95.2, 'active': true},
+          {
+            'id': 'user1',
+            'name': 'Alice',
+            'age': 25,
+            'score': 85.5,
+            'active': true,
+          },
+          {
+            'id': 'user2',
+            'name': 'Bob',
+            'age': 30,
+            'score': 92.0,
+            'active': false,
+          },
+          {
+            'id': 'user3',
+            'name': 'Charlie',
+            'age': 35,
+            'score': 78.3,
+            'active': true,
+          },
+          {
+            'id': 'user4',
+            'name': 'Diana',
+            'age': 28,
+            'score': 95.2,
+            'active': true,
+          },
         ];
 
         for (final user in users) {
           await db.transact([...db.create('users', user)]);
         }
-        
+
         // Wait for operations to complete
         await Future.delayed(const Duration(milliseconds: 100));
       });
@@ -49,7 +73,9 @@ void main() {
       test('should support greater than operator', () async {
         final querySignal = db.query({
           'users': {
-            'where': {'age': {'>': 28}},
+            'where': {
+              'age': {'>': 28},
+            },
           },
         });
 
@@ -60,7 +86,7 @@ void main() {
 
         final users = querySignal.value.data!['users'] as List;
         expect(users.length, equals(2)); // Bob (30) and Charlie (35)
-        
+
         for (final user in users) {
           expect((user['age'] as int) > 28, isTrue);
         }
@@ -69,7 +95,9 @@ void main() {
       test('should support less than or equal operator', () async {
         final querySignal = db.query({
           'users': {
-            'where': {'age': {'<=': 28}},
+            'where': {
+              'age': {'<=': 28},
+            },
           },
         });
 
@@ -77,7 +105,7 @@ void main() {
 
         final users = querySignal.value.data!['users'] as List;
         expect(users.length, equals(2)); // Alice (25) and Diana (28)
-        
+
         for (final user in users) {
           expect((user['age'] as int) <= 28, isTrue);
         }
@@ -86,7 +114,9 @@ void main() {
       test('should support not equal operator', () async {
         final querySignal = db.query({
           'users': {
-            'where': {'age': {'!=': 30}},
+            'where': {
+              'age': {'!=': 30},
+            },
           },
         });
 
@@ -94,7 +124,7 @@ void main() {
 
         final users = querySignal.value.data!['users'] as List;
         expect(users.length, equals(3)); // All except Bob
-        
+
         for (final user in users) {
           expect(user['age'], isNot(equals(30)));
         }
@@ -103,7 +133,11 @@ void main() {
       test('should support in operator', () async {
         final querySignal = db.query({
           'users': {
-            'where': {'age': {'in': [25, 35]}},
+            'where': {
+              'age': {
+                'in': [25, 35],
+              },
+            },
           },
         });
 
@@ -111,7 +145,7 @@ void main() {
 
         final users = querySignal.value.data!['users'] as List;
         expect(users.length, equals(2)); // Alice and Charlie
-        
+
         for (final user in users) {
           expect([25, 35].contains(user['age']), isTrue);
         }
@@ -120,7 +154,11 @@ void main() {
       test('should support not in operator', () async {
         final querySignal = db.query({
           'users': {
-            'where': {'age': {'not_in': [25, 30]}},
+            'where': {
+              'age': {
+                'not_in': [25, 30],
+              },
+            },
           },
         });
 
@@ -128,7 +166,7 @@ void main() {
 
         final users = querySignal.value.data!['users'] as List;
         expect(users.length, equals(2)); // Charlie and Diana
-        
+
         for (final user in users) {
           expect([25, 30].contains(user['age']), isFalse);
         }
@@ -145,7 +183,7 @@ void main() {
 
         final users = querySignal.value.data!['users'] as List;
         expect(users.length, equals(3)); // Alice, Charlie, Diana
-        
+
         for (final user in users) {
           expect(user['active'], isTrue);
         }
@@ -165,7 +203,7 @@ void main() {
 
         final users = querySignal.value.data!['users'] as List;
         expect(users.length, equals(2)); // Charlie and Diana
-        
+
         for (final user in users) {
           expect((user['age'] as int) > 25, isTrue);
           expect(user['active'], isTrue);
@@ -188,7 +226,7 @@ void main() {
 
         final users = querySignal.value.data!['users'] as List;
         expect(users.length, equals(2)); // Alice and Charlie
-        
+
         for (final user in users) {
           expect([25, 35].contains(user['age']), isTrue);
         }
@@ -198,10 +236,7 @@ void main() {
         final querySignal = db.query({
           'users': {
             'where': {
-              'score': {
-                '>=': 80.0,
-                '<': 95.0,
-              },
+              'score': {'>=': 80.0, '<': 95.0},
             },
           },
         });
@@ -210,7 +245,7 @@ void main() {
 
         final users = querySignal.value.data!['users'] as List;
         expect(users.length, equals(2)); // Alice (85.5) and Bob (92.0)
-        
+
         for (final user in users) {
           final score = user['score'] as double;
           expect(score >= 80.0 && score < 95.0, isTrue);
@@ -222,16 +257,40 @@ void main() {
       setUp(() async {
         // Create test data with various fields for sorting
         final posts = [
-          {'id': 'post1', 'title': 'Beta Post', 'views': 150, 'created': 1640000000, 'priority': 2},
-          {'id': 'post2', 'title': 'Alpha Post', 'views': 300, 'created': 1640000100, 'priority': 1},
-          {'id': 'post3', 'title': 'Gamma Post', 'views': 75, 'created': 1640000200, 'priority': 1},
-          {'id': 'post4', 'title': 'Delta Post', 'views': 200, 'created': 1640000050, 'priority': 3},
+          {
+            'id': 'post1',
+            'title': 'Beta Post',
+            'views': 150,
+            'created': 1640000000,
+            'priority': 2,
+          },
+          {
+            'id': 'post2',
+            'title': 'Alpha Post',
+            'views': 300,
+            'created': 1640000100,
+            'priority': 1,
+          },
+          {
+            'id': 'post3',
+            'title': 'Gamma Post',
+            'views': 75,
+            'created': 1640000200,
+            'priority': 1,
+          },
+          {
+            'id': 'post4',
+            'title': 'Delta Post',
+            'views': 200,
+            'created': 1640000050,
+            'priority': 3,
+          },
         ];
 
         for (final post in posts) {
           await db.transact([...db.create('posts', post)]);
         }
-        
+
         await Future.delayed(const Duration(milliseconds: 100));
       });
 
@@ -246,7 +305,7 @@ void main() {
 
         final posts = querySignal.value.data!['posts'] as List;
         expect(posts.length, equals(4));
-        
+
         // Should be ordered: Gamma (75), Beta (150), Delta (200), Alpha (300)
         expect(posts[0]['title'], equals('Gamma Post'));
         expect(posts[1]['title'], equals('Beta Post'));
@@ -265,7 +324,7 @@ void main() {
 
         final posts = querySignal.value.data!['posts'] as List;
         expect(posts.length, equals(4));
-        
+
         // Should be ordered: Alpha (300), Delta (200), Beta (150), Gamma (75)
         expect(posts[0]['title'], equals('Alpha Post'));
         expect(posts[1]['title'], equals('Delta Post'));
@@ -287,15 +346,21 @@ void main() {
 
         final posts = querySignal.value.data!['posts'] as List;
         expect(posts.length, equals(4));
-        
+
         // Should be ordered by priority ASC, then views DESC within same priority
         // Priority 1: Alpha (300), Gamma (75)
-        // Priority 2: Beta (150) 
+        // Priority 2: Beta (150)
         // Priority 3: Delta (200)
-        expect(posts[0]['title'], equals('Alpha Post')); // Priority 1, Views 300
+        expect(
+          posts[0]['title'],
+          equals('Alpha Post'),
+        ); // Priority 1, Views 300
         expect(posts[1]['title'], equals('Gamma Post')); // Priority 1, Views 75
-        expect(posts[2]['title'], equals('Beta Post'));  // Priority 2, Views 150
-        expect(posts[3]['title'], equals('Delta Post')); // Priority 3, Views 200
+        expect(posts[2]['title'], equals('Beta Post')); // Priority 2, Views 150
+        expect(
+          posts[3]['title'],
+          equals('Delta Post'),
+        ); // Priority 3, Views 200
       });
 
       test('should sort by string fields', () async {
@@ -309,7 +374,7 @@ void main() {
 
         final posts = querySignal.value.data!['posts'] as List;
         expect(posts.length, equals(4));
-        
+
         // Should be alphabetical: Alpha, Beta, Delta, Gamma
         expect(posts[0]['title'], equals('Alpha Post'));
         expect(posts[1]['title'], equals('Beta Post'));
@@ -327,10 +392,10 @@ void main() {
               'id': 'item$i',
               'number': i,
               'category': i % 3 == 0 ? 'A' : (i % 3 == 1 ? 'B' : 'C'),
-            })
+            }),
           ]);
         }
-        
+
         await Future.delayed(const Duration(milliseconds: 200));
       });
 
@@ -346,7 +411,7 @@ void main() {
 
         final items = querySignal.value.data!['items'] as List;
         expect(items.length, equals(5));
-        
+
         // Should get items 1-5
         for (int i = 0; i < 5; i++) {
           expect(items[i]['number'], equals(i + 1));
@@ -366,7 +431,7 @@ void main() {
 
         final items = querySignal.value.data!['items'] as List;
         expect(items.length, equals(5));
-        
+
         // Should get items 11-15
         for (int i = 0; i < 5; i++) {
           expect(items[i]['number'], equals(i + 11));
@@ -387,7 +452,7 @@ void main() {
 
         final items = querySignal.value.data!['items'] as List;
         expect(items.length, lessThanOrEqualTo(3));
-        
+
         // All items should be category B
         for (final item in items) {
           expect(item['category'], equals('B'));
@@ -419,28 +484,41 @@ void main() {
         ];
 
         final posts = [
-          {'id': 'post1', 'title': 'Alice Post 1', 'authorId': 'user1', 'published': true},
-          {'id': 'post2', 'title': 'Alice Post 2', 'authorId': 'user1', 'published': false},
-          {'id': 'post3', 'title': 'Bob Post 1', 'authorId': 'user2', 'published': true},
+          {
+            'id': 'post1',
+            'title': 'Alice Post 1',
+            'authorId': 'user1',
+            'published': true,
+          },
+          {
+            'id': 'post2',
+            'title': 'Alice Post 2',
+            'authorId': 'user1',
+            'published': false,
+          },
+          {
+            'id': 'post3',
+            'title': 'Bob Post 1',
+            'authorId': 'user2',
+            'published': true,
+          },
         ];
 
         for (final user in users) {
           await db.transact([...db.create('users', user)]);
         }
-        
+
         for (final post in posts) {
           await db.transact([...db.create('posts', post)]);
         }
-        
+
         await Future.delayed(const Duration(milliseconds: 100));
       });
 
       test('should include related entities (one-to-one)', () async {
         final querySignal = db.query({
           'posts': {
-            'include': {
-              'author': {},
-            },
+            'include': {'author': {}},
           },
         });
 
@@ -448,11 +526,11 @@ void main() {
 
         final posts = querySignal.value.data!['posts'] as List;
         expect(posts.length, equals(3));
-        
+
         for (final post in posts) {
           expect(post['author'], isNotNull);
           expect(post['author']['name'], isA<String>());
-          
+
           // Verify relationship is correct
           if (post['authorId'] == 'user1') {
             expect(post['author']['name'], equals('Alice'));
@@ -465,9 +543,7 @@ void main() {
       test('should include related entities (one-to-many)', () async {
         final querySignal = db.query({
           'users': {
-            'include': {
-              'posts': {},
-            },
+            'include': {'posts': {}},
           },
         });
 
@@ -475,17 +551,17 @@ void main() {
 
         final users = querySignal.value.data!['users'] as List;
         expect(users.length, equals(2));
-        
+
         for (final user in users) {
           expect(user['posts'], isA<List>());
           final userPosts = user['posts'] as List;
-          
+
           if (user['name'] == 'Alice') {
             expect(userPosts.length, equals(2));
           } else if (user['name'] == 'Bob') {
             expect(userPosts.length, equals(1));
           }
-          
+
           // All posts should belong to this user
           for (final post in userPosts) {
             expect(post['authorId'], equals(user['id']));
@@ -509,15 +585,15 @@ void main() {
 
         final users = querySignal.value.data!['users'] as List;
         expect(users.length, equals(2));
-        
+
         for (final user in users) {
           final userPosts = user['posts'] as List;
-          
+
           // All included posts should be published
           for (final post in userPosts) {
             expect(post['published'], isTrue);
           }
-          
+
           if (user['name'] == 'Alice') {
             expect(userPosts.length, equals(1)); // Only 1 published post
           } else if (user['name'] == 'Bob') {
@@ -531,25 +607,43 @@ void main() {
       setUp(() async {
         // Create test data for aggregations
         final sales = [
-          {'id': 'sale1', 'amount': 100.0, 'region': 'North', 'date': '2024-01-01'},
-          {'id': 'sale2', 'amount': 250.0, 'region': 'South', 'date': '2024-01-02'},
-          {'id': 'sale3', 'amount': 175.0, 'region': 'North', 'date': '2024-01-03'},
-          {'id': 'sale4', 'amount': 300.0, 'region': 'South', 'date': '2024-01-04'},
+          {
+            'id': 'sale1',
+            'amount': 100.0,
+            'region': 'North',
+            'date': '2024-01-01',
+          },
+          {
+            'id': 'sale2',
+            'amount': 250.0,
+            'region': 'South',
+            'date': '2024-01-02',
+          },
+          {
+            'id': 'sale3',
+            'amount': 175.0,
+            'region': 'North',
+            'date': '2024-01-03',
+          },
+          {
+            'id': 'sale4',
+            'amount': 300.0,
+            'region': 'South',
+            'date': '2024-01-04',
+          },
         ];
 
         for (final sale in sales) {
           await db.transact([...db.create('sales', sale)]);
         }
-        
+
         await Future.delayed(const Duration(milliseconds: 100));
       });
 
       test('should support count aggregation', () async {
         final querySignal = db.query({
           'sales': {
-            '\$aggregate': {
-              'count': '*',
-            },
+            '\$aggregate': {'count': '*'},
           },
         });
 
@@ -564,9 +658,7 @@ void main() {
       test('should support sum aggregation', () async {
         final querySignal = db.query({
           'sales': {
-            '\$aggregate': {
-              'sum': 'amount',
-            },
+            '\$aggregate': {'sum': 'amount'},
           },
         });
 
@@ -581,9 +673,7 @@ void main() {
       test('should support average aggregation', () async {
         final querySignal = db.query({
           'sales': {
-            '\$aggregate': {
-              'avg': 'amount',
-            },
+            '\$aggregate': {'avg': 'amount'},
           },
         });
 
@@ -598,10 +688,7 @@ void main() {
       test('should support min/max aggregation', () async {
         final querySignal = db.query({
           'sales': {
-            '\$aggregate': {
-              'min': 'amount',
-              'max': 'amount',
-            },
+            '\$aggregate': {'min': 'amount', 'max': 'amount'},
           },
         });
 
@@ -617,10 +704,7 @@ void main() {
       test('should support group by with aggregations', () async {
         final querySignal = db.query({
           'sales': {
-            '\$aggregate': {
-              'sum': 'amount',
-              'count': '*',
-            },
+            '\$aggregate': {'sum': 'amount', 'count': '*'},
             '\$groupBy': ['region'],
           },
         });
@@ -629,7 +713,7 @@ void main() {
 
         final results = querySignal.value.data!['sales'] as List;
         expect(results.length, equals(2));
-        
+
         for (final result in results) {
           if (result['region'] == 'North') {
             expect(result['sum'], equals(275.0)); // 100 + 175
@@ -646,7 +730,7 @@ void main() {
       test('should handle large dataset queries efficiently', () async {
         // Create 1000 test records
         final stopwatch = Stopwatch()..start();
-        
+
         for (int i = 1; i <= 1000; i++) {
           await db.transact([
             ...db.create('large_items', {
@@ -654,21 +738,21 @@ void main() {
               'value': i,
               'category': 'category${i % 10}',
               'active': i % 2 == 0,
-            })
+            }),
           ]);
-          
+
           // Batch operations to avoid overwhelming the system
           if (i % 50 == 0) {
             await Future.delayed(const Duration(milliseconds: 10));
           }
         }
-        
+
         final createTime = stopwatch.elapsedMilliseconds;
         print('Created 1000 records in ${createTime}ms');
-        
+
         // Query with complex conditions
         stopwatch.reset();
-        
+
         final querySignal = db.query({
           'large_items': {
             'where': {
@@ -682,14 +766,14 @@ void main() {
 
         await Future.delayed(const Duration(milliseconds: 200));
         stopwatch.stop();
-        
+
         final queryTime = stopwatch.elapsedMilliseconds;
         print('Complex query completed in ${queryTime}ms');
-        
+
         final items = querySignal.value.data!['large_items'] as List;
         expect(items.length, equals(50));
         expect(queryTime, lessThan(1000)); // Should complete within 1 second
-        
+
         // Verify results are correct
         for (final item in items) {
           expect(item['value'] as int > 500, isTrue);
@@ -701,13 +785,10 @@ void main() {
         // Create test data
         for (int i = 1; i <= 10; i++) {
           await db.transact([
-            ...db.create('cache_items', {
-              'id': 'item$i',
-              'value': i,
-            })
+            ...db.create('cache_items', {'id': 'item$i', 'value': i}),
           ]);
         }
-        
+
         await Future.delayed(const Duration(milliseconds: 100));
 
         final query = {
@@ -721,18 +802,20 @@ void main() {
         final querySignal1 = db.query(query);
         await Future.delayed(const Duration(milliseconds: 100));
         final firstQueryTime = stopwatch.elapsedMilliseconds;
-        
+
         // Second identical query (should use cache)
         stopwatch.reset();
         final querySignal2 = db.query(query);
         await Future.delayed(const Duration(milliseconds: 50));
         final secondQueryTime = stopwatch.elapsedMilliseconds;
-        
-        print('First query: ${firstQueryTime}ms, Second query: ${secondQueryTime}ms');
-        
+
+        print(
+          'First query: ${firstQueryTime}ms, Second query: ${secondQueryTime}ms',
+        );
+
         // Should return same signal instance (cached)
         expect(identical(querySignal1, querySignal2), isTrue);
-        
+
         // Results should be identical
         expect(querySignal1.value.data, equals(querySignal2.value.data));
       });

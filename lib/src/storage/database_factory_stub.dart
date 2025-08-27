@@ -9,6 +9,9 @@ DatabaseFactory getPlatformDatabaseFactory() {
   throw UnsupportedError('Database factory not supported on this platform');
 }
 
-Future<String> getPlatformDatabasePath(String appId, {String? persistenceDir}) async {
+Future<String> getPlatformDatabasePath(
+  String appId, {
+  String? persistenceDir,
+}) async {
   throw UnsupportedError('Database path not supported on this platform');
 }

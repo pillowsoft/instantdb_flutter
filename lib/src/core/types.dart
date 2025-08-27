@@ -67,14 +67,12 @@ class TripleChange {
   final ChangeType type;
   final Triple triple;
 
-  const TripleChange({
-    required this.type,
-    required this.triple,
-  });
+  const TripleChange({required this.type, required this.triple});
 
-  factory TripleChange.fromJson(Map<String, dynamic> json) => _$TripleChangeFromJson(json);
+  factory TripleChange.fromJson(Map<String, dynamic> json) =>
+      _$TripleChangeFromJson(json);
   Map<String, dynamic> toJson() => _$TripleChangeToJson(this);
-  
+
   /// Create a clear change event
   factory TripleChange.clear() => TripleChange(
     type: ChangeType.clear,
@@ -107,25 +105,18 @@ class QueryResult {
   final Map<String, dynamic>? data;
   final String? error;
 
-  const QueryResult({
-    required this.isLoading,
-    this.data,
-    this.error,
-  });
+  const QueryResult({required this.isLoading, this.data, this.error});
 
   factory QueryResult.loading() => const QueryResult(isLoading: true);
-  
-  factory QueryResult.success(Map<String, dynamic> data) => QueryResult(
-        isLoading: false,
-        data: data,
-      );
-  
-  factory QueryResult.error(String error) => QueryResult(
-        isLoading: false,
-        error: error,
-      );
 
-  factory QueryResult.fromJson(Map<String, dynamic> json) => _$QueryResultFromJson(json);
+  factory QueryResult.success(Map<String, dynamic> data) =>
+      QueryResult(isLoading: false, data: data);
+
+  factory QueryResult.error(String error) =>
+      QueryResult(isLoading: false, error: error);
+
+  factory QueryResult.fromJson(Map<String, dynamic> json) =>
+      _$QueryResultFromJson(json);
   Map<String, dynamic> toJson() => _$QueryResultToJson(this);
 
   bool get hasData => data != null;
@@ -163,7 +154,8 @@ class InstantConfig {
     this.encryptedStorage = false,
   });
 
-  factory InstantConfig.fromJson(Map<String, dynamic> json) => _$InstantConfigFromJson(json);
+  factory InstantConfig.fromJson(Map<String, dynamic> json) =>
+      _$InstantConfigFromJson(json);
   Map<String, dynamic> toJson() => _$InstantConfigToJson(this);
 }
 
@@ -209,18 +201,18 @@ class Operation {
       if (json.containsKey('entityType') && json.containsKey('entityId')) {
         return _$OperationFromJson(json);
       }
-      
+
       // Handle old format - convert to new format
       final type = $enumDecode(_$OperationTypeEnumMap, json['type']);
       final entityId = json['entityId'] as String? ?? '';
       final attribute = json['attribute'] as String?;
       final value = json['value'];
-      
+
       // For old format, entityType is often derived from the operation context
       // We'll use a default or try to infer it
       String entityType = '';
       Map<String, dynamic>? data;
-      
+
       if (attribute != null && value != null) {
         // Old format: single attribute-value pair
         data = {attribute: value};
@@ -232,7 +224,7 @@ class Operation {
         // Mixed format: has data but missing entityType
         data = json['data'] as Map<String, dynamic>;
       }
-      
+
       return Operation(
         type: type,
         entityType: entityType,
@@ -304,7 +296,8 @@ class Transaction {
     this.status = TransactionStatus.pending,
   });
 
-  factory Transaction.fromJson(Map<String, dynamic> json) => _$TransactionFromJson(json);
+  factory Transaction.fromJson(Map<String, dynamic> json) =>
+      _$TransactionFromJson(json);
   Map<String, dynamic> toJson() => _$TransactionToJson(this);
 }
 
@@ -335,7 +328,8 @@ class TransactionResult {
     required this.timestamp,
   });
 
-  factory TransactionResult.fromJson(Map<String, dynamic> json) => _$TransactionResultFromJson(json);
+  factory TransactionResult.fromJson(Map<String, dynamic> json) =>
+      _$TransactionResultFromJson(json);
   Map<String, dynamic> toJson() => _$TransactionResultToJson(this);
 }
 
@@ -355,7 +349,8 @@ class AuthUser {
     this.metadata = const {},
   });
 
-  factory AuthUser.fromJson(Map<String, dynamic> json) => _$AuthUserFromJson(json);
+  factory AuthUser.fromJson(Map<String, dynamic> json) =>
+      _$AuthUserFromJson(json);
   Map<String, dynamic> toJson() => _$AuthUserToJson(this);
 }
 
@@ -372,7 +367,8 @@ class LookupRef {
     required this.value,
   });
 
-  factory LookupRef.fromJson(Map<String, dynamic> json) => _$LookupRefFromJson(json);
+  factory LookupRef.fromJson(Map<String, dynamic> json) =>
+      _$LookupRefFromJson(json);
   Map<String, dynamic> toJson() => _$LookupRefToJson(this);
 }
 
@@ -401,5 +397,6 @@ class InstantException implements Exception {
   });
 
   @override
-  String toString() => 'InstantException: $message${code != null ? ' ($code)' : ''}';
+  String toString() =>
+      'InstantException: $message${code != null ? ' ($code)' : ''}';
 }
