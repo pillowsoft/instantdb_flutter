@@ -37,3 +37,4 @@ instance1.txt
 logs.txt
 
 node_modules/
+example/lib/git_stamp/
