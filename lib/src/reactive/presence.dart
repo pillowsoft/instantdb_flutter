@@ -473,11 +473,6 @@ class PresenceManager {
     InstantDBLogging.root.debug('Left room $roomId');
   }
 
-
-
-
-
-
   /// Handle WebSocket connection status changes
   void _handleConnectionStatusChange(bool isConnected) {
     if (isConnected) {

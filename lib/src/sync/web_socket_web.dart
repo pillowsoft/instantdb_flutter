@@ -5,7 +5,7 @@ import '../core/logging_config.dart';
 
 class WebSocketManager {
   static final _logger = InstantDBLogging.webSocket;
-  
+
   static Future<WebSocketAdapter> connect(String url) async {
     final completer = Completer<WebSocketAdapter>();
 
