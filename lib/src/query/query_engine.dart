@@ -1,0 +1,358 @@
+import 'dart:async';
+import 'dart:convert';
+import 'package:signals_flutter/signals_flutter.dart';
+
+import '../core/types.dart';
+import '../core/logging_config.dart';
+import '../storage/storage_interface.dart';
+import '../sync/sync_engine.dart';
+
+/// Query engine that executes InstaQL queries reactively
+class QueryEngine {
+  final StorageInterface _store;
+  SyncEngine? _syncEngine;
+  final Map<String, Signal<QueryResult>> _queryCache = {};
+  late final StreamSubscription _storeSubscription;
+  Timer? _batchTimer;
+  final Set<String> _pendingQueryUpdates = {};
+  final Set<String> _subscribedQueries = {};
+  
+  // Logger for query engine
+  static final _logger = InstantDBLogging.queryEngine;
+
+  QueryEngine(this._store, [this._syncEngine]) {
+    // Listen to store changes and invalidate affected queries
+    _logger.debug('Setting up store change listener - StoreType: ${_store.runtimeType}');
+    _storeSubscription = _store.changes.listen((change) {
+      InstantDBLogging.logQueryEvent('CHANGE_RECEIVED', 'store', 
+        reason: '${change.type}:${change.triple.entityId}');
+      _handleStoreChange(change);
+    });
+  }
+  
+  /// Set the sync engine (called after initialization)
+  void setSyncEngine(SyncEngine syncEngine) {
+    _syncEngine = syncEngine;
+    
+    // When sync engine is connected, send all queries to establish subscriptions
+    if (syncEngine.connectionStatus.value) {
+      InstantDBLogging.root.debug('QueryEngine: Already connected, sending ${_queryCache.length} queries to establish subscriptions');
+      for (final queryKey in _queryCache.keys) {
+        final query = _parseQueryKey(queryKey);
+        syncEngine.sendQuery(query);
+        _subscribedQueries.add(queryKey);
+      }
+    }
+    
+    // Use effect to react to connection status changes
+    effect(() {
+      final isConnected = syncEngine.connectionStatus.value;
+      if (isConnected) {
+        InstantDBLogging.root.debug('QueryEngine: Connection established, checking for unsubscribed queries');
+        // When connected, send any queries that haven't been subscribed yet
+        for (final queryKey in _queryCache.keys) {
+          if (!_subscribedQueries.contains(queryKey)) {
+            InstantDBLogging.root.debug('QueryEngine: Sending unsubscribed query: $queryKey');
+            final query = _parseQueryKey(queryKey);
+            syncEngine.sendQuery(query);
+            _subscribedQueries.add(queryKey);
+          }
+        }
+      }
+    });
+  }
+
+  /// Execute a query and return a reactive signal
+  Signal<QueryResult> query(Map<String, dynamic> query) {
+    final queryKey = _generateQueryKey(query);
+
+    // Return cached query if exists
+    if (_queryCache.containsKey(queryKey)) {
+      InstantDBLogging.logQueryEvent('CACHE_HIT', queryKey);
+      return _queryCache[queryKey]!;
+    }
+
+    InstantDBLogging.logQueryEvent('NEW_QUERY', queryKey);
+    
+    // Create new reactive query
+    final resultSignal = signal(QueryResult.loading());
+    _queryCache[queryKey] = resultSignal;
+
+    // Send query to InstantDB to establish subscription
+    if (_syncEngine != null && !_subscribedQueries.contains(queryKey)) {
+      InstantDBLogging.root.debug('QueryEngine: Sending query to sync engine for subscription');
+      _syncEngine!.sendQuery(query);
+      _subscribedQueries.add(queryKey);
+    } else {
+      InstantDBLogging.root.debug('QueryEngine: Not sending query - syncEngine: ${_syncEngine != null}, already subscribed: ${_subscribedQueries.contains(queryKey)}');
+    }
+
+    // Execute query asynchronously
+    _executeQuery(query, resultSignal);
+
+    return resultSignal;
+  }
+
+  Future<void> _executeQuery(
+    Map<String, dynamic> query,
+    Signal<QueryResult> resultSignal,
+  ) async {
+    try {
+      final result = await _processQuery(query);
+      resultSignal.value = QueryResult.success(result);
+    } catch (e, stackTrace) {
+      InstantDBLogging.root.severe('Query execution error', e, stackTrace);
+      resultSignal.value = QueryResult.error(e.toString());
+    }
+  }
+
+  Future<Map<String, dynamic>> _processQuery(Map<String, dynamic> query) async {
+    final results = <String, dynamic>{};
+
+    for (final entry in query.entries) {
+      final entityType = entry.key;
+      
+      // Handle different types of query values
+      Map<String, dynamic> entityQuery = {};
+      if (entry.value is Map) {
+        entityQuery = Map<String, dynamic>.from(entry.value as Map);
+      }
+
+      // Execute entity query
+      final entities = await _queryEntities(entityType, entityQuery);
+      results[entityType] = entities;
+    }
+
+    return results;
+  }
+
+  Future<List<Map<String, dynamic>>> _queryEntities(
+    String entityType,
+    Map<String, dynamic> query,
+  ) async {
+    // Extract query parameters
+    final where = query['where'] as Map<String, dynamic>?;
+    final orderBy = query['orderBy'];
+    final limit = query['limit'] as int?;
+    final offset = query['offset'] as int?;
+    final include = query['include'] as Map<String, dynamic>?;
+    final aggregate = query['\$aggregate'] as Map<String, dynamic>?;
+    final groupBy = query['\$groupBy'] as List<String>?;
+
+    // Query entities from store
+    var entities = await _store.queryEntities(
+      entityType: entityType,
+      where: where,
+      orderBy: orderBy,
+      limit: limit,
+      offset: offset,
+      aggregate: aggregate,
+      groupBy: groupBy,
+    );
+
+    // Process includes (nested queries)
+    if (include != null) {
+      entities = await _processIncludes(entities, include);
+    }
+
+    return entities;
+  }
+
+  Future<List<Map<String, dynamic>>> _processIncludes(
+    List<Map<String, dynamic>> entities,
+    Map<String, dynamic> includes,
+  ) async {
+    for (final entity in entities) {
+      for (final includeEntry in includes.entries) {
+        final relationName = includeEntry.key;
+        final relationQuery = includeEntry.value is Map 
+            ? Map<String, dynamic>.from(includeEntry.value as Map)
+            : null;
+
+        // Simple relation resolution based on naming conventions
+        if (relationName.endsWith('s')) {
+          // One-to-many relation (e.g., "posts")
+          // Keep the relationName as-is since it's already plural (which matches our entity types)
+          
+          // For one-to-many relationships, we need to determine the foreign key
+          // Convention: posts belong to a user via 'authorId', 'userId', etc.
+          // Try common patterns
+          String foreignKey;
+          final parentType = entity['__type']?.toString() ?? '';
+          final singularParentType = parentType.endsWith('s') ? parentType.substring(0, parentType.length - 1) : parentType;
+          
+          // Try specific naming patterns first
+          if (relationName == 'posts') {
+            foreignKey = 'authorId'; // posts commonly use authorId
+          } else {
+            foreignKey = '${singularParentType}Id'; // fallback to standard pattern
+          }
+
+          final whereClause = <String, dynamic>{foreignKey: entity['id']};
+          
+          // Merge with any additional where conditions from the relation query
+          if (relationQuery != null && relationQuery['where'] != null) {
+            whereClause.addAll(relationQuery['where'] as Map<String, dynamic>);
+          }
+
+          final queryMap = <String, dynamic>{'where': whereClause};
+          
+          // Add other query parameters
+          if (relationQuery != null) {
+            for (final entry in relationQuery.entries) {
+              if (entry.key != 'where') {
+                queryMap[entry.key] = entry.value;
+              }
+            }
+          }
+
+          final relatedEntities = await _queryEntities(relationName, queryMap);
+          entity[relationName] = relatedEntities;
+        } else {
+          // One-to-one relation (e.g., "author")
+          final foreignKey = '${relationName}Id';
+          
+          if (entity.containsKey(foreignKey)) {
+            // Map common relationship names to actual entity types
+            String entityType;
+            switch (relationName) {
+              case 'author':
+                entityType = 'users';
+                break;
+              case 'user':
+                entityType = 'users';
+                break;
+              default:
+                entityType = '${relationName}s'; // Pluralize by default
+            }
+            
+            final queryMap = <String, dynamic>{
+              'where': {'id': entity[foreignKey]},
+              'limit': 1,
+            };
+            
+            // Add other query parameters
+            if (relationQuery != null) {
+              for (final entry in relationQuery.entries) {
+                if (entry.key != 'where') {
+                  queryMap[entry.key] = entry.value;
+                } else {
+                  // Merge where conditions
+                  queryMap['where'].addAll(entry.value as Map<String, dynamic>);
+                }
+              }
+            }
+            
+            final relatedEntity = await _queryEntities(entityType, queryMap);
+
+            entity[relationName] = relatedEntity.isNotEmpty ? relatedEntity.first : null;
+          }
+        }
+      }
+    }
+
+    return entities;
+  }
+
+  void _handleStoreChange(TripleChange change) {
+    // Skip internal system changes to avoid feedback loops
+    if (change.triple.entityId == '__query_invalidation') {
+      return;
+    }
+    
+    // Collect queries that need updating
+    for (final entry in _queryCache.entries) {
+      final query = _parseQueryKey(entry.key);
+      if (_queryAffectedByChange(query, change)) {
+        _pendingQueryUpdates.add(entry.key);
+      }
+    }
+
+    // Batch query updates with a larger delay to avoid excessive re-queries
+    _batchTimer?.cancel();
+    _batchTimer = Timer(const Duration(milliseconds: 200), () {
+      // Execute all pending query updates
+      for (final queryKey in _pendingQueryUpdates) {
+        final query = _parseQueryKey(queryKey);
+        final resultSignal = _queryCache[queryKey];
+        if (resultSignal != null) {
+          _executeQuery(query, resultSignal);
+        }
+      }
+      _pendingQueryUpdates.clear();
+    });
+  }
+
+  bool _queryAffectedByChange(Map<String, dynamic> query, TripleChange change) {
+    // Check if the query is affected by the change for any entity type
+    
+    // If it's a __type change, check if the query includes that entity type
+    if (change.triple.attribute == '__type') {
+      final entityType = change.triple.value as String;
+      return query.containsKey(entityType);
+    }
+    
+    // For any other attribute changes, check all entity types in the query
+    // This ensures all queries (todos, tiles, messages, etc.) are properly updated
+    for (final entityType in query.keys) {
+      // This is a broad match - any change could affect any query
+      // In production, this could be optimized to check specific relationships
+      return true;
+    }
+    
+    return false;
+  }
+
+  String _generateQueryKey(Map<String, dynamic> query) {
+    return jsonEncode(query);
+  }
+
+  Map<String, dynamic> _parseQueryKey(String queryKey) {
+    return jsonDecode(queryKey) as Map<String, dynamic>;
+  }
+
+  /// Clear query cache
+  void clearCache() {
+    _queryCache.clear();
+  }
+
+  /// Dispose query engine
+  void dispose() {
+    _batchTimer?.cancel();
+    _storeSubscription.cancel();
+    _queryCache.clear();
+  }
+}
+
+/// Query builder for fluent API
+class QueryBuilder {
+  final QueryEngine _engine;
+  final Map<String, dynamic> _query = {};
+
+  QueryBuilder(this._engine);
+
+  /// Add an entity query
+  QueryBuilder entity(String entityType, {
+    Map<String, dynamic>? where,
+    Map<String, dynamic>? orderBy,
+    int? limit,
+    int? offset,
+    Map<String, dynamic>? include,
+  }) {
+    final entityQuery = <String, dynamic>{};
+    
+    if (where != null) entityQuery['where'] = where;
+    if (orderBy != null) entityQuery['orderBy'] = orderBy;
+    if (limit != null) entityQuery['limit'] = limit;
+    if (offset != null) entityQuery['offset'] = offset;
+    if (include != null) entityQuery['include'] = include;
+
+    _query[entityType] = entityQuery;
+    return this;
+  }
+
+  /// Execute the query
+  Signal<QueryResult> execute() {
+    return _engine.query(_query);
+  }
+}

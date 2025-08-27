@@ -1,0 +1,81 @@
+# Cloudflare Pages configuration for InstantDB Flutter Example
+# Documentation: https://developers.cloudflare.com/pages/platform/configuration/
+
+name = "instantdb-flutter-demo"
+compatibility_date = "2024-08-26"
+compatibility_flags = ["nodejs_compat"]
+
+[build]
+# Build command - this is handled by Just commands, but can be set for CI
+command = "flutter build web --release --source-maps"
+# Output directory after build
+publish = "build/web"
+
+[build.environment_variables]
+# Environment variables available during build
+FLUTTER_BUILD_MODE = "release"
+
+# Environment variables for the deployed site
+[vars]
+# These can be set via the Cloudflare dashboard or CLI
+# INSTANTDB_API_ID will be set as a secret in Cloudflare Pages
+
+# Production environment configuration
+[env.production]
+name = "instantdb-flutter-demo"
+
+[env.production.vars]
+ENVIRONMENT = "production"
+
+# Preview environment configuration  
+[env.preview]
+name = "instantdb-flutter-demo-preview"
+
+[env.preview.vars]
+ENVIRONMENT = "preview"
+
+# Development redirects and headers
+[[redirects]]
+from = "/*"
+to = "/index.html"
+status = 200
+
+# Security headers
+[[headers]]
+for = "/*"
+[headers.values]
+X-Frame-Options = "DENY"
+X-Content-Type-Options = "nosniff"
+Referrer-Policy = "strict-origin-when-cross-origin"
+Permissions-Policy = "camera=(), microphone=(), geolocation=()"
+
+# Cache static assets
+[[headers]]
+for = "/flutter.js"
+[headers.values]
+Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+for = "/main.dart.js"
+[headers.values]
+Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+for = "/icons/*"
+[headers.values]
+Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+for = "*.png"
+[headers.values]
+Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+for = "*.jpg"
+[headers.values]
+Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+for = "*.ico"
+[headers.values]
+Cache-Control = "public, max-age=31536000, immutable"

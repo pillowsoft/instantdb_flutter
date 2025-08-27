@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!--
+    If you are serving your web app in a path other than the root, change the
+    href value below to reflect the base path you are serving from.
+
+    The path provided below has to start and end with a slash "/" in order for
+    it to work correctly.
+
+    For more details:
+    * https://developer.mozilla.org/en-US/docs/Web/HTML/Element/base
+
+    This is a placeholder for base href that will be replaced by the value of
+    the `--base-href` argument provided to `flutter build`.
+  -->
+  <base href="$FLUTTER_BASE_HREF">
+
+  <meta charset="UTF-8">
+  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <!-- SEO and Social Media Meta Tags -->
+  <meta name="description" content="Real-time collaborative Flutter app demo powered by InstantDB. Features live todos, cursor tracking, reactions, typing indicators, and more.">
+  <meta name="keywords" content="Flutter, InstantDB, real-time, collaborative, demo, todos, cursors, reactions, typing, avatars, WebSocket">
+  <meta name="author" content="InstantDB">
+  <meta name="robots" content="index, follow">
+  
+  <!-- Open Graph (Facebook/LinkedIn) -->
+  <meta property="og:title" content="InstantDB Flutter Demo - Real-time Collaborative App">
+  <meta property="og:description" content="Experience real-time collaboration with this Flutter demo featuring todos, cursor tracking, reactions, and more, all powered by InstantDB.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://instantdb-flutter-demo.pages.dev">
+  <meta property="og:image" content="https://instantdb-flutter-demo.pages.dev/icons/Icon-512.png">
+  <meta property="og:site_name" content="InstantDB Flutter Demo">
+  
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:site" content="@instantdb">
+  <meta name="twitter:title" content="InstantDB Flutter Demo - Real-time Collaborative App">
+  <meta name="twitter:description" content="Experience real-time collaboration with this Flutter demo featuring todos, cursor tracking, reactions, and more.">
+  <meta name="twitter:image" content="https://instantdb-flutter-demo.pages.dev/icons/Icon-512.png">
+
+  <!-- iOS meta tags & icons -->
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="InstantDB Flutter Demo">
+  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+  <link rel="apple-touch-icon" sizes="152x152" href="icons/Icon-192.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="icons/Icon-192.png">
+
+  <!-- Android meta tags -->
+  <meta name="theme-color" content="#2196F3">
+  <meta name="msapplication-TileColor" content="#2196F3">
+  <meta name="msapplication-TileImage" content="icons/Icon-192.png">
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" sizes="32x32" href="favicon.png"/>
+  <link rel="icon" type="image/png" sizes="16x16" href="favicon.png"/>
+  <link rel="shortcut icon" href="favicon.png"/>
+
+  <!-- Canonical URL -->
+  <link rel="canonical" href="https://instantdb-flutter-demo.pages.dev/">
+
+  <!-- Preconnect to improve performance -->
+  <link rel="preconnect" href="https://api.instantdb.com">
+  <link rel="preconnect" href="https://cdn.jsdelivr.net">
+
+  <title>InstantDB Flutter Demo - Real-time Collaborative App Examples</title>
+  <link rel="manifest" href="manifest.json">
+
+  <!-- Loading styles -->
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      background: #fafafa;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      overflow: hidden;
+    }
+    .loading {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      background: #fafafa;
+      z-index: 1000;
+    }
+    .loading-spinner {
+      width: 40px;
+      height: 40px;
+      border: 4px solid #e3f2fd;
+      border-top: 4px solid #2196f3;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin-bottom: 20px;
+    }
+    .loading-text {
+      color: #666;
+      font-size: 16px;
+      text-align: center;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    .hidden { display: none; }
+  </style>
+</head>
+<body>
+  <!-- Loading indicator -->
+  <div id="loading" class="loading">
+    <div class="loading-spinner"></div>
+    <div class="loading-text">
+      Loading InstantDB Flutter Demo...<br>
+      <small>Real-time collaborative examples</small>
+    </div>
+  </div>
+
+  <!-- Flutter app will mount here -->
+  <div id="app"></div>
+
+  <script>
+    // Hide loading screen when Flutter is ready
+    window.addEventListener('flutter-first-frame', function () {
+      const loading = document.getElementById('loading');
+      if (loading) {
+        loading.classList.add('hidden');
+      }
+    });
+
+    // Fallback: hide loading screen after 10 seconds
+    setTimeout(function() {
+      const loading = document.getElementById('loading');
+      if (loading) {
+        loading.classList.add('hidden');
+      }
+    }, 10000);
+  </script>
+  
+  <script src="flutter_bootstrap.js" async></script>
+</body>
+</html>
