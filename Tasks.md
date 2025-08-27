@@ -1,0 +1,3 @@
+- should probably chnage this in REDAME.md "This package provides a Flutter/Dart port of InstantDB, enabling you to build real-time, collaborative applications with ease." to "oport of the InstantDB client"
+- add example app image to README.md
+- add link on pub.dev to docs web site

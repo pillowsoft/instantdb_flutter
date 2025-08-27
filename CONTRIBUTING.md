@@ -45,7 +45,7 @@ We are committed to providing a friendly, safe, and welcoming environment for al
 
 3. **Set up the upstream remote**:
    ```bash
-   git remote add upstream https://github.com/instantdb/instantdb_flutter.git
+   git remote add upstream https://github.com/pillowsoft/instantdb_flutter.git
    ```
 
 4. **Install dependencies**:

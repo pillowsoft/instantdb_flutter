@@ -1,8 +1,8 @@
 name: instantdb_flutter
 description: "A real-time, offline-first database client for Flutter with reactive bindings."
-version: 0.1.0
-homepage: https://github.com/instantdb/instantdb-flutter
-repository: https://github.com/instantdb/instantdb-flutter
+version: 0.1.1
+homepage: https://github.com/pillowsoft/instantdb_flutter
+repository: https://github.com/pillowsoft/instantdb_flutter
 
 environment:
   sdk: ^3.8.0

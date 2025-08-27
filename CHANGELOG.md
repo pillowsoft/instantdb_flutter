@@ -1,3 +1,9 @@
+## 0.1.1
+
+### 🔧 Fixes
+- Fixed incorrect GitHub repository links in pubspec.yaml and CONTRIBUTING.md
+- Repository links now correctly point to https://github.com/pillowsoft/instantdb_flutter
+
 ## 0.2.0 (Unreleased)
 
 ### 🚀 Major Features - React/JS SDK Feature Parity
