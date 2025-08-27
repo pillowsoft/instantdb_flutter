@@ -129,7 +129,7 @@ class InstantDBLogging {
     if (record.level >= Level.SEVERE) {
       stderr.writeln(formattedMessage);
     } else {
-      print(formattedMessage);
+      stdout.writeln(formattedMessage);
     }
   }
 

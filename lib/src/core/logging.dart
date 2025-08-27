@@ -1,47 +1,45 @@
+import 'package:logging/logging.dart';
+import 'logging_config.dart';
+
 /// Simple logging utility for InstantDB
+/// This is a legacy wrapper - prefer using InstantDBLogging directly
 class InstantLogger {
   static bool _verbose = false;
-  static final bool _logErrors = true;
+  static final Logger _logger = InstantDBLogging.root;
 
   /// Enable verbose logging (for debugging)
   static void enableVerbose() {
     _verbose = true;
+    InstantDBLogging.updateLogLevel(Level.FINE);
   }
 
   /// Disable verbose logging (default)
   static void disableVerbose() {
     _verbose = false;
+    InstantDBLogging.updateLogLevel(Level.INFO);
   }
 
   /// Log a debug message (only shown in verbose mode)
   static void debug(String message) {
     if (_verbose) {
-      print('InstantDB: $message');
+      _logger.fine(message);
     }
   }
 
   /// Log an info message (only shown in verbose mode)
   static void info(String message) {
     if (_verbose) {
-      print('InstantDB: $message');
+      _logger.info(message);
     }
   }
 
   /// Log a warning message (always shown)
   static void warn(String message) {
-    print('InstantDB [WARN]: $message');
+    _logger.warning(message);
   }
 
   /// Log an error message (always shown)
   static void error(String message, [Object? error, StackTrace? stackTrace]) {
-    if (_logErrors) {
-      print('InstantDB [ERROR]: $message');
-      if (error != null) {
-        print('InstantDB [ERROR]: $error');
-      }
-      if (stackTrace != null && _verbose) {
-        print('InstantDB [ERROR]: $stackTrace');
-      }
-    }
+    _logger.severe(message, error, stackTrace);
   }
 }

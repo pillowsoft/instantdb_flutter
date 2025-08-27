@@ -3,7 +3,6 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:logging/logging.dart';
 import 'package:instantdb_flutter/instantdb_flutter.dart';
-import 'package:instantdb_flutter/src/core/logging_config.dart';
 
 // Import all example pages
 import 'pages/todos_page.dart';

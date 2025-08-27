@@ -276,14 +276,17 @@ publish-check:
     echo "🔍 Running complete pre-publish validation..."
     echo ""
     
-    # Check static analysis
+    # Check static analysis (check for warnings and errors, info messages are acceptable)
     echo "1. Static Analysis Check"
-    if flutter analyze --fatal-infos 2>/dev/null; then
-        echo "✅ Static analysis passed"
-    else
-        echo "❌ Static analysis failed - fix issues before publishing"
+    ANALYZE_OUTPUT=$(flutter analyze 2>&1 || true)
+    if echo "$ANALYZE_OUTPUT" | grep -E "(warning|error)" > /dev/null; then
+        echo "❌ Static analysis failed - fix warnings and errors before publishing"
+        echo "$ANALYZE_OUTPUT"
         echo "💡 Run 'just publish-fix' to auto-fix some issues"
         exit 1
+    else
+        INFO_COUNT=$(echo "$ANALYZE_OUTPUT" | grep -c "info •" || echo "0")
+        echo "✅ Static analysis passed ($INFO_COUNT info messages are acceptable for pub.dev)"
     fi
     echo ""
     

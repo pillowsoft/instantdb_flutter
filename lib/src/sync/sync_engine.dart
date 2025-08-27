@@ -614,7 +614,7 @@ class SyncEngine {
     // Could implement retry logic or user notification here
   }
 
-  void _handleWebSocketError(error) {
+  void _handleWebSocketError(Object error) {
     InstantDBLogging.root.severe('WebSocket error: $error');
     _connectionStatus.value = false;
     _scheduleReconnect();
@@ -699,7 +699,6 @@ class SyncEngine {
 
       // Convert tx-steps to operations
       final operations = <Operation>[];
-      String? currentNamespace;
 
       for (final step in txSteps) {
         if (step is! List || step.isEmpty) continue;
@@ -719,7 +718,6 @@ class SyncEngine {
                 for (final attrEntry in nsEntry.value.entries) {
                   if (attrEntry.value == attrId) {
                     attrName = attrEntry.key;
-                    currentNamespace = nsEntry.key;
                     break;
                   }
                 }
@@ -729,7 +727,7 @@ class SyncEngine {
               if (attrName != null) {
                 // Check if this is a type declaration
                 if (attrName == '__type') {
-                  currentNamespace = value.toString();
+                  // Type declaration processed
                 }
 
                 operations.add(
@@ -758,7 +756,6 @@ class SyncEngine {
                       value: value,
                     ),
                   );
-                  currentNamespace = value;
                 } else {
                   // For now, skip unknown attributes but log them
                   InstantDBLogging.root.debug(

@@ -349,7 +349,7 @@ class QueryEngine {
 
     // For any other attribute changes, check all entity types in the query
     // This ensures all queries (todos, tiles, messages, etc.) are properly updated
-    for (final entityType in query.keys) {
+    for (final _ in query.keys) {
       // This is a broad match - any change could affect any query
       // In production, this could be optimized to check specific relationships
       return true;

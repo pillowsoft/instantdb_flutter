@@ -166,7 +166,6 @@ class PresenceManager {
   final Set<String> _joinedRooms = {};
   // Track rooms that should be active (persist across reconnections)
   final Set<String> _activeRooms = {};
-  final Map<String, Completer<void>> _roomJoinCompleters = {};
 
   PresenceManager({
     required dynamic
@@ -474,94 +473,10 @@ class PresenceManager {
     InstantDBLogging.root.debug('Left room $roomId');
   }
 
-  void _handlePresenceSet(String roomId, Map<String, dynamic> data) {
-    try {
-      final presenceData = PresenceData.fromJson(data);
 
-      _roomPresence.putIfAbsent(roomId, () => {});
-      _roomPresence[roomId]![presenceData.userId] = presenceData;
 
-      _getPresenceSignal(roomId).value = Map.from(_roomPresence[roomId]!);
-    } catch (e) {
-      InstantDBLogging.root.severe('Error handling presence set', e);
-    }
-  }
 
-  void _handleCursorUpdate(String roomId, Map<String, dynamic> data) {
-    try {
-      final cursorData = CursorData.fromJson(data);
 
-      _roomCursors.putIfAbsent(roomId, () => {});
-      _roomCursors[roomId]![cursorData.userId] = cursorData;
-
-      _getCursorSignal(roomId).value = Map.from(_roomCursors[roomId]!);
-    } catch (e) {
-      InstantDBLogging.root.severe('Error handling cursor update', e);
-    }
-  }
-
-  void _handleTypingUpdate(String roomId, Map<String, dynamic> data) {
-    try {
-      final userId = data['userId'] as String;
-      final isTyping = data['isTyping'] as bool;
-      final timestamp = DateTime.fromMillisecondsSinceEpoch(
-        data['timestamp'] as int,
-      );
-
-      _roomTyping.putIfAbsent(roomId, () => {});
-
-      if (isTyping) {
-        _roomTyping[roomId]![userId] = timestamp;
-      } else {
-        _roomTyping[roomId]!.remove(userId);
-      }
-
-      _getTypingSignal(roomId).value = Map.from(_roomTyping[roomId]!);
-    } catch (e) {
-      InstantDBLogging.root.severe('Error handling typing update', e);
-    }
-  }
-
-  void _handleReactionUpdate(String roomId, Map<String, dynamic> data) {
-    try {
-      final reaction = ReactionData.fromJson(data);
-
-      _roomReactions.putIfAbsent(roomId, () => []);
-      _roomReactions[roomId]!.add(reaction);
-
-      // Keep only the last 50 reactions
-      if (_roomReactions[roomId]!.length > 50) {
-        _roomReactions[roomId]!.removeAt(0);
-      }
-
-      _getReactionSignal(roomId).value = List.from(_roomReactions[roomId]!);
-    } catch (e) {
-      InstantDBLogging.root.severe('Error handling reaction update', e);
-    }
-  }
-
-  void _handleUserLeave(String roomId, Map<String, dynamic> data) {
-    try {
-      final userId = data['userId'] as String;
-
-      _roomPresence[roomId]?.remove(userId);
-      _roomCursors[roomId]?.remove(userId);
-      _roomTyping[roomId]?.remove(userId);
-
-      // Update signals
-      if (_presenceSignals.containsKey(roomId)) {
-        _presenceSignals[roomId]!.value = Map.from(_roomPresence[roomId] ?? {});
-      }
-      if (_cursorSignals.containsKey(roomId)) {
-        _cursorSignals[roomId]!.value = Map.from(_roomCursors[roomId] ?? {});
-      }
-      if (_typingSignals.containsKey(roomId)) {
-        _typingSignals[roomId]!.value = Map.from(_roomTyping[roomId] ?? {});
-      }
-    } catch (e) {
-      InstantDBLogging.root.severe('Error handling user leave', e);
-    }
-  }
 
   /// Handle WebSocket connection status changes
   void _handleConnectionStatusChange(bool isConnected) {
@@ -670,29 +585,13 @@ class PresenceManager {
   }
 
   /// Force rejoin a room (used when presence messages fail)
-  Future<void> _forceRejoinRoom(String roomId) async {
-    const roomType = 'presence-room';
-    final roomKey = '$roomType:$roomId';
-
-    InstantDBLogging.root.warning(
-      'PresenceManager: Force rejoining room $roomKey due to server error',
-    );
-
-    // Remove from joined rooms to force rejoin
-    _joinedRooms.remove(roomKey);
-
-    // Ensure it's in active rooms
-    _activeRooms.add(roomKey);
-
-    // Rejoin the room
-    await _ensureRoomJoined(roomId);
-  }
 
   /// Send presence message with preventive room join check
   Future<void> _sendPresenceMessageWithRetry(
     String roomId,
     String type,
-    Map<String, dynamic> data) async {
+    Map<String, dynamic> data,
+  ) async {
     const roomType = 'presence-room';
     final roomKey = '$roomType:$roomId';
 
@@ -869,14 +768,6 @@ class PresenceManager {
   }
 
   /// Handle incoming topic messages
-  void _handleTopicMessage(
-    String roomId,
-    String topic,
-    Map<String, dynamic> data,
-  ) {
-    final controller = _getRoomTopicController(roomId, topic);
-    controller.add(data);
-  }
 
   /// Set the sync engine after initialization (used to resolve circular dependency)
   void setSyncEngine(dynamic syncEngine) {

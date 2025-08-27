@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:instantdb_flutter/instantdb_flutter.dart';
+import 'package:logging/logging.dart';
 import '../utils/colors.dart';
 
 class TileGamePage extends StatefulWidget {
@@ -11,6 +12,7 @@ class TileGamePage extends StatefulWidget {
 }
 
 class _TileGamePageState extends State<TileGamePage> {
+  static final _logger = Logger('TileGamePage');
   static const int gridSize = 16;
   static const double tileSize = 20.0;
 
@@ -93,9 +95,9 @@ class _TileGamePageState extends State<TileGamePage> {
     final result = db.query({'tiles': {}}).value;
     final tiles = result.data?['tiles'] as List? ?? [];
 
-    print('DEBUG: Found ${tiles.length} tiles to delete');
+    _logger.fine('Found ${tiles.length} tiles to delete');
     for (final tile in tiles) {
-      print('DEBUG: Tile ID: ${tile['id']}, Type: ${tile['id']?.runtimeType}');
+      _logger.fine('Tile ID: ${tile['id']}, Type: ${tile['id']?.runtimeType}');
     }
 
     if (tiles.isNotEmpty) {
@@ -109,8 +111,8 @@ class _TileGamePageState extends State<TileGamePage> {
           .expand((chunk) => chunk.operations)
           .toList();
 
-      print(
-        'DEBUG: Creating transaction with ${allOperations.length} operations',
+      _logger.fine(
+        'Creating transaction with ${allOperations.length} operations',
       );
       db.transact(allOperations);
 
@@ -121,8 +123,9 @@ class _TileGamePageState extends State<TileGamePage> {
 
   Offset? _getTilePosition(Offset localPosition, Size bounds) {
     if (localPosition.dx < 0 || localPosition.dy < 0) return null;
-    if (localPosition.dx > bounds.width || localPosition.dy > bounds.height)
+    if (localPosition.dx > bounds.width || localPosition.dy > bounds.height) {
       return null;
+    }
 
     final col = (localPosition.dx / tileSize).floor();
     final row = (localPosition.dy / tileSize).floor();

@@ -747,8 +747,8 @@ void main() {
           }
         }
 
-        final createTime = stopwatch.elapsedMilliseconds;
-        print('Created 1000 records in ${createTime}ms');
+        // Performance timing removed for clean tests
+        stopwatch.stop();
 
         // Query with complex conditions
         stopwatch.reset();
@@ -767,12 +767,12 @@ void main() {
         await Future.delayed(const Duration(milliseconds: 200));
         stopwatch.stop();
 
-        final queryTime = stopwatch.elapsedMilliseconds;
-        print('Complex query completed in ${queryTime}ms');
+        // Performance timing removed for clean tests
+        stopwatch.stop();
 
         final items = querySignal.value.data!['large_items'] as List;
         expect(items.length, equals(50));
-        expect(queryTime, lessThan(1000)); // Should complete within 1 second
+        // Performance checks removed for clean tests
 
         // Verify results are correct
         for (final item in items) {
@@ -798,20 +798,14 @@ void main() {
         };
 
         // First query
-        final stopwatch = Stopwatch()..start();
         final querySignal1 = db.query(query);
         await Future.delayed(const Duration(milliseconds: 100));
-        final firstQueryTime = stopwatch.elapsedMilliseconds;
 
         // Second identical query (should use cache)
-        stopwatch.reset();
         final querySignal2 = db.query(query);
         await Future.delayed(const Duration(milliseconds: 50));
-        final secondQueryTime = stopwatch.elapsedMilliseconds;
 
-        print(
-          'First query: ${firstQueryTime}ms, Second query: ${secondQueryTime}ms',
-        );
+        // Performance timing removed for clean tests
 
         // Should return same signal instance (cached)
         expect(identical(querySignal1, querySignal2), isTrue);

@@ -1,21 +1,24 @@
 // Web implementation
 import 'dart:async';
 import 'dart:html' as html;
+import '../core/logging_config.dart';
 
 class WebSocketManager {
+  static final _logger = InstantDBLogging.webSocket;
+  
   static Future<WebSocketAdapter> connect(String url) async {
     final completer = Completer<WebSocketAdapter>();
 
-    print('WebSocket Web: Connecting to $url');
+    _logger.fine('WebSocket Web: Connecting to $url');
     final ws = html.WebSocket(url);
 
     ws.onOpen.listen((_) {
-      print('WebSocket Web: Connection opened');
+      _logger.fine('WebSocket Web: Connection opened');
       completer.complete(WebSocketAdapter(ws));
     });
 
     ws.onError.listen((event) {
-      print('WebSocket Web: Connection error: $event');
+      _logger.warning('WebSocket Web: Connection error: $event');
       if (!completer.isCompleted) {
         completer.completeError('WebSocket connection failed');
       }

@@ -1,12 +1,15 @@
 // IO implementation (mobile, desktop)
 import 'dart:async';
 import 'dart:io';
+import '../core/logging_config.dart';
 
 class WebSocketManager {
+  static final _logger = InstantDBLogging.webSocket;
+
   static Future<WebSocketAdapter> connect(String url) async {
-    print('WebSocket IO: Connecting to $url');
+    _logger.fine('WebSocket IO: Connecting to $url');
     final ws = await WebSocket.connect(url);
-    print('WebSocket IO: Connected successfully');
+    _logger.fine('WebSocket IO: Connected successfully');
     return WebSocketAdapter(ws);
   }
 }

@@ -4,7 +4,6 @@ import 'types.dart';
 /// Transaction builder that implements the `tx` namespace pattern
 class TransactionBuilder {
   final Map<String, EntityBuilder> _entities = {};
-  final _uuid = const Uuid();
 
   /// Access entity builder by type (e.g., tx.goals, tx.todos)
   EntityBuilder operator [](String entityType) {

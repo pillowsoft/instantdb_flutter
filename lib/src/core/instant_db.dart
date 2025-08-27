@@ -178,7 +178,7 @@ class InstantDB {
   }
 
   /// Execute a transaction with operations or transaction chunk
-  /// Accepts either List<Operation> or TransactionChunk for React API compatibility
+  /// Accepts either List&lt;Operation&gt; or TransactionChunk for React API compatibility
   Future<TransactionResult> transact(dynamic transaction) async {
     if (!_isReady.value) {
       throw InstantException(
