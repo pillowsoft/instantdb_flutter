@@ -1,8 +1,65 @@
-name = "instantdb-flutter-docs"
-pages_build_output_dir = "./dist"
+# Cloudflare Pages configuration for InstantDB Flutter Documentation
+# Documentation: https://developers.cloudflare.com/pages/platform/configuration/
 
+name = "instantdb-flutter-docs"
+compatibility_date = "2024-08-26"
+compatibility_flags = ["nodejs_compat"]
+
+[build]
+# Build command - this is handled by Just commands, but can be set for CI
+command = "bun run build"
+# Output directory after build
+publish = "dist"
+
+[build.environment_variables]
+# Environment variables available during build
+NODE_ENV = "production"
+
+# Production environment configuration
 [env.production]
 name = "instantdb-flutter-docs"
 
+# Preview environment configuration  
 [env.preview]
 name = "instantdb-flutter-docs-preview"
+
+# Development redirects for SPA
+[[redirects]]
+from = "/*"
+to = "/index.html"
+status = 200
+
+# Security headers
+[[headers]]
+for = "/*"
+[headers.values]
+X-Frame-Options = "DENY"
+X-Content-Type-Options = "nosniff"
+Referrer-Policy = "strict-origin-when-cross-origin"
+Permissions-Policy = "camera=(), microphone=(), geolocation=()"
+
+# Cache static assets
+[[headers]]
+for = "/_astro/*"
+[headers.values]
+Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+for = "*.js"
+[headers.values]
+Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+for = "*.css"
+[headers.values]
+Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+for = "*.png"
+[headers.values]
+Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+for = "*.svg"
+[headers.values]
+Cache-Control = "public, max-age=31536000, immutable"
