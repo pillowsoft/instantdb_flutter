@@ -293,6 +293,253 @@ changelog:
 release: check test-coverage docs publish-dry
     @echo "🎉 Ready for release! Run 'just publish' to complete."
 
+# === GITHUB RELEASES ===
+
+# Get current version from pubspec.yaml
+_get-version:
+    @grep '^version:' pubspec.yaml | sed 's/version: //' | tr -d ' '
+
+# Create a new GitHub release (interactive)
+release-create:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "🚀 Creating GitHub release..."
+    
+    # Get current version
+    VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: //' | tr -d ' ')
+    TAG="v$VERSION"
+    
+    echo "📋 Version: $VERSION"
+    echo "🏷️  Tag: $TAG"
+    echo ""
+    
+    # Create release with auto-generated notes
+    gh release create "$TAG" \
+        --title "v$VERSION" \
+        --generate-notes \
+        --latest
+    
+    echo "✅ Release $TAG created successfully!"
+    echo "🌐 View at: https://github.com/$(gh repo view --json owner,name --template '{.owner.login}/{.name}')/releases"
+
+# Create a draft release for review
+release-draft:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "📝 Creating draft release..."
+    
+    VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: //' | tr -d ' ')
+    TAG="v$VERSION"
+    
+    echo "📋 Version: $VERSION"
+    echo "🏷️  Tag: $TAG"
+    echo ""
+    
+    gh release create "$TAG" \
+        --title "v$VERSION" \
+        --generate-notes \
+        --draft
+    
+    echo "✅ Draft release $TAG created!"
+    echo "📝 Edit at: https://github.com/$(gh repo view --json owner,name --template '{.owner.login}/{.name}')/releases"
+
+# Create release using CHANGELOG.md notes
+release-from-changelog:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "📚 Creating release from CHANGELOG..."
+    
+    VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: //' | tr -d ' ')
+    TAG="v$VERSION"
+    
+    echo "📋 Version: $VERSION"
+    echo "🏷️  Tag: $TAG"
+    echo ""
+    
+    # Extract notes from CHANGELOG for current version
+    if [ ! -f CHANGELOG.md ]; then
+        echo "❌ CHANGELOG.md not found"
+        exit 1
+    fi
+    
+    # Create temporary notes file
+    NOTES_FILE=$(mktemp)
+    trap "rm -f $NOTES_FILE" EXIT
+    
+    # Extract changelog section for current version
+    awk "/^## $VERSION/ {flag=1; next} /^## / {flag=0} flag" CHANGELOG.md > "$NOTES_FILE"
+    
+    if [ ! -s "$NOTES_FILE" ]; then
+        echo "⚠️  No changelog entry found for version $VERSION"
+        echo "📝 Using auto-generated notes instead..."
+        gh release create "$TAG" \
+            --title "v$VERSION" \
+            --generate-notes \
+            --latest
+    else
+        echo "📝 Using changelog notes for release..."
+        gh release create "$TAG" \
+            --title "v$VERSION" \
+            --notes-file "$NOTES_FILE" \
+            --latest
+    fi
+    
+    echo "✅ Release $TAG created with changelog notes!"
+
+# Create a pre-release (beta/alpha)
+release-prerelease:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "🧪 Creating pre-release..."
+    
+    VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: //' | tr -d ' ')
+    TAG="v$VERSION"
+    
+    echo "📋 Version: $VERSION"
+    echo "🏷️  Tag: $TAG"
+    echo ""
+    
+    gh release create "$TAG" \
+        --title "v$VERSION (Pre-release)" \
+        --generate-notes \
+        --prerelease
+    
+    echo "✅ Pre-release $TAG created!"
+    echo "🧪 This release is marked as pre-release and won't be marked as 'latest'"
+
+# List recent releases
+release-list:
+    @echo "📋 Recent releases:"
+    @gh release list --limit 10
+
+# Delete a release (with confirmation)
+release-delete tag:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "⚠️  About to delete release: {{tag}}"
+    echo "🗑️  This will delete the release but keep the git tag"
+    echo ""
+    read -p "Are you sure? (y/N): " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        gh release delete "{{tag}}" --yes
+        echo "✅ Release {{tag}} deleted"
+    else
+        echo "❌ Deletion cancelled"
+    fi
+
+# Create and push a version tag
+tag-create:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "🏷️  Creating version tag..."
+    
+    VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: //' | tr -d ' ')
+    TAG="v$VERSION"
+    
+    echo "📋 Version: $VERSION"
+    echo "🏷️  Tag: $TAG"
+    echo ""
+    
+    # Check if tag already exists
+    if git tag --list | grep -q "^$TAG$"; then
+        echo "⚠️  Tag $TAG already exists"
+        exit 1
+    fi
+    
+    # Create annotated tag with version info
+    git tag -a "$TAG" -m "Release version $VERSION"
+    git push origin "$TAG"
+    
+    echo "✅ Tag $TAG created and pushed"
+
+# List all tags
+tag-list:
+    @echo "🏷️  All version tags:"
+    @git tag --list --sort=-version:refname
+
+# Check version consistency across files
+version-check:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "🔍 Checking version consistency..."
+    
+    # Get version from pubspec.yaml
+    PUBSPEC_VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: //' | tr -d ' ')
+    echo "📋 pubspec.yaml: $PUBSPEC_VERSION"
+    
+    # Check if CHANGELOG has entry for this version
+    if [ -f CHANGELOG.md ]; then
+        if grep -q "^## $PUBSPEC_VERSION" CHANGELOG.md; then
+            echo "✅ CHANGELOG.md: Found entry for $PUBSPEC_VERSION"
+        else
+            echo "⚠️  CHANGELOG.md: No entry found for $PUBSPEC_VERSION"
+        fi
+    else
+        echo "⚠️  CHANGELOG.md: File not found"
+    fi
+    
+    # Check git tags
+    TAG="v$PUBSPEC_VERSION"
+    if git tag --list | grep -q "^$TAG$"; then
+        echo "✅ Git tag: $TAG exists"
+    else
+        echo "ℹ️  Git tag: $TAG does not exist yet"
+    fi
+    
+    echo ""
+    echo "📋 Current version: $PUBSPEC_VERSION"
+
+# Complete release workflow
+release-full:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "🚀 Starting complete release workflow..."
+    echo ""
+    
+    # Step 1: Check version consistency
+    echo "Step 1: Version consistency check"
+    just version-check
+    echo ""
+    
+    # Step 2: Run tests
+    echo "Step 2: Running tests..."
+    just test
+    echo ""
+    
+    # Step 3: Run static analysis
+    echo "Step 3: Static analysis..."
+    just analyze
+    echo ""
+    
+    # Step 4: Check formatting
+    echo "Step 4: Format check..."
+    just format-check
+    echo ""
+    
+    # Step 5: Test coverage
+    echo "Step 5: Coverage check..."
+    just test-coverage
+    echo ""
+    
+    # Step 6: Build documentation
+    echo "Step 6: Building documentation..."
+    just docs
+    echo ""
+    
+    # Step 7: Publish dry run
+    echo "Step 7: Publish dry run..."
+    just publish-dry
+    echo ""
+    
+    echo "✅ All checks passed!"
+    echo ""
+    echo "🎯 Ready to create release. Choose next step:"
+    echo "   • just tag-create          - Create version tag"
+    echo "   • just release-create      - Create GitHub release"
+    echo "   • just release-draft       - Create draft release"
+    echo "   • just publish            - Publish to pub.dev"
+
 # === DATABASE & DEBUGGING TASKS ===
 
 # Clean all local test databases
