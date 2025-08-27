@@ -214,6 +214,59 @@ readme-update:
     @echo "📝 Updating README..."
     @echo "Manual task: Update README.md with latest API examples"
 
+# === WEBSITE DOCUMENTATION TASKS ===
+
+# Install website dependencies
+website-install:
+    @echo "📦 Installing website dependencies..."
+    cd website && bun install
+    @echo "✅ Website dependencies installed"
+
+# Start website development server
+website-dev:
+    @echo "🌐 Starting website development server..."
+    cd website && bun run dev
+
+# Build website for production
+website-build:
+    @echo "🏗️ Building website for production..."
+    cd website && bun run build
+    @echo "✅ Website built in website/dist/"
+
+# Preview built website locally
+website-preview: website-build
+    @echo "👀 Previewing website locally..."
+    cd website && bun run preview
+
+# Deploy website to Cloudflare Pages
+website-deploy: website-build
+    @echo "🚀 Deploying website to Cloudflare Pages..."
+    cd website && bun run deploy
+    @echo "✅ Website deployed to production!"
+
+# Clean website build artifacts
+website-clean:
+    @echo "🧹 Cleaning website build artifacts..."
+    rm -rf website/dist
+    rm -rf website/.astro
+    rm -rf website/node_modules/.astro
+    @echo "✅ Website build artifacts cleaned"
+
+# Full website development setup
+website-setup: website-install
+    @echo "🚀 Website development environment ready!"
+
+# Check website build without deploying
+website-check:
+    @echo "🔍 Checking website build..."
+    cd website && bun run build
+    @echo "✅ Website build check completed"
+
+# Open deployed website
+website-open:
+    @echo "🌐 Opening deployed website..."
+    open https://instantdb-flutter-docs.pages.dev
+
 # === PUBLISHING & RELEASE TASKS ===
 
 # Dry run for package publishing
@@ -328,6 +381,14 @@ quick-test: format test-unit
 quality-gate: clean install generate format-check analyze test-coverage
     @echo "🏆 Quality gate passed!"
 
+# Setup everything (package and website)
+full-setup: dev-setup website-setup
+    @echo "🎉 Full development environment ready!"
+
+# Website development workflow
+website-workflow: website-clean website-install website-build website-preview
+    @echo "🌐 Website workflow completed!"
+
 # === BENCHMARKING TASKS ===
 
 # Run performance benchmarks
@@ -413,3 +474,6 @@ tips:
     @echo "• Run 'just ci' to simulate CI locally"
     @echo "• Use 'just example-web' for quick browser testing"
     @echo "• Check 'just todo' for outstanding tasks"
+    @echo "• Use 'just website-dev' to work on documentation"
+    @echo "• Run 'just website-deploy' to publish docs"
+    @echo "• Use 'just full-setup' for complete environment setup"
