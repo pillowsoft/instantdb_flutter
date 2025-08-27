@@ -34,5 +34,6 @@ build/
 example/lib/git_stamp/git_stamp.dart
 example/82100963-e4c0-4f02-b49b-b6fa92d64a17.db
 instance1.txt
+logs.txt
 
 node_modules/

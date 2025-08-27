@@ -231,7 +231,7 @@ ConnectionStatusBuilder(
 InstantDB Flutter includes advanced synchronization capabilities:
 
 - **Differential Sync**: Automatically detects and syncs deletions between instances
-- **Deduplication Logic**: Prevents duplicate entities during sync operations  
+- **Deduplication Logic**: Prevents duplicate entities during sync operations
 - **Transaction Integrity**: Proper conversion to InstantDB's tx-steps format
 - **Comprehensive Logging**: Built-in hierarchical logging for debugging sync issues
 
@@ -266,10 +266,10 @@ Watch((context) {
   final typingUsers = room.getTyping().value;
   final reactions = room.getReactions().value;
   final presence = room.getPresence().value;
-  
+
   return YourCollaborativeWidget(
     cursors: cursors,
-    typingUsers: typingUsers, 
+    typingUsers: typingUsers,
     reactions: reactions,
     presence: presence,
   );
@@ -352,20 +352,20 @@ InstantDB uses a declarative query language with advanced operators:
       'age': {'\$gte': 18, '\$lt': 65},
       'salary': {'\$gt': 50000, '\$lte': 200000},
       'status': {'\$ne': 'inactive'},
-      
+
       // String pattern matching
       'email': {'\$like': '%@company.com'},
       'name': {'\$ilike': '%john%'}, // Case insensitive
-      
+
       // Array operations
       'tags': {'\$contains': 'vip'},
       'skills': {'\$size': {'\$gte': 3}},
       'roles': {'\$in': ['admin', 'moderator']},
-      
+
       // Existence checks
       'profilePicture': {'\$exists': true},
       'deletedAt': {'\$isNull': true},
-      
+
       // Logical operators
       '\$and': [
         {'age': {'\$gte': 18}},
@@ -418,7 +418,7 @@ final user = await db.auth.signUp(
 
 // Sign in
 final user = await db.auth.signIn(
-  email: 'user@example.com', 
+  email: 'user@example.com',
   password: 'password',
 );
 
@@ -441,7 +441,7 @@ db.auth.onAuthStateChange.listen((user) {
 // Use in reactive widgets
 Watch((context) {
   final user = db.subscribeAuth().value;
-  return user != null 
+  return user != null
     ? Text('Welcome ${user.email}')
     : Text('Please sign in');
 });
@@ -607,12 +607,6 @@ We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) f
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## Support
-
-- 📖 [Documentation](https://instantdb.com/docs)
-- 💬 [Discord Community](https://discord.gg/instantdb)
-- 🐛 [Issue Tracker](https://github.com/instantdb/instantdb-flutter/issues)
-- 📧 [Email Support](mailto:support@instantdb.com)
 
 ## Acknowledgments
 
