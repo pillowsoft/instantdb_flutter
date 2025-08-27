@@ -1,0 +1,711 @@
+---
+title: Schema Definition
+description: Define and validate data structures with InstantDB Flutter schemas
+sidebar:
+  order: 2
+---
+
+import { Code, Tabs, TabItem } from "@astrojs/starlight/components";
+
+InstantDB Flutter provides a powerful schema system for defining, validating, and enforcing data structures. Schemas ensure data consistency, provide type safety, and catch errors early in development.
+
+## Why Use Schemas?
+
+Schemas provide several key benefits:
+
+- ✅ **Type Safety** - Catch type errors at development time
+- ✅ **Data Validation** - Ensure data meets your requirements
+- ✅ **Documentation** - Schema serves as living documentation
+- ✅ **Auto-completion** - Better IDE support with defined structures
+- ✅ **Runtime Protection** - Prevent invalid data from entering your database
+
+## Basic Schema Definition
+
+### Simple Field Types
+
+Define schemas using the `Schema` class with various field types:
+
+```dart
+import 'package:instantdb_flutter/instantdb_flutter.dart';
+
+// String field
+final nameSchema = Schema.string(
+  minLength: 1,
+  maxLength: 100,
+);
+
+// Number field
+final ageSchema = Schema.number(
+  min: 0,
+  max: 150,
+);
+
+// Boolean field
+final activeSchema = Schema.boolean();
+
+// Email field with built-in validation
+final emailSchema = Schema.email();
+
+// URL field
+final websiteSchema = Schema.url();
+
+// UUID field
+final idSchema = Schema.id();
+```
+
+### Object Schemas
+
+Combine fields into object schemas:
+
+```dart
+final userSchema = Schema.object({
+  'id': Schema.id(),
+  'name': Schema.string(minLength: 1, maxLength: 100),
+  'email': Schema.email(),
+  'age': Schema.number(min: 0, max: 150),
+  'active': Schema.boolean(),
+  'website': Schema.url().optional(), // Optional field
+}, required: ['id', 'name', 'email']); // Specify required fields
+```
+
+### Array Schemas
+
+Define arrays of specific types:
+
+```dart
+// Array of strings
+final tagsSchema = Schema.array(Schema.string());
+
+// Array of objects
+final commentsSchema = Schema.array(
+  Schema.object({
+    'id': Schema.id(),
+    'text': Schema.string(minLength: 1),
+    'authorId': Schema.id(),
+    'createdAt': Schema.number(),
+  })
+);
+
+// Array with size constraints
+final skillsSchema = Schema.array(
+  Schema.string(),
+  minLength: 1,  // At least one skill
+  maxLength: 10, // At most 10 skills
+);
+```
+
+## Schema Validation
+
+### Validating Data
+
+Use schemas to validate data before storing:
+
+```dart
+final todoSchema = Schema.object({
+  'id': Schema.id(),
+  'text': Schema.string(minLength: 1, maxLength: 500),
+  'completed': Schema.boolean(),
+  'priority': Schema.string().oneOf(['low', 'medium', 'high']),
+  'createdAt': Schema.number(),
+  'tags': Schema.array(Schema.string()).optional(),
+});
+
+// Validate data
+final todoData = {
+  'id': db.id(),
+  'text': 'Learn InstantDB schemas',
+  'completed': false,
+  'priority': 'medium',
+  'createdAt': DateTime.now().millisecondsSinceEpoch,
+  'tags': ['flutter', 'database'],
+};
+
+// Check if data is valid
+final isValid = todoSchema.validate(todoData);
+print('Valid: $isValid'); // true
+
+// Get validation errors
+final errors = todoSchema.getErrors(todoData);
+if (errors.isNotEmpty) {
+  print('Validation errors: $errors');
+}
+```
+
+### Validation in Practice
+
+Create a validation helper for your entities:
+
+```dart
+class TodoValidator {
+  static final schema = Schema.object({
+    'id': Schema.id(),
+    'text': Schema.string(minLength: 1, maxLength: 500),
+    'completed': Schema.boolean(),
+    'priority': Schema.string().oneOf(['low', 'medium', 'high']),
+    'createdAt': Schema.number(),
+    'userId': Schema.id(),
+    'tags': Schema.array(Schema.string()).optional(),
+  }, required: ['id', 'text', 'completed', 'priority', 'createdAt', 'userId']);
+
+  static ValidationResult validate(Map<String, dynamic> data) {
+    final isValid = schema.validate(data);
+    final errors = schema.getErrors(data);
+    
+    return ValidationResult(
+      isValid: isValid,
+      errors: errors,
+    );
+  }
+
+  static Map<String, dynamic> sanitize(Map<String, dynamic> data) {
+    // Remove fields not in schema
+    final validKeys = schema.properties.keys.toSet();
+    final sanitized = <String, dynamic>{};
+    
+    data.forEach((key, value) {
+      if (validKeys.contains(key)) {
+        sanitized[key] = value;
+      }
+    });
+    
+    return sanitized;
+  }
+}
+
+class ValidationResult {
+  final bool isValid;
+  final List<String> errors;
+  
+  const ValidationResult({
+    required this.isValid,
+    required this.errors,
+  });
+}
+
+// Usage
+Future<void> createTodoSafely(Map<String, dynamic> todoData) async {
+  final validation = TodoValidator.validate(todoData);
+  
+  if (!validation.isValid) {
+    throw InstantException(
+      message: 'Invalid todo data: ${validation.errors.join(', ')}',
+      code: 'validation_error',
+    );
+  }
+
+  final sanitizedData = TodoValidator.sanitize(todoData);
+  
+  await db.transact([
+    ...db.create('todos', sanitizedData),
+  ]);
+}
+```
+
+## Entity Schema Builder
+
+For complex applications, use the `InstantSchemaBuilder` to define schemas for multiple entity types:
+
+```dart
+final userSchema = Schema.object({
+  'id': Schema.id(),
+  'name': Schema.string(minLength: 1, maxLength: 100),
+  'email': Schema.email(),
+  'role': Schema.string().oneOf(['user', 'admin', 'moderator']),
+  'createdAt': Schema.number(),
+  'profile': Schema.object({
+    'bio': Schema.string(maxLength: 500).optional(),
+    'avatar': Schema.url().optional(),
+    'preferences': Schema.object({
+      'theme': Schema.string().oneOf(['light', 'dark', 'auto']),
+      'notifications': Schema.boolean(),
+    }),
+  }).optional(),
+});
+
+final postSchema = Schema.object({
+  'id': Schema.id(),
+  'title': Schema.string(minLength: 1, maxLength: 200),
+  'content': Schema.string(minLength: 1),
+  'authorId': Schema.id(),
+  'published': Schema.boolean(),
+  'publishedAt': Schema.number().optional(),
+  'tags': Schema.array(Schema.string()),
+  'metadata': Schema.object({
+    'viewCount': Schema.number(min: 0),
+    'likeCount': Schema.number(min: 0),
+    'featured': Schema.boolean(),
+  }),
+});
+
+// Build complete schema
+final appSchema = InstantSchemaBuilder()
+  .addEntity('users', userSchema)
+  .addEntity('posts', postSchema)
+  .addEntity('comments', Schema.object({
+    'id': Schema.id(),
+    'postId': Schema.id(),
+    'authorId': Schema.id(),
+    'text': Schema.string(minLength: 1, maxLength: 1000),
+    'createdAt': Schema.number(),
+    'approved': Schema.boolean(),
+  }))
+  .build();
+
+// Use schema with database
+final db = await InstantDB.init(
+  appId: 'your-app-id',
+  schema: appSchema, // Optional: Apply schema validation
+);
+```
+
+## Advanced Schema Patterns
+
+### Conditional Validation
+
+Create schemas with conditional validation:
+
+```dart
+final eventSchema = Schema.object({
+  'id': Schema.id(),
+  'type': Schema.string().oneOf(['meeting', 'deadline', 'reminder']),
+  'title': Schema.string(minLength: 1),
+  'date': Schema.number(),
+  
+  // Conditional fields based on type
+  'meetingDetails': Schema.object({
+    'location': Schema.string(),
+    'attendees': Schema.array(Schema.id()),
+  }).when('type', 'meeting'), // Only required when type is 'meeting'
+  
+  'reminderDetails': Schema.object({
+    'reminderTime': Schema.number(),
+    'recurring': Schema.boolean(),
+  }).when('type', 'reminder'),
+});
+```
+
+### Custom Validation
+
+Define custom validation logic:
+
+```dart
+final passwordSchema = Schema.string()
+  .custom((value) {
+    if (value.length < 8) {
+      return 'Password must be at least 8 characters';
+    }
+    
+    if (!RegExp(r'[A-Z]').hasMatch(value)) {
+      return 'Password must contain uppercase letter';
+    }
+    
+    if (!RegExp(r'[a-z]').hasMatch(value)) {
+      return 'Password must contain lowercase letter';
+    }
+    
+    if (!RegExp(r'[0-9]').hasMatch(value)) {
+      return 'Password must contain number';
+    }
+    
+    if (!RegExp(r'[!@#$%^&*(),.?":{}|<>]').hasMatch(value)) {
+      return 'Password must contain special character';
+    }
+    
+    return null; // Valid
+  });
+
+final userRegistrationSchema = Schema.object({
+  'email': Schema.email(),
+  'password': passwordSchema,
+  'confirmPassword': Schema.string(),
+}).custom((data) {
+  if (data['password'] != data['confirmPassword']) {
+    return 'Passwords do not match';
+  }
+  return null;
+});
+```
+
+### Nested Object Validation
+
+Handle complex nested structures:
+
+```dart
+final organizationSchema = Schema.object({
+  'id': Schema.id(),
+  'name': Schema.string(minLength: 1),
+  'settings': Schema.object({
+    'billing': Schema.object({
+      'plan': Schema.string().oneOf(['free', 'pro', 'enterprise']),
+      'subscriptionId': Schema.string().optional(),
+      'trialEndsAt': Schema.number().optional(),
+    }),
+    'features': Schema.object({
+      'maxUsers': Schema.number(min: 1),
+      'storageLimit': Schema.number(min: 0), // in GB
+      'apiAccess': Schema.boolean(),
+      'integrations': Schema.array(Schema.string()),
+    }),
+    'security': Schema.object({
+      'twoFactorRequired': Schema.boolean(),
+      'passwordPolicy': Schema.object({
+        'minLength': Schema.number(min: 8, max: 128),
+        'requireUppercase': Schema.boolean(),
+        'requireNumbers': Schema.boolean(),
+        'requireSymbols': Schema.boolean(),
+      }),
+      'sessionTimeout': Schema.number(min: 300, max: 86400), // 5 min to 24 hours
+    }),
+  }),
+});
+```
+
+## Schema Integration
+
+### With Queries
+
+Schemas help ensure query results match expected structures:
+
+```dart
+final userQuerySchema = Schema.object({
+  'users': Schema.array(userSchema),
+});
+
+Future<List<User>> getUsers() async {
+  final result = await db.queryOnce({'users': {}});
+  
+  // Validate query result
+  if (!userQuerySchema.validate(result.data)) {
+    throw InstantException(
+      message: 'Invalid query result structure',
+      code: 'schema_error',
+    );
+  }
+  
+  return (result.data!['users'] as List)
+      .map((json) => User.fromJson(json))
+      .toList();
+}
+```
+
+### With Transactions
+
+Validate data before transactions:
+
+```dart
+class SchemaAwareService {
+  final InstantDB db;
+  final Schema schema;
+
+  SchemaAwareService(this.db, this.schema);
+
+  Future<void> create(String entityType, Map<String, dynamic> data) async {
+    // Validate against schema
+    final entitySchema = schema.getEntity(entityType);
+    if (entitySchema != null && !entitySchema.validate(data)) {
+      final errors = entitySchema.getErrors(data);
+      throw InstantException(
+        message: 'Schema validation failed: ${errors.join(', ')}',
+        code: 'validation_error',
+      );
+    }
+
+    await db.transact([
+      ...db.create(entityType, data),
+    ]);
+  }
+
+  Future<void> update(String entityId, Map<String, dynamic> data) async {
+    // Validate partial update data
+    final updates = _validatePartialUpdate(data);
+    
+    await db.transact([
+      db.update(entityId, updates),
+    ]);
+  }
+
+  Map<String, dynamic> _validatePartialUpdate(Map<String, dynamic> data) {
+    // Custom validation logic for partial updates
+    final validated = <String, dynamic>{};
+    
+    data.forEach((key, value) {
+      if (_isValidField(key, value)) {
+        validated[key] = value;
+      }
+    });
+    
+    return validated;
+  }
+
+  bool _isValidField(String key, dynamic value) {
+    // Implement field-level validation
+    return true;
+  }
+}
+```
+
+## Schema Versioning
+
+Handle schema evolution over time:
+
+```dart
+class SchemaVersionManager {
+  static const int currentVersion = 2;
+  
+  static Schema getSchemaForVersion(int version) {
+    switch (version) {
+      case 1:
+        return _getV1Schema();
+      case 2:
+        return _getV2Schema();
+      default:
+        throw ArgumentError('Unsupported schema version: $version');
+    }
+  }
+  
+  static Schema _getV1Schema() {
+    return Schema.object({
+      'id': Schema.id(),
+      'name': Schema.string(),
+      'email': Schema.email(),
+    });
+  }
+  
+  static Schema _getV2Schema() {
+    return Schema.object({
+      'id': Schema.id(),
+      'name': Schema.string(),
+      'email': Schema.email(),
+      'profile': Schema.object({
+        'bio': Schema.string().optional(),
+        'avatar': Schema.url().optional(),
+      }).optional(),
+      'version': Schema.number(),
+    });
+  }
+  
+  static Map<String, dynamic> migrateData(
+    Map<String, dynamic> data,
+    int fromVersion,
+    int toVersion,
+  ) {
+    var migrated = Map<String, dynamic>.from(data);
+    
+    for (int v = fromVersion; v < toVersion; v++) {
+      migrated = _migrateBetweenVersions(migrated, v, v + 1);
+    }
+    
+    return migrated;
+  }
+  
+  static Map<String, dynamic> _migrateBetweenVersions(
+    Map<String, dynamic> data,
+    int from,
+    int to,
+  ) {
+    switch ('$from->$to') {
+      case '1->2':
+        return {
+          ...data,
+          'profile': null,
+          'version': 2,
+        };
+      default:
+        return data;
+    }
+  }
+}
+```
+
+## Best Practices
+
+### 1. Start Simple
+
+Begin with basic schemas and add complexity as needed:
+
+```dart
+// ✅ Good: Start simple
+final userSchema = Schema.object({
+  'id': Schema.id(),
+  'name': Schema.string(),
+  'email': Schema.email(),
+});
+
+// ❌ Avoid: Over-engineering from the start
+final userSchema = Schema.object({
+  'id': Schema.id(),
+  'name': Schema.string().custom(...).transform(...),
+  'email': Schema.email().custom(...).when(...),
+  // ... many complex validations
+});
+```
+
+### 2. Use Meaningful Constraints
+
+Apply constraints that reflect real business rules:
+
+```dart
+// ✅ Good: Meaningful constraints
+final productSchema = Schema.object({
+  'name': Schema.string(minLength: 1, maxLength: 100),
+  'price': Schema.number(min: 0.01, max: 999999.99),
+  'category': Schema.string().oneOf(['electronics', 'clothing', 'books']),
+  'inStock': Schema.boolean(),
+});
+
+// ❌ Avoid: Arbitrary or missing constraints
+final productSchema = Schema.object({
+  'name': Schema.string(), // No length limits
+  'price': Schema.number(), // Could be negative
+  'category': Schema.string(), // Any string allowed
+});
+```
+
+### 3. Document Your Schemas
+
+Add comments and documentation:
+
+```dart
+/// User entity schema
+/// Represents a registered user in the system
+final userSchema = Schema.object({
+  'id': Schema.id(), // UUID generated by InstantDB
+  'name': Schema.string(minLength: 1, maxLength: 100), // Display name
+  'email': Schema.email(), // Must be valid email address
+  'role': Schema.string().oneOf(['user', 'admin']), // User permission level
+  'createdAt': Schema.number(), // Unix timestamp
+  'lastLoginAt': Schema.number().optional(), // Unix timestamp, null if never logged in
+});
+```
+
+### 4. Validate Early and Often
+
+Validate data at multiple points:
+
+```dart
+class DataService {
+  // Validate on input
+  Future<void> createUser(Map<String, dynamic> userData) async {
+    _validateUserData(userData);
+    
+    await db.transact([
+      ...db.create('users', userData),
+    ]);
+  }
+  
+  // Validate on output
+  Future<User> getUser(String userId) async {
+    final result = await db.queryOnce({
+      'users': {'where': {'id': userId}},
+    });
+    
+    final userData = result.data?['users']?.first;
+    if (userData != null) {
+      _validateUserData(userData); // Ensure data integrity
+      return User.fromJson(userData);
+    }
+    
+    throw Exception('User not found');
+  }
+  
+  void _validateUserData(Map<String, dynamic> data) {
+    if (!userSchema.validate(data)) {
+      throw InstantException(
+        message: 'Invalid user data',
+        code: 'validation_error',
+      );
+    }
+  }
+}
+```
+
+### 5. Handle Validation Errors Gracefully
+
+Provide helpful error messages:
+
+```dart
+class UserFriendlyValidator {
+  static String formatValidationErrors(List<String> errors) {
+    if (errors.isEmpty) return '';
+    
+    final formatted = errors.map((error) {
+      // Convert technical errors to user-friendly messages
+      if (error.contains('minLength')) {
+        return 'This field is too short';
+      } else if (error.contains('email')) {
+        return 'Please enter a valid email address';
+      } else if (error.contains('required')) {
+        return 'This field is required';
+      }
+      return error;
+    }).join(', ');
+    
+    return formatted;
+  }
+}
+```
+
+## Performance Considerations
+
+### Schema Caching
+
+Cache compiled schemas for better performance:
+
+```dart
+class SchemaCache {
+  static final Map<String, Schema> _cache = {};
+  
+  static Schema getOrCreate(String key, Schema Function() factory) {
+    return _cache.putIfAbsent(key, factory);
+  }
+  
+  static void clear() {
+    _cache.clear();
+  }
+}
+
+// Usage
+final userSchema = SchemaCache.getOrCreate('user', () {
+  return Schema.object({
+    'id': Schema.id(),
+    'name': Schema.string(),
+    'email': Schema.email(),
+  });
+});
+```
+
+### Lazy Validation
+
+Only validate when necessary:
+
+```dart
+class LazyValidatedData {
+  final Map<String, dynamic> _data;
+  final Schema _schema;
+  bool? _isValid;
+  List<String>? _errors;
+  
+  LazyValidatedData(this._data, this._schema);
+  
+  bool get isValid {
+    _isValid ??= _schema.validate(_data);
+    return _isValid!;
+  }
+  
+  List<String> get errors {
+    _errors ??= _schema.getErrors(_data);
+    return _errors!;
+  }
+  
+  Map<String, dynamic> get data => _data;
+}
+```
+
+## Next Steps
+
+Now that you understand schemas, explore related topics:
+
+- [Database Setup](../database/) - Initialize your database with schemas
+- [Queries](../../queries/basics/) - Type-safe queries with schema validation
+- [Transactions](../../api/transactions/) - Schema-validated mutations
+- [Advanced Patterns](../../advanced/migration/) - Schema migration strategies

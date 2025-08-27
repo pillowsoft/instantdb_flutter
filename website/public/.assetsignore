@@ -1,0 +1,4 @@
+*.md
+*.mdx
+.env*
+wrangler.toml

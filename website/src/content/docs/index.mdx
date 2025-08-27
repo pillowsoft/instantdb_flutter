@@ -1,0 +1,75 @@
+---
+title: InstantDB Flutter
+description: Real-time, offline-first database for Flutter with reactive bindings
+template: splash
+hero:
+  tagline: Real-time, offline-first database for Flutter
+  image:
+    file: ../../assets/logo.svg
+  actions:
+    - text: Get Started
+      link: getting-started/installation/
+      icon: right-arrow
+      variant: primary
+    - text: View on GitHub
+      link: https://github.com/pillowsoft/instantdb_flutter
+      icon: external
+    - text: Try Live Demo
+      link: https://main.instantdb-flutter-demo.pages.dev/
+      icon: external
+---
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+## Features
+
+<CardGrid stagger>
+	<Card title="Real-time Synchronization" icon="rocket">
+		Changes sync instantly across all connected clients with differential sync for reliable data consistency and conflict resolution.
+	</Card>
+	<Card title="Offline-first Architecture" icon="approve-check">
+		Local SQLite storage with automatic sync when online. Your app works seamlessly offline and syncs when connectivity returns.
+	</Card>
+	<Card title="Reactive UI Updates" icon="star">
+		Widgets automatically update when data changes using Signals. No manual state management required.
+	</Card>
+	<Card title="Type-safe Queries" icon="puzzle">
+		InstaQL query language with schema validation ensures type safety and prevents runtime errors.
+	</Card>
+	<Card title="Built-in Authentication" icon="user">
+		User authentication and session management built-in, with support for anonymous users and authenticated flows.
+	</Card>
+	<Card title="Collaboration Features" icon="collaborate">
+		Real-time presence system with cursors, typing indicators, reactions, and avatars for collaborative applications.
+	</Card>
+</CardGrid>
+
+## Quick Start
+
+```dart
+// Initialize InstantDB
+final db = await InstantDB.init(
+  appId: 'your-app-id',
+  config: const InstantConfig(syncEnabled: true),
+);
+
+// Create reactive UI
+InstantBuilderTyped<List<Todo>>(
+  query: {'todos': {}},
+  transformer: (data) => (data['todos'] as List).cast<Todo>(),
+  builder: (context, todos) {
+    return ListView.builder(
+      itemCount: todos.length,
+      itemBuilder: (context, index) => TodoTile(todo: todos[index]),
+    );
+  },
+)
+
+// Perform mutations
+await db.transact([
+  ...db.create('todos', {
+    'id': db.id(),
+    'text': 'Learn InstantDB Flutter',
+    'completed': false,
+  }),
+]);
+```

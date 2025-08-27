@@ -1,0 +1,875 @@
+---
+title: User Management
+description: Authentication and user management with InstantDB Flutter
+sidebar:
+  order: 1
+---
+
+import { Code, Tabs, TabItem } from "@astrojs/starlight/components";
+
+InstantDB provides comprehensive user authentication with email/password, magic links, magic codes, and session management. All authentication methods integrate seamlessly with real-time sync and presence features.
+
+## Getting Started with Auth
+
+### Initialize with Authentication
+
+```dart
+final db = await InstantDB.init(
+  appId: 'your-app-id',
+  config: const InstantConfig(
+    syncEnabled: true,
+  ),
+);
+
+// Listen to authentication state changes
+db.auth.onAuthStateChange.listen((user) {
+  if (user != null) {
+    print('User signed in: ${user.email}');
+  } else {
+    print('User signed out');
+  }
+});
+```
+
+### Check Authentication Status
+
+```dart
+// One-time check
+final currentUser = db.getAuth();
+
+// Reactive updates
+final authSignal = db.subscribeAuth();
+
+// Use in widgets
+Watch((context) {
+  final user = db.subscribeAuth().value;
+  return user != null 
+    ? WelcomeScreen(user: user)
+    : LoginScreen();
+});
+```
+
+## Authentication Methods
+
+### Email and Password
+
+Traditional email/password authentication:
+
+```dart
+class EmailPasswordAuth extends StatefulWidget {
+  @override
+  State<EmailPasswordAuth> createState() => _EmailPasswordAuthState();
+}
+
+class _EmailPasswordAuthState extends State<EmailPasswordAuth> {
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
+  bool _isLoading = false;
+  String? _errorMessage;
+
+  Future<void> _signUp() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final db = InstantProvider.of(context);
+      final user = await db.auth.signUp(
+        email: _emailController.text.trim(),
+        password: _passwordController.text,
+        metadata: {
+          'name': 'New User',
+          'createdAt': DateTime.now().millisecondsSinceEpoch,
+        },
+      );
+
+      print('User created: ${user.email}');
+      // Navigation handled by AuthBuilder
+    } on InstantException catch (e) {
+      setState(() {
+        _errorMessage = e.message;
+      });
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
+  Future<void> _signIn() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final db = InstantProvider.of(context);
+      final user = await db.auth.signIn(
+        email: _emailController.text.trim(),
+        password: _passwordController.text,
+      );
+
+      print('User signed in: ${user.email}');
+    } on InstantException catch (e) {
+      setState(() {
+        _errorMessage = e.message;
+      });
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        TextField(
+          controller: _emailController,
+          decoration: const InputDecoration(
+            labelText: 'Email',
+            keyboardType: TextInputType.emailAddress,
+          ),
+        ),
+        const SizedBox(height: 16),
+        
+        TextField(
+          controller: _passwordController,
+          decoration: const InputDecoration(
+            labelText: 'Password',
+          ),
+          obscureText: true,
+        ),
+        const SizedBox(height: 16),
+
+        if (_errorMessage != null)
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.red.shade100,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(
+              _errorMessage!,
+              style: TextStyle(color: Colors.red.shade700),
+            ),
+          ),
+        const SizedBox(height: 16),
+
+        Row(
+          children: [
+            Expanded(
+              child: ElevatedButton(
+                onPressed: _isLoading ? null : _signUp,
+                child: _isLoading
+                    ? const CircularProgressIndicator()
+                    : const Text('Sign Up'),
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: OutlinedButton(
+                onPressed: _isLoading ? null : _signIn,
+                child: const Text('Sign In'),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+```
+
+### Magic Links
+
+Passwordless authentication via email links:
+
+```dart
+class MagicLinkAuth extends StatefulWidget {
+  @override
+  State<MagicLinkAuth> createState() => _MagicLinkAuthState();
+}
+
+class _MagicLinkAuthState extends State<MagicLinkAuth> {
+  final _emailController = TextEditingController();
+  bool _isLoading = false;
+  bool _linkSent = false;
+  String? _errorMessage;
+
+  Future<void> _sendMagicLink() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final db = InstantProvider.of(context);
+      await db.auth.sendMagicLink(_emailController.text.trim());
+      
+      setState(() {
+        _linkSent = true;
+      });
+    } on InstantException catch (e) {
+      setState(() {
+        _errorMessage = e.message;
+      });
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_linkSent) {
+      return Column(
+        children: [
+          const Icon(Icons.mail_outline, size: 64, color: Colors.green),
+          const SizedBox(height: 16),
+          const Text(
+            'Magic link sent!',
+            style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Check your email at ${_emailController.text} and click the link to sign in.',
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: Colors.grey),
+          ),
+          const SizedBox(height: 24),
+          OutlinedButton(
+            onPressed: () {
+              setState(() {
+                _linkSent = false;
+              });
+            },
+            child: const Text('Send Another Link'),
+          ),
+        ],
+      );
+    }
+
+    return Column(
+      children: [
+        TextField(
+          controller: _emailController,
+          decoration: const InputDecoration(
+            labelText: 'Email Address',
+            keyboardType: TextInputType.emailAddress,
+          ),
+        ),
+        const SizedBox(height: 16),
+
+        if (_errorMessage != null)
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.red.shade100,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(
+              _errorMessage!,
+              style: TextStyle(color: Colors.red.shade700),
+            ),
+          ),
+        const SizedBox(height: 16),
+
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton(
+            onPressed: _isLoading ? null : _sendMagicLink,
+            child: _isLoading
+                ? const CircularProgressIndicator()
+                : const Text('Send Magic Link'),
+          ),
+        ),
+      ],
+    );
+  }
+}
+```
+
+### Magic Codes
+
+One-time password (OTP) authentication:
+
+```dart
+class MagicCodeAuth extends StatefulWidget {
+  @override
+  State<MagicCodeAuth> createState() => _MagicCodeAuthState();
+}
+
+class _MagicCodeAuthState extends State<MagicCodeAuth> {
+  final _emailController = TextEditingController();
+  final _codeController = TextEditingController();
+  bool _isLoading = false;
+  bool _codeSent = false;
+  String? _errorMessage;
+
+  Future<void> _sendMagicCode() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final db = InstantProvider.of(context);
+      await db.auth.sendMagicCode(_emailController.text.trim());
+      
+      setState(() {
+        _codeSent = true;
+      });
+    } on InstantException catch (e) {
+      setState(() {
+        _errorMessage = e.message;
+      });
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
+  Future<void> _verifyCode() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final db = InstantProvider.of(context);
+      final user = await db.auth.verifyMagicCode(
+        email: _emailController.text.trim(),
+        code: _codeController.text.trim(),
+      );
+
+      print('User authenticated: ${user.email}');
+      // Navigation handled by AuthBuilder
+    } on InstantException catch (e) {
+      setState(() {
+        _errorMessage = e.message;
+      });
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        TextField(
+          controller: _emailController,
+          decoration: const InputDecoration(
+            labelText: 'Email Address',
+            keyboardType: TextInputType.emailAddress,
+          ),
+          enabled: !_codeSent,
+        ),
+        const SizedBox(height: 16),
+
+        if (_codeSent) ...[
+          TextField(
+            controller: _codeController,
+            decoration: const InputDecoration(
+              labelText: 'Verification Code',
+              hintText: 'Enter 6-digit code',
+            ),
+            keyboardType: TextInputType.number,
+            maxLength: 6,
+          ),
+          const SizedBox(height: 16),
+        ],
+
+        if (_errorMessage != null)
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.red.shade100,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(
+              _errorMessage!,
+              style: TextStyle(color: Colors.red.shade700),
+            ),
+          ),
+        const SizedBox(height: 16),
+
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton(
+            onPressed: _isLoading ? null : (_codeSent ? _verifyCode : _sendMagicCode),
+            child: _isLoading
+                ? const CircularProgressIndicator()
+                : Text(_codeSent ? 'Verify Code' : 'Send Code'),
+          ),
+        ),
+
+        if (_codeSent) ...[
+          const SizedBox(height: 16),
+          OutlinedButton(
+            onPressed: () {
+              setState(() {
+                _codeSent = false;
+                _codeController.clear();
+              });
+            },
+            child: const Text('Use Different Email'),
+          ),
+        ],
+      ],
+    );
+  }
+}
+```
+
+## User Profile Management
+
+### Update User Metadata
+
+```dart
+class UserProfile extends StatefulWidget {
+  final AuthUser user;
+
+  const UserProfile({super.key, required this.user});
+
+  @override
+  State<UserProfile> createState() => _UserProfileState();
+}
+
+class _UserProfileState extends State<UserProfile> {
+  final _nameController = TextEditingController();
+  bool _isLoading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _nameController.text = widget.user.metadata?['name'] ?? '';
+  }
+
+  Future<void> _updateProfile() async {
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      final db = InstantProvider.of(context);
+      await db.auth.updateUser({
+        'name': _nameController.text.trim(),
+        'updatedAt': DateTime.now().millisecondsSinceEpoch,
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Profile updated successfully')),
+      );
+    } on InstantException catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: ${e.message}')),
+      );
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        CircleAvatar(
+          radius: 50,
+          child: Text(
+            widget.user.email.substring(0, 1).toUpperCase(),
+            style: const TextStyle(fontSize: 32),
+          ),
+        ),
+        const SizedBox(height: 24),
+
+        Text(
+          widget.user.email,
+          style: Theme.of(context).textTheme.headlineSmall,
+        ),
+        const SizedBox(height: 24),
+
+        TextField(
+          controller: _nameController,
+          decoration: const InputDecoration(
+            labelText: 'Display Name',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        const SizedBox(height: 24),
+
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton(
+            onPressed: _isLoading ? null : _updateProfile,
+            child: _isLoading
+                ? const CircularProgressIndicator()
+                : const Text('Update Profile'),
+          ),
+        ),
+      ],
+    );
+  }
+}
+```
+
+### Password Reset
+
+```dart
+class PasswordReset extends StatefulWidget {
+  @override
+  State<PasswordReset> createState() => _PasswordResetState();
+}
+
+class _PasswordResetState extends State<PasswordReset> {
+  final _emailController = TextEditingController();
+  bool _isLoading = false;
+  bool _emailSent = false;
+  String? _errorMessage;
+
+  Future<void> _resetPassword() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final db = InstantProvider.of(context);
+      await db.auth.resetPassword(_emailController.text.trim());
+      
+      setState(() {
+        _emailSent = true;
+      });
+    } on InstantException catch (e) {
+      setState(() {
+        _errorMessage = e.message;
+      });
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_emailSent) {
+      return Column(
+        children: [
+          const Icon(Icons.mark_email_read, size: 64, color: Colors.green),
+          const SizedBox(height: 16),
+          const Text(
+            'Password reset email sent!',
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Check your email at ${_emailController.text} for reset instructions.',
+            textAlign: TextAlign.center,
+          ),
+        ],
+      );
+    }
+
+    return Column(
+      children: [
+        const Text(
+          'Forgot your password?',
+          style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 8),
+        const Text(
+          'Enter your email address and we\'ll send you a link to reset your password.',
+          textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: 24),
+
+        TextField(
+          controller: _emailController,
+          decoration: const InputDecoration(
+            labelText: 'Email Address',
+            border: OutlineInputBorder(),
+          ),
+          keyboardType: TextInputType.emailAddress,
+        ),
+        const SizedBox(height: 16),
+
+        if (_errorMessage != null) ...[
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.red.shade100,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(
+              _errorMessage!,
+              style: TextStyle(color: Colors.red.shade700),
+            ),
+          ),
+          const SizedBox(height: 16),
+        ],
+
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton(
+            onPressed: _isLoading ? null : _resetPassword,
+            child: _isLoading
+                ? const CircularProgressIndicator()
+                : const Text('Send Reset Email'),
+          ),
+        ),
+      ],
+    );
+  }
+}
+```
+
+## Complete Authentication Flow
+
+Combine all authentication methods in a unified experience:
+
+```dart
+class AuthFlow extends StatefulWidget {
+  @override
+  State<AuthFlow> createState() => _AuthFlowState();
+}
+
+class _AuthFlowState extends State<AuthFlow> {
+  AuthMethod _currentMethod = AuthMethod.emailPassword;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Sign In'),
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          children: [
+            // Method selector
+            SegmentedButton<AuthMethod>(
+              segments: const [
+                ButtonSegment(
+                  value: AuthMethod.emailPassword,
+                  label: Text('Email/Password'),
+                  icon: Icon(Icons.password),
+                ),
+                ButtonSegment(
+                  value: AuthMethod.magicLink,
+                  label: Text('Magic Link'),
+                  icon: Icon(Icons.link),
+                ),
+                ButtonSegment(
+                  value: AuthMethod.magicCode,
+                  label: Text('Magic Code'),
+                  icon: Icon(Icons.pin),
+                ),
+              ],
+              selected: {_currentMethod},
+              onSelectionChanged: (selection) {
+                setState(() {
+                  _currentMethod = selection.first;
+                });
+              },
+            ),
+            const SizedBox(height: 32),
+
+            // Authentication method
+            Expanded(
+              child: switch (_currentMethod) {
+                AuthMethod.emailPassword => EmailPasswordAuth(),
+                AuthMethod.magicLink => MagicLinkAuth(),
+                AuthMethod.magicCode => MagicCodeAuth(),
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+enum AuthMethod {
+  emailPassword,
+  magicLink,
+  magicCode,
+}
+```
+
+## Reactive Authentication Widget
+
+Use the AuthBuilder widget for reactive authentication UI:
+
+```dart
+class App extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return InstantProvider(
+      db: db,
+      child: AuthBuilder(
+        builder: (context, user) {
+          if (user != null) {
+            // User is authenticated
+            return MainApp(user: user);
+          } else {
+            // User needs to sign in
+            return AuthFlow();
+          }
+        },
+        loadingBuilder: (context) {
+          return const Scaffold(
+            body: Center(
+              child: CircularProgressIndicator(),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class MainApp extends StatelessWidget {
+  final AuthUser user;
+
+  const MainApp({super.key, required this.user});
+
+  @override
+  Widget build(BuildContext context) {
+    final db = InstantProvider.of(context);
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('Welcome, ${user.email}'),
+        actions: [
+          PopupMenuButton(
+            itemBuilder: (context) => [
+              PopupMenuItem(
+                child: const Text('Profile'),
+                onTap: () => _showProfile(context),
+              ),
+              PopupMenuItem(
+                child: const Text('Sign Out'),
+                onTap: () => db.auth.signOut(),
+              ),
+            ],
+          ),
+        ],
+      ),
+      body: YourAppContent(),
+    );
+  }
+
+  void _showProfile(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) => Dialog(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: UserProfile(user: user),
+        ),
+      ),
+    );
+  }
+}
+```
+
+## Best Practices
+
+### 1. Handle Authentication States
+
+Always provide loading and error states:
+
+```dart
+AuthBuilder(
+  builder: (context, user) => user != null ? MainApp() : LoginScreen(),
+  loadingBuilder: (context) => LoadingScreen(),
+  errorBuilder: (context, error) => ErrorScreen(error: error),
+)
+```
+
+### 2. Validate Input
+
+Validate email and password formats:
+
+```dart
+String? validateEmail(String email) {
+  if (email.isEmpty) return 'Email is required';
+  if (!RegExp(r'^[^@]+@[^@]+\.[^@]+').hasMatch(email)) {
+    return 'Please enter a valid email';
+  }
+  return null;
+}
+
+String? validatePassword(String password) {
+  if (password.isEmpty) return 'Password is required';
+  if (password.length < 8) return 'Password must be at least 8 characters';
+  return null;
+}
+```
+
+### 3. Secure Token Storage
+
+InstantDB automatically handles secure token storage, but you can access tokens if needed:
+
+```dart
+final authToken = db.auth.authToken;
+if (authToken != null) {
+  // Token is available for API calls
+}
+```
+
+### 4. Handle Authentication Errors
+
+Provide clear error messages:
+
+```dart
+void handleAuthError(InstantException error) {
+  String userMessage;
+  switch (error.code) {
+    case 'invalid_email':
+      userMessage = 'Please enter a valid email address';
+      break;
+    case 'weak_password':
+      userMessage = 'Password is too weak. Please use a stronger password';
+      break;
+    case 'auth_error':
+      userMessage = 'Authentication failed. Please try again';
+      break;
+    default:
+      userMessage = 'An unexpected error occurred';
+  }
+  
+  showDialog(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('Authentication Error'),
+      content: Text(userMessage),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('OK'),
+        ),
+      ],
+    ),
+  );
+}
+```
+
+## Next Steps
+
+Learn more about authentication features:
+
+- [Session Management](../sessions/) - Managing user sessions and tokens
+- [Permissions](../permissions/) - Role-based access control
+- [User Presence](../../realtime/presence/) - Adding users to collaborative features
+- [Advanced Auth](../../advanced/offline/) - Offline authentication handling

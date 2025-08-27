@@ -1,0 +1,52 @@
+[
+  {
+    "title": "todos_app",
+    "description": "Todo app with real-time sync and offline support",
+    "link": "https://github.com/pillowsoft/instantdb_flutter/tree/main/example"
+  },
+  {
+    "title": "presence_avatars",
+    "description": "Real-time presence system showing connected users",
+    "link": "https://github.com/pillowsoft/instantdb_flutter/tree/main/example#presence-features"
+  },
+  {
+    "title": "cursors_tracking",
+    "description": "Track mouse cursors across connected clients",
+    "link": "https://github.com/pillowsoft/instantdb_flutter/tree/main/example#cursors"
+  },
+  {
+    "title": "typing_indicators",
+    "description": "Show typing indicators in real-time",
+    "link": "https://github.com/pillowsoft/instantdb_flutter/tree/main/example#typing-indicators"
+  },
+  {
+    "title": "reactions_system",
+    "description": "Real-time emoji reactions and celebrations",
+    "link": "https://github.com/pillowsoft/instantdb_flutter/tree/main/example#reactions"
+  },
+  {
+    "title": "tile_game",
+    "description": "Collaborative tile game with real-time updates",
+    "link": "https://github.com/pillowsoft/instantdb_flutter/tree/main/example#tile-game"
+  },
+  {
+    "title": "authentication_flow",
+    "description": "User authentication and session management",
+    "link": "https://github.com/pillowsoft/instantdb_flutter/tree/main/example#authentication"
+  },
+  {
+    "title": "offline_sync",
+    "description": "Offline-first architecture with automatic synchronization",
+    "link": "https://github.com/pillowsoft/instantdb_flutter/tree/main/example#offline-sync"
+  },
+  {
+    "title": "reactive_queries",
+    "description": "Reactive queries that update UI automatically",
+    "link": "https://github.com/pillowsoft/instantdb_flutter/tree/main/example#reactive-queries"
+  },
+  {
+    "title": "schema_validation",
+    "description": "Type-safe schema definition and validation",
+    "link": "https://github.com/pillowsoft/instantdb_flutter/tree/main/example#schema"
+  }
+]

@@ -1,0 +1,996 @@
+---
+title: Flutter Widgets
+description: Complete reference for InstantDB Flutter reactive widgets
+sidebar:
+  order: 5
+---
+
+import { Code, Tabs, TabItem } from "@astrojs/starlight/components";
+
+InstantDB Flutter provides a comprehensive set of reactive widgets that automatically update when data changes. These widgets integrate seamlessly with Flutter's widget tree and provide optimized performance for real-time applications.
+
+## Core Widgets
+
+### `InstantProvider`
+
+Provides the InstantDB instance to the widget tree using Flutter's InheritedWidget pattern.
+
+```dart
+class InstantProvider extends InheritedWidget {
+  const InstantProvider({
+    super.key,
+    required this.db,
+    required super.child,
+  });
+  
+  final InstantDB db;
+  
+  static InstantDB of(BuildContext context) {
+    // Returns the InstantDB instance
+  }
+}
+```
+
+**Properties:**
+- `db` (`InstantDB`): The database instance to provide
+- `child` (`Widget`): The child widget
+
+**Example:**
+```dart
+class MyApp extends StatelessWidget {
+  final InstantDB db;
+  
+  const MyApp({super.key, required this.db});
+  
+  @override
+  Widget build(BuildContext context) {
+    return InstantProvider(
+      db: db,
+      child: MaterialApp(
+        home: HomePage(),
+      ),
+    );
+  }
+}
+
+// Access the database in child widgets
+class HomePage extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final db = InstantProvider.of(context);
+    // Use db for queries, transactions, etc.
+  }
+}
+```
+
+### `Watch`
+
+Core reactive widget that rebuilds when signals change. This is the foundation for all reactive widgets.
+
+```dart
+class Watch extends StatelessWidget {
+  const Watch(this.builder, {super.key});
+  
+  final Widget Function(BuildContext context) builder;
+}
+```
+
+**Parameters:**
+- `builder` (`Widget Function(BuildContext)`): Builder function that gets called when signals change
+
+**Example:**
+```dart
+Watch((context) {
+  final db = InstantProvider.of(context);
+  final user = db.subscribeAuth().value;
+  
+  return user != null 
+    ? Text('Welcome, ${user.email}')
+    : Text('Please sign in');
+});
+```
+
+## Query Widgets
+
+### `InstantBuilder`
+
+Generic reactive widget for building UI from query results.
+
+```dart
+class InstantBuilder extends StatelessWidget {
+  const InstantBuilder({
+    super.key,
+    required this.query,
+    required this.builder,
+    this.loadingBuilder,
+    this.errorBuilder,
+  });
+  
+  final Map<String, dynamic> query;
+  final Widget Function(BuildContext context, Map<String, dynamic>? data) builder;
+  final Widget Function(BuildContext context)? loadingBuilder;
+  final Widget Function(BuildContext context, String error)? errorBuilder;
+}
+```
+
+**Properties:**
+- `query` (`Map<String, dynamic>`): InstaQL query object
+- `builder` (`Function`): Builder function for successful data
+- `loadingBuilder` (`Function?`): Optional loading state builder
+- `errorBuilder` (`Function?`): Optional error state builder
+
+**Example:**
+```dart
+InstantBuilder(
+  query: {
+    'todos': {
+      'where': {'completed': false},
+      'orderBy': {'createdAt': 'desc'},
+    }
+  },
+  builder: (context, data) {
+    final todos = (data?['todos'] as List? ?? [])
+        .cast<Map<String, dynamic>>();
+    
+    return ListView.builder(
+      itemCount: todos.length,
+      itemBuilder: (context, index) {
+        final todo = todos[index];
+        return ListTile(
+          title: Text(todo['text']),
+          trailing: Checkbox(
+            value: todo['completed'],
+            onChanged: (value) => _toggleTodo(todo['id']),
+          ),
+        );
+      },
+    );
+  },
+  loadingBuilder: (context) => const CircularProgressIndicator(),
+  errorBuilder: (context, error) => Text('Error: $error'),
+);
+```
+
+### `InstantBuilderTyped`
+
+Type-safe reactive query widget with data transformation.
+
+```dart
+class InstantBuilderTyped<T> extends StatelessWidget {
+  const InstantBuilderTyped({
+    super.key,
+    required this.query,
+    required this.transformer,
+    required this.builder,
+    this.loadingBuilder,
+    this.errorBuilder,
+  });
+  
+  final Map<String, dynamic> query;
+  final T Function(Map<String, dynamic> data) transformer;
+  final Widget Function(BuildContext context, T data) builder;
+  final Widget Function(BuildContext context)? loadingBuilder;
+  final Widget Function(BuildContext context, String error)? errorBuilder;
+}
+```
+
+**Properties:**
+- `query` (`Map<String, dynamic>`): InstaQL query object
+- `transformer` (`Function`): Function to transform raw data to typed data
+- `builder` (`Function`): Builder function for transformed data
+- `loadingBuilder` (`Function?`): Optional loading state builder
+- `errorBuilder` (`Function?`): Optional error state builder
+
+**Example:**
+```dart
+// Define your data model
+class Todo {
+  final String id;
+  final String text;
+  final bool completed;
+  
+  Todo({required this.id, required this.text, required this.completed});
+  
+  static Todo fromJson(Map<String, dynamic> json) {
+    return Todo(
+      id: json['id'],
+      text: json['text'],
+      completed: json['completed'] ?? false,
+    );
+  }
+}
+
+// Use typed builder
+InstantBuilderTyped<List<Todo>>(
+  query: {'todos': {}},
+  transformer: (data) => (data['todos'] as List)
+      .map((json) => Todo.fromJson(json))
+      .toList(),
+  builder: (context, todos) {
+    return ListView.builder(
+      itemCount: todos.length,
+      itemBuilder: (context, index) {
+        final todo = todos[index];
+        return TodoItem(todo: todo);
+      },
+    );
+  },
+);
+```
+
+## Authentication Widgets
+
+### `AuthBuilder`
+
+Reactive widget that rebuilds when authentication state changes.
+
+```dart
+class AuthBuilder extends StatelessWidget {
+  const AuthBuilder({
+    super.key,
+    required this.builder,
+    this.loadingBuilder,
+    this.errorBuilder,
+  });
+  
+  final Widget Function(BuildContext context, AuthUser? user) builder;
+  final Widget Function(BuildContext context)? loadingBuilder;
+  final Widget Function(BuildContext context, String error)? errorBuilder;
+}
+```
+
+**Properties:**
+- `builder` (`Function`): Builder function that receives the current user
+- `loadingBuilder` (`Function?`): Optional loading state builder
+- `errorBuilder` (`Function?`): Optional error state builder
+
+**Example:**
+```dart
+AuthBuilder(
+  builder: (context, user) {
+    if (user != null) {
+      return MainApp(user: user);
+    } else {
+      return LoginScreen();
+    }
+  },
+  loadingBuilder: (context) => const Scaffold(
+    body: Center(child: CircularProgressIndicator()),
+  ),
+  errorBuilder: (context, error) => Scaffold(
+    body: Center(child: Text('Auth Error: $error')),
+  ),
+);
+```
+
+## Connection Widgets
+
+### `ConnectionStatusBuilder`
+
+Reactive widget for displaying connection status.
+
+```dart
+class ConnectionStatusBuilder extends StatelessWidget {
+  const ConnectionStatusBuilder({
+    super.key,
+    required this.builder,
+    this.showWhenOnline = false,
+  });
+  
+  final Widget Function(BuildContext context, bool isOnline) builder;
+  final bool showWhenOnline;
+}
+```
+
+**Properties:**
+- `builder` (`Function`): Builder function that receives connection status
+- `showWhenOnline` (`bool`): Whether to show the widget when online
+
+**Example:**
+```dart
+ConnectionStatusBuilder(
+  builder: (context, isOnline) {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 300),
+      height: isOnline ? 0 : 40,
+      color: Colors.orange,
+      child: Center(
+        child: Text(
+          'Offline - Changes will sync when connected',
+          style: const TextStyle(color: Colors.white),
+        ),
+      ),
+    );
+  },
+);
+```
+
+### `NetworkAwareWidget`
+
+Widget that shows different content based on network status.
+
+```dart
+class NetworkAwareWidget extends StatelessWidget {
+  const NetworkAwareWidget({
+    super.key,
+    required this.onlineChild,
+    required this.offlineChild,
+    this.transitionDuration = const Duration(milliseconds: 300),
+  });
+  
+  final Widget onlineChild;
+  final Widget offlineChild;
+  final Duration transitionDuration;
+}
+```
+
+**Example:**
+```dart
+NetworkAwareWidget(
+  onlineChild: ElevatedButton(
+    onPressed: _saveToServer,
+    child: const Text('Save'),
+  ),
+  offlineChild: ElevatedButton(
+    onPressed: _saveLocally,
+    style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
+    child: const Text('Save Locally'),
+  ),
+);
+```
+
+## Presence Widgets
+
+### `PresenceBuilder`
+
+Reactive widget for presence data.
+
+```dart
+class PresenceBuilder extends StatelessWidget {
+  const PresenceBuilder({
+    super.key,
+    required this.roomId,
+    required this.builder,
+  });
+  
+  final String roomId;
+  final Widget Function(
+    BuildContext context,
+    Map<String, PresenceUser> presence,
+  ) builder;
+}
+```
+
+**Example:**
+```dart
+PresenceBuilder(
+  roomId: 'chat-room',
+  builder: (context, presence) {
+    final onlineUsers = presence.values
+        .where((user) => user.data['status'] == 'online')
+        .toList();
+    
+    return Row(
+      children: onlineUsers.take(5).map((user) {
+        return CircleAvatar(
+          child: Text(user.data['name']?.toString().substring(0, 1) ?? '?'),
+        );
+      }).toList(),
+    );
+  },
+);
+```
+
+### `CursorOverlay`
+
+Widget that displays collaborative cursors.
+
+```dart
+class CursorOverlay extends StatelessWidget {
+  const CursorOverlay({
+    super.key,
+    required this.roomId,
+    this.maxCursors = 10,
+  });
+  
+  final String roomId;
+  final int maxCursors;
+}
+```
+
+**Example:**
+```dart
+Stack(
+  children: [
+    // Your main content
+    TextField(
+      onTapDown: (details) => _updateCursor(details.localPosition),
+    ),
+    
+    // Cursor overlay
+    CursorOverlay(roomId: 'editor-room'),
+  ],
+);
+```
+
+### `TypingIndicator`
+
+Widget that shows who is currently typing.
+
+```dart
+class TypingIndicator extends StatelessWidget {
+  const TypingIndicator({
+    super.key,
+    required this.roomId,
+    this.style,
+  });
+  
+  final String roomId;
+  final TextStyle? style;
+}
+```
+
+**Example:**
+```dart
+Column(
+  children: [
+    // Chat messages
+    Expanded(child: MessageList()),
+    
+    // Typing indicator
+    TypingIndicator(roomId: 'chat-room'),
+    
+    // Message input
+    MessageInput(
+      onChanged: (text) => _setTyping(text.isNotEmpty),
+    ),
+  ],
+);
+```
+
+## Utility Widgets
+
+### `ConditionalBuilder`
+
+Widget that builds different content based on conditions.
+
+```dart
+class ConditionalBuilder extends StatelessWidget {
+  const ConditionalBuilder({
+    super.key,
+    required this.condition,
+    required this.trueBuilder,
+    required this.falseBuilder,
+  });
+  
+  final bool condition;
+  final Widget Function(BuildContext context) trueBuilder;
+  final Widget Function(BuildContext context) falseBuilder;
+}
+```
+
+**Example:**
+```dart
+ConditionalBuilder(
+  condition: user != null,
+  trueBuilder: (context) => DashboardScreen(),
+  falseBuilder: (context) => LoginScreen(),
+);
+```
+
+### `LoadingBuilder`
+
+Wrapper widget for showing loading states.
+
+```dart
+class LoadingBuilder extends StatelessWidget {
+  const LoadingBuilder({
+    super.key,
+    required this.isLoading,
+    required this.child,
+    this.loadingWidget,
+  });
+  
+  final bool isLoading;
+  final Widget child;
+  final Widget? loadingWidget;
+}
+```
+
+**Example:**
+```dart
+LoadingBuilder(
+  isLoading: _isSubmitting,
+  child: ElevatedButton(
+    onPressed: _submit,
+    child: const Text('Submit'),
+  ),
+  loadingWidget: const CircularProgressIndicator(),
+);
+```
+
+## List Widgets
+
+### `InstantListView`
+
+Optimized list view for InstantDB data with built-in pagination.
+
+```dart
+class InstantListView<T> extends StatelessWidget {
+  const InstantListView({
+    super.key,
+    required this.query,
+    required this.transformer,
+    required this.itemBuilder,
+    this.pageSize = 20,
+    this.loadingBuilder,
+    this.emptyBuilder,
+  });
+  
+  final Map<String, dynamic> query;
+  final List<T> Function(Map<String, dynamic> data) transformer;
+  final Widget Function(BuildContext context, T item, int index) itemBuilder;
+  final int pageSize;
+  final Widget Function(BuildContext context)? loadingBuilder;
+  final Widget Function(BuildContext context)? emptyBuilder;
+}
+```
+
+**Example:**
+```dart
+InstantListView<Todo>(
+  query: {
+    'todos': {
+      'where': {'completed': false},
+      'orderBy': {'createdAt': 'desc'},
+    }
+  },
+  transformer: (data) => (data['todos'] as List)
+      .map((json) => Todo.fromJson(json))
+      .toList(),
+  itemBuilder: (context, todo, index) {
+    return ListTile(
+      title: Text(todo.text),
+      trailing: Checkbox(
+        value: todo.completed,
+        onChanged: (value) => _toggleTodo(todo.id),
+      ),
+    );
+  },
+  emptyBuilder: (context) => const Center(
+    child: Text('No todos yet'),
+  ),
+);
+```
+
+### `PaginatedList`
+
+List widget with built-in pagination controls.
+
+```dart
+class PaginatedList<T> extends StatefulWidget {
+  const PaginatedList({
+    super.key,
+    required this.queryBuilder,
+    required this.transformer,
+    required this.itemBuilder,
+    this.pageSize = 20,
+  });
+  
+  final Map<String, dynamic> Function(int page, int pageSize) queryBuilder;
+  final List<T> Function(Map<String, dynamic> data) transformer;
+  final Widget Function(BuildContext context, T item) itemBuilder;
+  final int pageSize;
+}
+```
+
+**Example:**
+```dart
+PaginatedList<Post>(
+  queryBuilder: (page, pageSize) => {
+    'posts': {
+      'where': {'published': true},
+      'orderBy': {'createdAt': 'desc'},
+      'limit': pageSize,
+      'offset': page * pageSize,
+    }
+  },
+  transformer: (data) => (data['posts'] as List)
+      .map((json) => Post.fromJson(json))
+      .toList(),
+  itemBuilder: (context, post) => PostCard(post: post),
+);
+```
+
+## Form Widgets
+
+### `InstantForm`
+
+Form widget that automatically handles InstantDB operations.
+
+```dart
+class InstantForm extends StatefulWidget {
+  const InstantForm({
+    super.key,
+    required this.entityType,
+    required this.fields,
+    this.initialData,
+    this.onSuccess,
+    this.onError,
+  });
+  
+  final String entityType;
+  final List<FormField> fields;
+  final Map<String, dynamic>? initialData;
+  final VoidCallback? onSuccess;
+  final Function(String error)? onError;
+}
+```
+
+**Example:**
+```dart
+InstantForm(
+  entityType: 'todos',
+  fields: [
+    FormField(
+      name: 'text',
+      label: 'Todo Text',
+      type: FormFieldType.text,
+      required: true,
+    ),
+    FormField(
+      name: 'priority',
+      label: 'Priority',
+      type: FormFieldType.select,
+      options: ['low', 'medium', 'high'],
+    ),
+  ],
+  onSuccess: () {
+    Navigator.pop(context);
+    showSnackBar('Todo created successfully');
+  },
+);
+```
+
+### `SearchField`
+
+Search input widget with real-time suggestions.
+
+```dart
+class SearchField extends StatefulWidget {
+  const SearchField({
+    super.key,
+    required this.entityType,
+    required this.searchFields,
+    required this.onSelected,
+    this.hintText,
+  });
+  
+  final String entityType;
+  final List<String> searchFields;
+  final Function(Map<String, dynamic> item) onSelected;
+  final String? hintText;
+}
+```
+
+**Example:**
+```dart
+SearchField(
+  entityType: 'users',
+  searchFields: ['name', 'email'],
+  onSelected: (user) {
+    setState(() {
+      _selectedUser = user;
+    });
+  },
+  hintText: 'Search users...',
+);
+```
+
+## Animation Widgets
+
+### `AnimatedPresence`
+
+Widget that animates presence changes.
+
+```dart
+class AnimatedPresence extends StatelessWidget {
+  const AnimatedPresence({
+    super.key,
+    required this.roomId,
+    required this.child,
+    this.duration = const Duration(milliseconds: 300),
+  });
+  
+  final String roomId;
+  final Widget child;
+  final Duration duration;
+}
+```
+
+### `ReactionOverlay`
+
+Animated overlay for displaying reactions.
+
+```dart
+class ReactionOverlay extends StatelessWidget {
+  const ReactionOverlay({
+    super.key,
+    required this.roomId,
+    this.duration = const Duration(seconds: 3),
+  });
+  
+  final String roomId;
+  final Duration duration;
+}
+```
+
+**Example:**
+```dart
+Stack(
+  children: [
+    // Main content
+    GestureDetector(
+      onDoubleTapDown: (details) => _sendReaction(details),
+      child: MainContent(),
+    ),
+    
+    // Reaction overlay
+    ReactionOverlay(roomId: 'main-room'),
+  ],
+);
+```
+
+## Custom Widget Examples
+
+### Todo List Widget
+
+Complete implementation of a reactive todo list:
+
+```dart
+class TodoListWidget extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return InstantBuilderTyped<List<Todo>>(
+      query: {
+        'todos': {
+          'where': {'userId': _getCurrentUserId()},
+          'orderBy': [
+            {'completed': 'asc'},
+            {'createdAt': 'desc'},
+          ],
+        }
+      },
+      transformer: (data) => (data['todos'] as List)
+          .map((json) => Todo.fromJson(json))
+          .toList(),
+      builder: (context, todos) {
+        if (todos.isEmpty) {
+          return const EmptyTodosWidget();
+        }
+        
+        return ListView.builder(
+          itemCount: todos.length,
+          itemBuilder: (context, index) {
+            final todo = todos[index];
+            return TodoItem(
+              todo: todo,
+              onToggle: () => _toggleTodo(todo.id),
+              onDelete: () => _deleteTodo(todo.id),
+              onEdit: (newText) => _updateTodo(todo.id, newText),
+            );
+          },
+        );
+      },
+      loadingBuilder: (context) => const Center(
+        child: CircularProgressIndicator(),
+      ),
+      errorBuilder: (context, error) => Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.error, size: 64, color: Colors.red),
+            const SizedBox(height: 16),
+            Text('Error loading todos: $error'),
+            const SizedBox(height: 16),
+            ElevatedButton(
+              onPressed: () => _retryLoad(),
+              child: const Text('Retry'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+```
+
+### Chat Room Widget
+
+Real-time chat implementation:
+
+```dart
+class ChatRoomWidget extends StatefulWidget {
+  final String roomId;
+  
+  const ChatRoomWidget({super.key, required this.roomId});
+  
+  @override
+  State<ChatRoomWidget> createState() => _ChatRoomWidgetState();
+}
+
+class _ChatRoomWidgetState extends State<ChatRoomWidget> {
+  final _messageController = TextEditingController();
+  final _scrollController = ScrollController();
+  
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        // Messages list
+        Expanded(
+          child: InstantBuilder(
+            query: {
+              'messages': {
+                'where': {'roomId': widget.roomId},
+                'orderBy': {'createdAt': 'asc'},
+                'limit': 100,
+              }
+            },
+            builder: (context, data) {
+              final messages = (data?['messages'] as List? ?? [])
+                  .cast<Map<String, dynamic>>();
+              
+              return ListView.builder(
+                controller: _scrollController,
+                itemCount: messages.length,
+                itemBuilder: (context, index) {
+                  final message = messages[index];
+                  return MessageBubble(message: message);
+                },
+              );
+            },
+          ),
+        ),
+        
+        // Typing indicator
+        TypingIndicator(roomId: widget.roomId),
+        
+        // Message input
+        Container(
+          padding: const EdgeInsets.all(8),
+          child: Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _messageController,
+                  decoration: const InputDecoration(
+                    hintText: 'Type a message...',
+                    border: OutlineInputBorder(),
+                  ),
+                  onChanged: _handleTyping,
+                  onSubmitted: (_) => _sendMessage(),
+                ),
+              ),
+              const SizedBox(width: 8),
+              IconButton(
+                onPressed: _sendMessage,
+                icon: const Icon(Icons.send),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+  
+  void _handleTyping(String text) {
+    final db = InstantProvider.of(context);
+    final room = db.presence.joinRoom(widget.roomId);
+    room.setTyping(text.isNotEmpty);
+  }
+  
+  void _sendMessage() {
+    final text = _messageController.text.trim();
+    if (text.isEmpty) return;
+    
+    final db = InstantProvider.of(context);
+    final currentUser = db.auth.currentUser.value;
+    
+    db.transact([
+      ...db.create('messages', {
+        'id': db.id(),
+        'roomId': widget.roomId,
+        'text': text,
+        'userId': currentUser?.id,
+        'userName': currentUser?.email ?? 'Anonymous',
+        'createdAt': DateTime.now().millisecondsSinceEpoch,
+      }),
+    ]);
+    
+    _messageController.clear();
+    
+    // Scroll to bottom
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _scrollController.animateTo(
+        _scrollController.position.maxScrollExtent,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeOut,
+      );
+    });
+  }
+}
+```
+
+## Best Practices
+
+### 1. Use Appropriate Widget Types
+
+```dart
+// ✅ Good: Use typed builder for type safety
+InstantBuilderTyped<List<Todo>>(
+  transformer: (data) => Todo.fromList(data['todos']),
+  builder: (context, todos) => TodoList(todos: todos),
+);
+
+// ❌ Avoid: Untyped data handling
+InstantBuilder(
+  builder: (context, data) {
+    final todos = data?['todos']; // Type unknown
+    return TodoList(todos: todos);
+  },
+);
+```
+
+### 2. Handle Loading and Error States
+
+Always provide loading and error builders:
+
+```dart
+InstantBuilder(
+  query: query,
+  builder: (context, data) => SuccessWidget(data: data),
+  loadingBuilder: (context) => const LoadingWidget(),
+  errorBuilder: (context, error) => ErrorWidget(error: error),
+);
+```
+
+### 3. Optimize Performance
+
+Use keys for list items and avoid expensive operations in builders:
+
+```dart
+// ✅ Good: Use keys for list performance
+ListView.builder(
+  itemBuilder: (context, index) {
+    final item = items[index];
+    return ItemWidget(
+      key: Key(item['id']),
+      item: item,
+    );
+  },
+);
+```
+
+### 4. Clean Up Resources
+
+Dispose of subscriptions and controllers:
+
+```dart
+@override
+void dispose() {
+  _controller.dispose();
+  _subscription?.cancel();
+  super.dispose();
+}
+```
+
+## Next Steps
+
+Explore related APIs and concepts:
+
+- [InstantDB Core](../instantdb/) - Main database initialization and methods
+- [Queries API](../queries/) - Advanced querying for widgets
+- [Transactions API](../transactions/) - Updating data from widgets
+- [Presence API](../presence-api/) - Real-time collaboration widgets
+- [Types Reference](../types/) - Widget parameter types and return values

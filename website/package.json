@@ -1,0 +1,30 @@
+{
+  "name": "instantdb-flutter-docs",
+  "type": "module",
+  "version": "1.0.0",
+  "description": "Documentation website for InstantDB Flutter",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/pillowsoft/instantdb_flutter.git",
+    "directory": "website"
+  },
+  "homepage": "https://instantdb-flutter-docs.pages.dev",
+  "scripts": {
+    "dev": "astro dev",
+    "start": "astro dev",
+    "build": "astro check && astro build",
+    "preview": "astro preview",
+    "deploy": "wrangler pages deploy dist/",
+    "cf:dev": "wrangler pages dev dist/",
+    "astro": "astro"
+  },
+  "dependencies": {
+    "@astrojs/check": "^0.9.4",
+    "@astrojs/cloudflare": "^12.6.5",
+    "@astrojs/starlight": "^0.28.6",
+    "@fontsource/ibm-plex-serif": "^5.0.8",
+    "astro": "^4.16.9",
+    "sharp": "^0.32.6",
+    "typescript": "^5.3.2"
+  }
+}

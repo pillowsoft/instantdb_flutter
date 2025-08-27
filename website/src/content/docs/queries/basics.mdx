@@ -1,0 +1,336 @@
+---
+title: Basic Queries
+description: Learn how to query data with InstantDB Flutter
+sidebar:
+  order: 1
+---
+
+import { Code, Tabs, TabItem } from "@astrojs/starlight/components";
+
+InstantDB uses InstaQL, a simple yet powerful query language designed for real-time applications. All queries are reactive by default, meaning your UI automatically updates when data changes.
+
+## Simple Queries
+
+### Fetch All Records
+
+Query all records of a specific entity type:
+
+```dart
+// Get all todos
+final todosQuery = db.query({'todos': {}});
+
+// Access the data
+Watch((context) {
+  final result = todosQuery.value;
+  
+  if (result.isLoading) {
+    return const CircularProgressIndicator();
+  }
+  
+  if (result.hasError) {
+    return Text('Error: ${result.error}');
+  }
+  
+  final todos = result.data!['todos'] as List;
+  return ListView.builder(
+    itemCount: todos.length,
+    itemBuilder: (context, index) => TodoTile(todo: todos[index]),
+  );
+});
+```
+
+### Filter with Where Clauses
+
+Filter data using where conditions:
+
+```dart
+// Get completed todos only
+final completedTodos = db.query({
+  'todos': {
+    'where': {'completed': true},
+  },
+});
+
+// Get todos created today
+final today = DateTime.now();
+final startOfDay = DateTime(today.year, today.month, today.day);
+
+final todaysTodos = db.query({
+  'todos': {
+    'where': {
+      'createdAt': {'\$gte': startOfDay.millisecondsSinceEpoch},
+    },
+  },
+});
+```
+
+### Sorting and Limiting
+
+Control the order and number of results:
+
+```dart
+// Get latest 10 todos, sorted by creation date
+final latestTodos = db.query({
+  'todos': {
+    '\$': {
+      'order': {'createdAt': 'desc'},
+      'limit': 10,
+    },
+  },
+});
+
+// Multiple sort fields
+final sortedTodos = db.query({
+  'todos': {
+    '\$': {
+      'order': [
+        {'priority': 'desc'},
+        {'createdAt': 'asc'},
+      ],
+    },
+  },
+});
+```
+
+## Query Operators
+
+### Comparison Operators
+
+| Operator | Description | Example |
+|----------|-------------|---------|
+| `\$eq` | Equal (default) | `{'status': 'active'}` |
+| `\$neq` | Not equal | `{'status': {'\$neq': 'deleted'}}` |
+| `\$gt` | Greater than | `{'score': {'\$gt': 100}}` |
+| `\$gte` | Greater than or equal | `{'age': {'\$gte': 18}}` |
+| `\$lt` | Less than | `{'price': {'\$lt': 50}}` |
+| `\$lte` | Less than or equal | `{'quantity': {'\$lte': 10}}` |
+
+### Array Operators
+
+| Operator | Description | Example |
+|----------|-------------|---------|
+| `\$in` | Value in array | `{'category': {'\$in': ['work', 'personal']}}` |
+| `\$nin` | Value not in array | `{'status': {'\$nin': ['deleted', 'archived']}}` |
+
+### String Operators
+
+| Operator | Description | Example |
+|----------|-------------|---------|
+| `\$contains` | Contains substring | `{'title': {'\$contains': 'urgent'}}` |
+| `\$startsWith` | Starts with | `{'email': {'\$startsWith': 'admin'}}` |
+| `\$endsWith` | Ends with | `{'filename': {'\$endsWith': '.pdf'}}` |
+
+## React-Style Query Syntax
+
+InstantDB Flutter supports React-style query syntax for compatibility:
+
+<Tabs>
+  <TabItem label="React Style">
+    ```dart
+    final query = db.query({
+      'todos': {
+        '\$': {
+          'where': {'completed': false},
+          'order': {'createdAt': 'desc'},
+          'limit': 20,
+        },
+      },
+    });
+    ```
+  </TabItem>
+  <TabItem label="Flutter Style">
+    ```dart
+    final query = db.query({
+      'todos': {
+        'where': {'completed': false},
+        'orderBy': [{'createdAt': 'desc'}],
+        'limit': 20,
+      },
+    });
+    ```
+  </TabItem>
+</Tabs>
+
+Both syntaxes are supported and can be used interchangeably.
+
+## Reactive Queries
+
+### Using InstantBuilder
+
+The recommended way to use queries in widgets:
+
+```dart
+InstantBuilder(
+  query: {
+    'todos': {
+      'where': {'userId': currentUserId},
+    },
+  },
+  builder: (context, result) {
+    if (result.isLoading) {
+      return const CircularProgressIndicator();
+    }
+    
+    if (result.hasError) {
+      return Text('Error: ${result.error}');
+    }
+    
+    final todos = result.data!['todos'] as List;
+    return TodosList(todos: todos);
+  },
+)
+```
+
+### Using InstantBuilderTyped
+
+For better type safety, use the typed version:
+
+```dart
+InstantBuilderTyped<List<Map<String, dynamic>>>(
+  query: {'todos': {}},
+  transformer: (data) {
+    final todos = (data['todos'] as List).cast<Map<String, dynamic>>();
+    // Apply client-side sorting or filtering if needed
+    todos.sort((a, b) => b['createdAt'].compareTo(a['createdAt']));
+    return todos;
+  },
+  builder: (context, todos) {
+    return ListView.builder(
+      itemCount: todos.length,
+      itemBuilder: (context, index) => TodoTile(todo: todos[index]),
+    );
+  },
+)
+```
+
+## One-time Queries
+
+For non-reactive queries that execute once:
+
+```dart
+// Execute query once and get result
+final result = await db.queryOnce({'todos': {}});
+
+if (result.hasData) {
+  final todos = result.data!['todos'] as List;
+  print('Found ${todos.length} todos');
+}
+```
+
+## Complex Queries
+
+### Multiple Conditions
+
+Combine multiple where conditions:
+
+```dart
+final complexQuery = db.query({
+  'todos': {
+    'where': {
+      'completed': false,
+      'priority': {'\$in': ['high', 'urgent']},
+      'dueDate': {'\$lte': DateTime.now().millisecondsSinceEpoch},
+      'assignee': {'\$neq': null},
+    },
+  },
+});
+```
+
+### Nested Conditions
+
+Use logical operators for complex conditions:
+
+```dart
+final nestedQuery = db.query({
+  'todos': {
+    'where': {
+      '\$or': [
+        {'priority': 'urgent'},
+        {
+          '\$and': [
+            {'priority': 'high'},
+            {'dueDate': {'\$lte': DateTime.now().millisecondsSinceEpoch}},
+          ],
+        },
+      ],
+    },
+  },
+});
+```
+
+## Query Performance
+
+### Indexing
+
+Ensure your frequently queried fields are indexed in your InstantDB schema:
+
+```dart
+// This will perform better if 'userId' is indexed
+final userTodos = db.query({
+  'todos': {
+    'where': {'userId': currentUserId},
+  },
+});
+```
+
+### Pagination
+
+Use limit and offset for large datasets:
+
+```dart
+final page1 = db.query({
+  'todos': {
+    '\$': {
+      'limit': 20,
+      'offset': 0,
+    },
+  },
+});
+
+final page2 = db.query({
+  'todos': {
+    '\$': {
+      'limit': 20,
+      'offset': 20,
+    },
+  },
+});
+```
+
+## Error Handling
+
+Handle query errors gracefully:
+
+```dart
+InstantBuilder(
+  query: {'todos': {}},
+  errorBuilder: (context, error) {
+    return Column(
+      children: [
+        const Icon(Icons.error, color: Colors.red),
+        Text('Failed to load todos: $error'),
+        ElevatedButton(
+          onPressed: () {
+            // Retry logic
+          },
+          child: const Text('Retry'),
+        ),
+      ],
+    );
+  },
+  builder: (context, result) {
+    // Success case
+    final todos = result.data!['todos'] as List;
+    return TodosList(todos: todos);
+  },
+)
+```
+
+## Next Steps
+
+Learn more about advanced querying features:
+
+- [Relationships](../relationships/) - Query related data
+- [Advanced Queries](../advanced/) - Complex patterns and optimization
+- [Real-time Updates](../../realtime/sync/) - Understanding live data
+- [Schema Validation](../../concepts/schema/) - Type-safe queries

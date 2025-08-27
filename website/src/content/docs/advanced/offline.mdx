@@ -1,0 +1,877 @@
+---
+title: Offline Functionality
+description: Building offline-first applications with InstantDB Flutter
+sidebar:
+  order: 1
+---
+
+import { Code, Tabs, TabItem } from "@astrojs/starlight/components";
+
+InstantDB Flutter is designed with offline-first principles. Your app continues to work seamlessly when the network is unavailable, with automatic synchronization when connectivity is restored.
+
+## Offline-First Architecture
+
+### How It Works
+
+InstantDB's offline-first approach ensures your app remains functional regardless of network conditions:
+
+1. **Local SQLite Storage**: All data is stored locally in SQLite
+2. **Optimistic Updates**: Changes are applied immediately to the local database
+3. **Sync Queue**: Mutations are queued for transmission when online
+4. **Automatic Sync**: Changes sync automatically when connection is restored
+5. **Conflict Resolution**: Server conflicts are resolved automatically
+
+### Benefits
+
+- ✅ **Instant Responsiveness**: UI updates immediately, no waiting for server
+- ✅ **Reliable Offline Work**: Full functionality when disconnected
+- ✅ **Automatic Recovery**: Seamless sync when connection returns
+- ✅ **Conflict Resolution**: Handles concurrent edits gracefully
+- ✅ **Data Persistence**: Local data survives app restarts
+
+## Handling Offline States
+
+### Connection Status Monitoring
+
+Monitor and display connection status to users:
+
+```dart
+class ConnectionAwareApp extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final db = InstantProvider.of(context);
+
+    return Watch((context) {
+      final isOnline = db.syncEngine?.connectionStatus.value ?? false;
+      
+      return Scaffold(
+        body: Column(
+          children: [
+            // Connection status banner
+            if (!isOnline)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+                color: Colors.orange,
+                child: Row(
+                  children: [
+                    const Icon(Icons.cloud_off, color: Colors.white, size: 16),
+                    const SizedBox(width: 8),
+                    const Text(
+                      'Offline - Changes will sync when connected',
+                      style: TextStyle(color: Colors.white),
+                    ),
+                    const Spacer(),
+                    Text(
+                      'Offline',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            
+            // Your app content
+            Expanded(child: YourAppContent()),
+          ],
+        ),
+      );
+    });
+  }
+}
+```
+
+### Advanced Connection Status Widget
+
+Create a more sophisticated connection indicator:
+
+```dart
+class AdvancedConnectionStatus extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final db = InstantProvider.of(context);
+
+    return Watch((context) {
+      final isOnline = db.syncEngine?.connectionStatus.value ?? false;
+      final pendingCount = _getPendingChangesCount(db);
+
+      return AnimatedContainer(
+        duration: const Duration(milliseconds: 300),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: _getStatusColor(isOnline, pendingCount),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              _getStatusIcon(isOnline, pendingCount),
+              size: 16,
+              color: Colors.white,
+            ),
+            const SizedBox(width: 6),
+            Text(
+              _getStatusText(isOnline, pendingCount),
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+            if (pendingCount > 0) ...[
+              const SizedBox(width: 4),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.3),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  '$pendingCount',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      );
+    });
+  }
+
+  Color _getStatusColor(bool isOnline, int pendingCount) {
+    if (!isOnline && pendingCount > 0) return Colors.orange;
+    if (!isOnline) return Colors.red;
+    if (pendingCount > 0) return Colors.blue;
+    return Colors.green;
+  }
+
+  IconData _getStatusIcon(bool isOnline, int pendingCount) {
+    if (!isOnline) return Icons.cloud_off;
+    if (pendingCount > 0) return Icons.sync;
+    return Icons.cloud_done;
+  }
+
+  String _getStatusText(bool isOnline, int pendingCount) {
+    if (!isOnline && pendingCount > 0) return 'Offline - $pendingCount pending';
+    if (!isOnline) return 'Offline';
+    if (pendingCount > 0) return 'Syncing';
+    return 'Online';
+  }
+
+  int _getPendingChangesCount(InstantDB db) {
+    // This would need to be implemented in the sync engine
+    // For now, return a placeholder
+    return 0;
+  }
+}
+```
+
+## Offline Data Patterns
+
+### Optimistic Updates
+
+All mutations in InstantDB are optimistic by default:
+
+```dart
+class OptimisticTodoList extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final db = InstantProvider.of(context);
+
+    return InstantBuilder(
+      query: {'todos': {'orderBy': {'createdAt': 'desc'}}},
+      builder: (context, result) {
+        final todos = (result.data?['todos'] as List? ?? [])
+            .cast<Map<String, dynamic>>();
+
+        return ListView.builder(
+          itemCount: todos.length,
+          itemBuilder: (context, index) {
+            final todo = todos[index];
+            return TodoItem(
+              todo: todo,
+              onToggle: () => _toggleTodo(db, todo),
+              onDelete: () => _deleteTodo(db, todo['id']),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _toggleTodo(InstantDB db, Map<String, dynamic> todo) async {
+    // This update happens immediately in the UI
+    // Sync happens automatically in the background
+    await db.transact([
+      db.update(todo['id'], {
+        'completed': !todo['completed'],
+        'updatedAt': DateTime.now().millisecondsSinceEpoch,
+      }),
+    ]);
+  }
+
+  Future<void> _deleteTodo(InstantDB db, String todoId) async {
+    // Deletion also happens immediately
+    await db.transact([
+      db.delete(todoId),
+    ]);
+  }
+}
+```
+
+### Offline-Aware CRUD Operations
+
+Create operations that provide feedback for offline states:
+
+```dart
+class OfflineAwareCRUD {
+  final InstantDB db;
+
+  OfflineAwareCRUD(this.db);
+
+  Future<OperationResult> createTodo({
+    required String text,
+    bool showOfflineMessage = true,
+  }) async {
+    try {
+      final todoId = db.id();
+      await db.transact([
+        ...db.create('todos', {
+          'id': todoId,
+          'text': text,
+          'completed': false,
+          'createdAt': DateTime.now().millisecondsSinceEpoch,
+        }),
+      ]);
+
+      final isOnline = db.syncEngine?.connectionStatus.value ?? false;
+      
+      return OperationResult.success(
+        message: isOnline 
+          ? 'Todo created and synced'
+          : 'Todo created - will sync when online',
+        data: {'id': todoId},
+      );
+    } catch (e) {
+      return OperationResult.error('Failed to create todo: $e');
+    }
+  }
+
+  Future<OperationResult> updateTodo({
+    required String id,
+    required Map<String, dynamic> updates,
+  }) async {
+    try {
+      await db.transact([
+        db.update(id, {
+          ...updates,
+          'updatedAt': DateTime.now().millisecondsSinceEpoch,
+        }),
+      ]);
+
+      final isOnline = db.syncEngine?.connectionStatus.value ?? false;
+      
+      return OperationResult.success(
+        message: isOnline 
+          ? 'Todo updated and synced'
+          : 'Todo updated - will sync when online',
+      );
+    } catch (e) {
+      return OperationResult.error('Failed to update todo: $e');
+    }
+  }
+
+  Future<OperationResult> deleteTodo(String id) async {
+    try {
+      await db.transact([db.delete(id)]);
+
+      final isOnline = db.syncEngine?.connectionStatus.value ?? false;
+      
+      return OperationResult.success(
+        message: isOnline 
+          ? 'Todo deleted and synced'
+          : 'Todo deleted - will sync when online',
+      );
+    } catch (e) {
+      return OperationResult.error('Failed to delete todo: $e');
+    }
+  }
+}
+
+class OperationResult {
+  final bool success;
+  final String message;
+  final Map<String, dynamic>? data;
+
+  OperationResult._({
+    required this.success,
+    required this.message,
+    this.data,
+  });
+
+  factory OperationResult.success(String message, {Map<String, dynamic>? data}) {
+    return OperationResult._(success: true, message: message, data: data);
+  }
+
+  factory OperationResult.error(String message) {
+    return OperationResult._(success: false, message: message);
+  }
+}
+```
+
+## Conflict Resolution
+
+### Understanding Conflicts
+
+Conflicts occur when the same data is modified by multiple clients while offline:
+
+```dart
+class ConflictResolutionExample extends StatefulWidget {
+  @override
+  State<ConflictResolutionExample> createState() => _ConflictResolutionExampleState();
+}
+
+class _ConflictResolutionExampleState extends State<ConflictResolutionExample> {
+  String? _conflictMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    _monitorConflicts();
+  }
+
+  void _monitorConflicts() {
+    final db = InstantProvider.of(context);
+    
+    // Listen for sync events (this is conceptual - actual API may vary)
+    db.syncEngine?.onSyncEvent.listen((event) {
+      if (event.type == 'conflict_resolved') {
+        setState(() {
+          _conflictMessage = 'Conflict resolved: ${event.description}';
+        });
+        
+        // Clear message after 5 seconds
+        Timer(const Duration(seconds: 5), () {
+          if (mounted) {
+            setState(() {
+              _conflictMessage = null;
+            });
+          }
+        });
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        if (_conflictMessage != null)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.blue.shade100,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.info, color: Colors.blue.shade700),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    _conflictMessage!,
+                    style: TextStyle(color: Colors.blue.shade700),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        
+        // Your main content
+        Expanded(child: YourContent()),
+      ],
+    );
+  }
+}
+```
+
+### Custom Conflict Resolution
+
+Implement custom logic for handling specific conflict scenarios:
+
+```dart
+class CustomConflictResolver {
+  static Map<String, dynamic> resolveDocumentConflict({
+    required Map<String, dynamic> localVersion,
+    required Map<String, dynamic> serverVersion,
+    required String userId,
+  }) {
+    // Last-write-wins with user preference
+    final localTimestamp = localVersion['updatedAt'] as int? ?? 0;
+    final serverTimestamp = serverVersion['updatedAt'] as int? ?? 0;
+    
+    // If local is newer, keep local
+    if (localTimestamp > serverTimestamp) {
+      return localVersion;
+    }
+    
+    // If server is newer, merge intelligently
+    final resolved = Map<String, dynamic>.from(serverVersion);
+    
+    // Keep local changes for specific fields if user is the author
+    if (localVersion['authorId'] == userId) {
+      final preserveFields = ['title', 'content', 'tags'];
+      for (final field in preserveFields) {
+        if (localVersion.containsKey(field)) {
+          resolved[field] = localVersion[field];
+        }
+      }
+    }
+    
+    // Add conflict resolution metadata
+    resolved['_conflictResolved'] = true;
+    resolved['_conflictResolvedAt'] = DateTime.now().millisecondsSinceEpoch;
+    resolved['_conflictResolvedBy'] = 'user_preference';
+    
+    return resolved;
+  }
+
+  static List<T> mergeArrayConflict<T>({
+    required List<T> localArray,
+    required List<T> serverArray,
+  }) {
+    // Merge arrays preserving unique items
+    final merged = <T>[];
+    final seen = <T>{};
+    
+    // Add all server items first
+    for (final item in serverArray) {
+      if (!seen.contains(item)) {
+        merged.add(item);
+        seen.add(item);
+      }
+    }
+    
+    // Add local items that aren't in server
+    for (final item in localArray) {
+      if (!seen.contains(item)) {
+        merged.add(item);
+        seen.add(item);
+      }
+    }
+    
+    return merged;
+  }
+}
+```
+
+## Offline Authentication
+
+### Cached Authentication
+
+Handle authentication when offline:
+
+```dart
+class OfflineAuthManager {
+  final InstantDB db;
+  
+  OfflineAuthManager(this.db);
+
+  Future<AuthUser?> getCachedUser() async {
+    try {
+      // Try to get current user (may use cached data)
+      final user = db.auth.currentUser.value;
+      if (user != null) return user;
+      
+      // If no current user, try to restore from secure storage
+      final token = await SecureStorage.getAuthToken();
+      if (token != null) {
+        try {
+          return await db.auth.signInWithToken(token);
+        } catch (e) {
+          // Token might be expired, handle gracefully
+          print('Failed to restore auth with cached token: $e');
+        }
+      }
+      
+      return null;
+    } catch (e) {
+      print('Error getting cached user: $e');
+      return null;
+    }
+  }
+
+  bool canPerformOfflineAuth() {
+    // Check if user has valid cached credentials
+    return db.auth.isAuthenticated;
+  }
+
+  Future<void> scheduleAuthRefresh() async {
+    // Schedule auth refresh for when connection is restored
+    final isOnline = db.syncEngine?.connectionStatus.value ?? false;
+    
+    if (!isOnline) {
+      // Listen for connection restoration
+      db.syncEngine?.connectionStatus.stream.listen((connected) {
+        if (connected) {
+          _refreshAuthWhenOnline();
+        }
+      });
+    } else {
+      await _refreshAuthWhenOnline();
+    }
+  }
+
+  Future<void> _refreshAuthWhenOnline() async {
+    try {
+      await db.auth.refreshUser();
+    } catch (e) {
+      print('Auth refresh failed: $e');
+      // Handle auth refresh failure (e.g., redirect to login)
+    }
+  }
+}
+
+class SecureStorage {
+  static Future<String?> getAuthToken() async {
+    // Implementation depends on your secure storage solution
+    // e.g., flutter_secure_storage
+    return null;
+  }
+}
+```
+
+## Offline UI Patterns
+
+### Offline-First Form Handling
+
+Create forms that work seamlessly offline:
+
+```dart
+class OfflineForm extends StatefulWidget {
+  final Map<String, dynamic>? initialData;
+  final String entityType;
+  
+  const OfflineForm({
+    super.key,
+    this.initialData,
+    required this.entityType,
+  });
+
+  @override
+  State<OfflineForm> createState() => _OfflineFormState();
+}
+
+class _OfflineFormState extends State<OfflineForm> {
+  final _formKey = GlobalKey<FormState>();
+  late final Map<String, dynamic> _formData;
+  bool _isSaving = false;
+  String? _saveMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    _formData = Map<String, dynamic>.from(widget.initialData ?? {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final db = InstantProvider.of(context);
+    
+    return Watch((context) {
+      final isOnline = db.syncEngine?.connectionStatus.value ?? false;
+      
+      return Form(
+        key: _formKey,
+        child: Column(
+          children: [
+            // Offline indicator in form
+            if (!isOnline)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.amber.shade100,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.amber.shade300),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.info, color: Colors.amber.shade700, size: 20),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'You\'re offline. Changes will be saved locally and synced when connected.',
+                        style: TextStyle(color: Colors.amber.shade700),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            
+            const SizedBox(height: 16),
+            
+            // Form fields
+            ...buildFormFields(),
+            
+            const SizedBox(height: 24),
+            
+            // Save message
+            if (_saveMessage != null)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.green.shade100,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  _saveMessage!,
+                  style: TextStyle(color: Colors.green.shade700),
+                ),
+              ),
+            
+            const SizedBox(height: 16),
+            
+            // Save button
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: _isSaving ? null : _saveForm,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    if (_isSaving) ...[
+                      const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                      const SizedBox(width: 8),
+                    ],
+                    Text(_isSaving ? 'Saving...' : 'Save'),
+                    if (!isOnline && !_isSaving) ...[
+                      const SizedBox(width: 8),
+                      Icon(Icons.offline_pin, size: 16),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    });
+  }
+
+  List<Widget> buildFormFields() {
+    // Build your form fields based on entity type
+    return [
+      TextFormField(
+        initialValue: _formData['title']?.toString(),
+        decoration: const InputDecoration(labelText: 'Title'),
+        onSaved: (value) => _formData['title'] = value,
+        validator: (value) => value?.isEmpty ?? true ? 'Title is required' : null,
+      ),
+      const SizedBox(height: 16),
+      TextFormField(
+        initialValue: _formData['description']?.toString(),
+        decoration: const InputDecoration(labelText: 'Description'),
+        maxLines: 3,
+        onSaved: (value) => _formData['description'] = value,
+      ),
+    ];
+  }
+
+  Future<void> _saveForm() async {
+    if (!_formKey.currentState!.validate()) return;
+    
+    _formKey.currentState!.save();
+    
+    setState(() {
+      _isSaving = true;
+      _saveMessage = null;
+    });
+
+    try {
+      final db = InstantProvider.of(context);
+      final isOnline = db.syncEngine?.connectionStatus.value ?? false;
+      
+      final isUpdate = _formData.containsKey('id');
+      
+      if (isUpdate) {
+        await db.transact([
+          db.update(_formData['id'], {
+            ..._formData,
+            'updatedAt': DateTime.now().millisecondsSinceEpoch,
+          }),
+        ]);
+      } else {
+        await db.transact([
+          ...db.create(widget.entityType, {
+            'id': db.id(),
+            ..._formData,
+            'createdAt': DateTime.now().millisecondsSinceEpoch,
+          }),
+        ]);
+      }
+      
+      setState(() {
+        _saveMessage = isOnline
+          ? '${isUpdate ? 'Updated' : 'Created'} successfully and synced'
+          : '${isUpdate ? 'Updated' : 'Created'} successfully - will sync when online';
+      });
+      
+      // Clear message after 3 seconds
+      Timer(const Duration(seconds: 3), () {
+        if (mounted) {
+          setState(() {
+            _saveMessage = null;
+          });
+        }
+      });
+      
+    } catch (e) {
+      setState(() {
+        _saveMessage = 'Error: $e';
+      });
+    } finally {
+      setState(() {
+        _isSaving = false;
+      });
+    }
+  }
+}
+```
+
+## Best Practices
+
+### 1. Embrace Optimistic Updates
+
+Trust InstantDB's optimistic update system:
+
+```dart
+// Good: Let InstantDB handle optimistic updates
+await db.transact([db.update(itemId, newData)]);
+
+// Avoid: Manual optimistic updates
+setState(() {
+  localData = newData; // Don't do this - let InstantDB handle it
+});
+await db.transact([db.update(itemId, newData)]);
+```
+
+### 2. Provide Clear Offline Feedback
+
+Always inform users about offline status:
+
+```dart
+class OfflineFeedback extends StatelessWidget {
+  final Widget child;
+  
+  const OfflineFeedback({super.key, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        ConnectionStatusBar(),
+        Expanded(child: child),
+      ],
+    );
+  }
+}
+```
+
+### 3. Handle Large Offline Datasets
+
+Consider data size when working offline:
+
+```dart
+class OfflineDataManager {
+  static const int MAX_OFFLINE_ITEMS = 1000;
+  
+  static Future<void> preloadOfflineData(InstantDB db) async {
+    // Load essential data for offline use
+    final recentPosts = await db.queryOnce({
+      'posts': {
+        'where': {'createdAt': {'\$gte': _getLastWeekTimestamp()}},
+        'limit': MAX_OFFLINE_ITEMS,
+        'orderBy': {'createdAt': 'desc'},
+      }
+    });
+    
+    // Data is now cached locally
+  }
+  
+  static int _getLastWeekTimestamp() {
+    return DateTime.now()
+        .subtract(const Duration(days: 7))
+        .millisecondsSinceEpoch;
+  }
+}
+```
+
+### 4. Test Offline Scenarios
+
+Thoroughly test offline functionality:
+
+```dart
+void testOfflineScenarios() {
+  group('Offline functionality', () {
+    late InstantDB db;
+    
+    setUp(() async {
+      db = await InstantDB.init(
+        appId: 'test-app',
+        config: const InstantConfig(syncEnabled: true),
+      );
+    });
+    
+    test('should create items when offline', () async {
+      // Simulate offline mode
+      await db.syncEngine?.disconnect();
+      
+      // Create item
+      await db.transact([
+        ...db.create('items', {
+          'id': db.id(),
+          'name': 'Offline Item',
+        }),
+      ]);
+      
+      // Verify item exists locally
+      final result = await db.queryOnce({'items': {}});
+      expect(result.data?['items'], hasLength(1));
+    });
+    
+    test('should sync when coming back online', () async {
+      // Test sync recovery
+      await db.syncEngine?.connect();
+      
+      // Wait for sync
+      await Future.delayed(const Duration(seconds: 1));
+      
+      // Verify sync occurred
+      // Implementation depends on sync monitoring capabilities
+    });
+  });
+}
+```
+
+## Next Steps
+
+Learn more about advanced InstantDB features:
+
+- [Performance Optimization](../performance/) - Optimizing offline performance
+- [Troubleshooting](../troubleshooting/) - Debugging offline issues
+- [Migration Strategies](../migration/) - Upgrading offline-enabled apps
+- [Real-time Sync](../../realtime/sync/) - Understanding sync mechanisms

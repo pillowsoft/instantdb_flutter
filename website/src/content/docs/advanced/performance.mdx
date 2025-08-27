@@ -1,0 +1,896 @@
+---
+title: Performance Optimization
+description: Optimizing InstantDB Flutter applications for best performance
+sidebar:
+  order: 2
+---
+
+import { Code, Tabs, TabItem } from "@astrojs/starlight/components";
+
+Optimize your InstantDB Flutter applications for maximum performance with efficient queries, smart caching strategies, and optimized UI patterns.
+
+## Query Optimization
+
+### Efficient Query Patterns
+
+Write queries that minimize data transfer and processing:
+
+```dart
+// ✅ Good: Specific queries with filters
+final recentPosts = db.subscribeQuery({
+  'posts': {
+    'where': {
+      'published': true,
+      'createdAt': {'\$gte': DateTime.now().subtract(Duration(days: 7)).millisecondsSinceEpoch}
+    },
+    'orderBy': {'createdAt': 'desc'},
+    'limit': 20,
+  }
+});
+
+// ❌ Avoid: Broad queries without filters
+final allPosts = db.subscribeQuery({'posts': {}});
+```
+
+### Pagination for Large Datasets
+
+Implement efficient pagination to handle large amounts of data:
+
+```dart
+class PaginatedList extends StatefulWidget {
+  final String entityType;
+  final Map<String, dynamic>? whereClause;
+  final int pageSize;
+
+  const PaginatedList({
+    super.key,
+    required this.entityType,
+    this.whereClause,
+    this.pageSize = 20,
+  });
+
+  @override
+  State<PaginatedList> createState() => _PaginatedListState();
+}
+
+class _PaginatedListState extends State<PaginatedList> {
+  int _currentPage = 0;
+  final List<Map<String, dynamic>> _allItems = [];
+  bool _isLoading = false;
+  bool _hasMore = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPage(0);
+  }
+
+  Future<void> _loadPage(int page) async {
+    if (_isLoading || !_hasMore) return;
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      final db = InstantProvider.of(context);
+      final result = await db.queryOnce({
+        widget.entityType: {
+          if (widget.whereClause != null) 'where': widget.whereClause,
+          'orderBy': {'createdAt': 'desc'},
+          'limit': widget.pageSize,
+          'offset': page * widget.pageSize,
+        }
+      });
+
+      final newItems = (result.data?[widget.entityType] as List? ?? [])
+          .cast<Map<String, dynamic>>();
+
+      setState(() {
+        if (page == 0) {
+          _allItems.clear();
+        }
+        _allItems.addAll(newItems);
+        _hasMore = newItems.length == widget.pageSize;
+        _currentPage = page;
+      });
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView.builder(
+      itemCount: _allItems.length + (_hasMore ? 1 : 0),
+      itemBuilder: (context, index) {
+        if (index == _allItems.length) {
+          // Load more indicator
+          if (!_isLoading && _hasMore) {
+            // Trigger load more
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              _loadPage(_currentPage + 1);
+            });
+          }
+          return const Center(
+            child: Padding(
+              padding: EdgeInsets.all(16),
+              child: CircularProgressIndicator(),
+            ),
+          );
+        }
+
+        final item = _allItems[index];
+        return ListTile(
+          title: Text(item['title'] ?? ''),
+          subtitle: Text(item['description'] ?? ''),
+        );
+      },
+    );
+  }
+}
+```
+
+### Query Result Caching
+
+Implement smart caching for frequently accessed data:
+
+```dart
+class QueryCache {
+  static final Map<String, CachedQuery> _cache = {};
+  static const Duration _defaultTTL = Duration(minutes: 5);
+
+  static Signal<QueryResult>? getCached(
+    String queryKey,
+    Map<String, dynamic> query,
+  ) {
+    final cached = _cache[queryKey];
+    if (cached != null && !cached.isExpired) {
+      return cached.signal;
+    }
+    return null;
+  }
+
+  static void setCached(
+    String queryKey,
+    Signal<QueryResult> signal, {
+    Duration? ttl,
+  }) {
+    _cache[queryKey] = CachedQuery(
+      signal: signal,
+      expiresAt: DateTime.now().add(ttl ?? _defaultTTL),
+    );
+  }
+
+  static void clearExpired() {
+    _cache.removeWhere((_, cached) => cached.isExpired);
+  }
+
+  static void clear() {
+    _cache.clear();
+  }
+}
+
+class CachedQuery {
+  final Signal<QueryResult> signal;
+  final DateTime expiresAt;
+
+  CachedQuery({required this.signal, required this.expiresAt});
+
+  bool get isExpired => DateTime.now().isAfter(expiresAt);
+}
+
+// Cached query widget
+class CachedInstantBuilder extends StatelessWidget {
+  final Map<String, dynamic> query;
+  final String? cacheKey;
+  final Duration? cacheTTL;
+  final Widget Function(BuildContext, Map<String, dynamic>?) builder;
+
+  const CachedInstantBuilder({
+    super.key,
+    required this.query,
+    this.cacheKey,
+    this.cacheTTL,
+    required this.builder,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final db = InstantProvider.of(context);
+    final key = cacheKey ?? query.toString();
+
+    // Try to get from cache first
+    var querySignal = QueryCache.getCached(key, query);
+    
+    if (querySignal == null) {
+      // Create new query and cache it
+      querySignal = db.subscribeQuery(query);
+      QueryCache.setCached(key, querySignal, ttl: cacheTTL);
+    }
+
+    return Watch((context) {
+      final result = querySignal!.value;
+      return builder(context, result.data);
+    });
+  }
+}
+```
+
+## Memory Management
+
+### Efficient Widget Patterns
+
+Optimize widget rebuilds and memory usage:
+
+```dart
+// ✅ Good: Specific data extraction
+class OptimizedPostList extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return InstantBuilderTyped<List<Post>>(
+      query: {
+        'posts': {
+          'where': {'published': true},
+          'limit': 50,
+        }
+      },
+      transformer: (data) => (data['posts'] as List)
+          .map((json) => Post.fromJson(json))
+          .toList(),
+      builder: (context, posts) {
+        return ListView.builder(
+          itemCount: posts.length,
+          itemBuilder: (context, index) => PostCard(post: posts[index]),
+        );
+      },
+    );
+  }
+}
+
+// ❌ Avoid: Processing data in build method
+class UnoptimizedPostList extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return InstantBuilder(
+      query: {'posts': {}},
+      builder: (context, data) {
+        // Expensive operations in build method
+        final posts = (data['posts'] as List)
+            .where((p) => p['published'] == true)
+            .map((json) => Post.fromJson(json))
+            .toList()
+          ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+
+        return ListView.builder(
+          itemCount: posts.length,
+          itemBuilder: (context, index) => PostCard(post: posts[index]),
+        );
+      },
+    );
+  }
+}
+```
+
+### Memory-Efficient List Rendering
+
+Use ListView.builder for large datasets:
+
+```dart
+class LargeDataList extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return InstantBuilder(
+      query: {
+        'items': {
+          'orderBy': {'createdAt': 'desc'},
+          'limit': 1000, // Large dataset
+        }
+      },
+      builder: (context, result) {
+        final items = (result.data?['items'] as List? ?? [])
+            .cast<Map<String, dynamic>>();
+
+        return ListView.builder(
+          // Only builds visible items
+          itemCount: items.length,
+          itemBuilder: (context, index) {
+            final item = items[index];
+            return ListTile(
+              key: Key(item['id']), // Important for performance
+              title: Text(item['title']),
+              subtitle: Text(item['description']),
+            );
+          },
+        );
+      },
+    );
+  }
+}
+```
+
+### Dispose Resources Properly
+
+Always clean up resources to prevent memory leaks:
+
+```dart
+class ResourceAwareWidget extends StatefulWidget {
+  @override
+  State<ResourceAwareWidget> createState() => _ResourceAwareWidgetState();
+}
+
+class _ResourceAwareWidgetState extends State<ResourceAwareWidget> {
+  late final Signal<QueryResult> _querySignal;
+  StreamSubscription? _subscription;
+  Timer? _refreshTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    final db = InstantProvider.of(context);
+    
+    _querySignal = db.subscribeQuery({'items': {}});
+    
+    // Listen to query changes
+    _subscription = _querySignal.toStream().listen((result) {
+      // Handle query updates
+    });
+    
+    // Periodic refresh
+    _refreshTimer = Timer.periodic(
+      const Duration(minutes: 5),
+      (_) => _refreshData(),
+    );
+  }
+
+  @override
+  void dispose() {
+    // Clean up all resources
+    _subscription?.cancel();
+    _refreshTimer?.cancel();
+    super.dispose();
+  }
+
+  void _refreshData() {
+    // Refresh implementation
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Watch((context) {
+      final result = _querySignal.value;
+      return YourWidget(data: result.data);
+    });
+  }
+}
+```
+
+## Sync Performance
+
+### Batch Operations Efficiently
+
+Group related operations for better sync performance:
+
+```dart
+class BatchOperationManager {
+  final InstantDB db;
+  final List<Operation> _pendingOperations = [];
+  Timer? _batchTimer;
+  
+  static const Duration _batchDelay = Duration(milliseconds: 500);
+  static const int _maxBatchSize = 50;
+
+  BatchOperationManager(this.db);
+
+  void addOperation(Operation operation) {
+    _pendingOperations.add(operation);
+    
+    if (_pendingOperations.length >= _maxBatchSize) {
+      _flushBatch();
+    } else {
+      _scheduleBatch();
+    }
+  }
+
+  void _scheduleBatch() {
+    _batchTimer?.cancel();
+    _batchTimer = Timer(_batchDelay, _flushBatch);
+  }
+
+  Future<void> _flushBatch() async {
+    if (_pendingOperations.isEmpty) return;
+    
+    final batch = List<Operation>.from(_pendingOperations);
+    _pendingOperations.clear();
+    _batchTimer?.cancel();
+    
+    try {
+      await db.transact(batch);
+    } catch (e) {
+      // Handle batch error - could retry or log
+      print('Batch operation failed: $e');
+    }
+  }
+
+  void dispose() {
+    _batchTimer?.cancel();
+    if (_pendingOperations.isNotEmpty) {
+      _flushBatch();
+    }
+  }
+}
+
+// Usage
+class BatchedCRUD {
+  final BatchOperationManager _batchManager;
+
+  BatchedCRUD(InstantDB db) : _batchManager = BatchOperationManager(db);
+
+  void createMultipleItems(List<Map<String, dynamic>> items) {
+    for (final item in items) {
+      _batchManager.addOperation(
+        db.create('items', {
+          'id': db.id(),
+          ...item,
+        }).first,
+      );
+    }
+  }
+
+  void updateMultipleItems(List<MapEntry<String, Map<String, dynamic>>> updates) {
+    for (final update in updates) {
+      _batchManager.addOperation(
+        db.update(update.key, update.value),
+      );
+    }
+  }
+}
+```
+
+### Connection Pool Management
+
+Optimize WebSocket connections:
+
+```dart
+class ConnectionManager {
+  static const Duration _reconnectDelay = Duration(seconds: 2);
+  static const Duration _heartbeatInterval = Duration(seconds: 30);
+  static const int _maxReconnectAttempts = 5;
+
+  final InstantDB db;
+  int _reconnectAttempts = 0;
+  Timer? _heartbeatTimer;
+
+  ConnectionManager(this.db) {
+    _startHeartbeat();
+    _monitorConnection();
+  }
+
+  void _startHeartbeat() {
+    _heartbeatTimer?.cancel();
+    _heartbeatTimer = Timer.periodic(_heartbeatInterval, (_) {
+      _sendHeartbeat();
+    });
+  }
+
+  void _sendHeartbeat() {
+    // Implementation depends on sync engine capabilities
+    // This is conceptual
+    try {
+      db.syncEngine?.ping();
+      _reconnectAttempts = 0; // Reset on successful ping
+    } catch (e) {
+      print('Heartbeat failed: $e');
+      _handleConnectionLoss();
+    }
+  }
+
+  void _monitorConnection() {
+    db.syncEngine?.connectionStatus.stream.listen((isConnected) {
+      if (!isConnected) {
+        _handleConnectionLoss();
+      } else {
+        _handleConnectionRestored();
+      }
+    });
+  }
+
+  void _handleConnectionLoss() {
+    if (_reconnectAttempts < _maxReconnectAttempts) {
+      Timer(_reconnectDelay * (_reconnectAttempts + 1), () {
+        _attemptReconnect();
+      });
+    } else {
+      print('Max reconnect attempts reached');
+    }
+  }
+
+  void _handleConnectionRestored() {
+    _reconnectAttempts = 0;
+    _startHeartbeat();
+  }
+
+  void _attemptReconnect() {
+    _reconnectAttempts++;
+    try {
+      db.syncEngine?.connect();
+    } catch (e) {
+      print('Reconnect attempt $_reconnectAttempts failed: $e');
+    }
+  }
+
+  void dispose() {
+    _heartbeatTimer?.cancel();
+  }
+}
+```
+
+## UI Performance
+
+### Optimized Presence Updates
+
+Throttle presence updates to avoid excessive network traffic:
+
+```dart
+class ThrottledPresenceManager {
+  final InstantRoom room;
+  Timer? _cursorTimer;
+  Timer? _typingTimer;
+  
+  static const Duration _cursorThrottle = Duration(milliseconds: 100);
+  static const Duration _typingDebounce = Duration(milliseconds: 300);
+
+  ThrottledPresenceManager(this.room);
+
+  void updateCursor(double x, double y) {
+    _cursorTimer?.cancel();
+    _cursorTimer = Timer(_cursorThrottle, () {
+      room.updateCursor(x: x, y: y);
+    });
+  }
+
+  void setTyping(bool isTyping) {
+    _typingTimer?.cancel();
+    
+    if (isTyping) {
+      room.setTyping(true);
+      _typingTimer = Timer(_typingDebounce, () {
+        room.setTyping(false);
+      });
+    } else {
+      room.setTyping(false);
+    }
+  }
+
+  void dispose() {
+    _cursorTimer?.cancel();
+    _typingTimer?.cancel();
+  }
+}
+```
+
+### Efficient Cursor Rendering
+
+Optimize cursor rendering for many users:
+
+```dart
+class OptimizedCursorLayer extends StatelessWidget {
+  final InstantRoom room;
+  final Widget child;
+  static const int _maxVisibleCursors = 10;
+
+  const OptimizedCursorLayer({
+    super.key,
+    required this.room,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        child,
+        Watch((context) {
+          final cursors = room.getCursors().value;
+          
+          // Limit visible cursors for performance
+          final visibleCursors = _getLimitedCursors(cursors);
+          
+          return RepaintBoundary(
+            child: Stack(
+              children: visibleCursors.map((entry) {
+                return Positioned(
+                  left: entry.value.x,
+                  top: entry.value.y,
+                  child: CursorWidget(
+                    key: Key(entry.key),
+                    cursor: entry.value,
+                  ),
+                );
+              }).toList(),
+            ),
+          );
+        }),
+      ],
+    );
+  }
+
+  List<MapEntry<String, dynamic>> _getLimitedCursors(
+    Map<String, dynamic> allCursors,
+  ) {
+    final entries = allCursors.entries.toList();
+    
+    // Sort by last update time
+    entries.sort((a, b) {
+      final aTime = a.value.data['lastUpdate'] ?? 0;
+      final bTime = b.value.data['lastUpdate'] ?? 0;
+      return bTime.compareTo(aTime);
+    });
+    
+    return entries.take(_maxVisibleCursors).toList();
+  }
+}
+
+class CursorWidget extends StatelessWidget {
+  final dynamic cursor;
+
+  const CursorWidget({super.key, required this.cursor});
+
+  @override
+  Widget build(BuildContext context) {
+    // Wrap in RepaintBoundary for better performance
+    return RepaintBoundary(
+      child: Container(
+        width: 20,
+        height: 20,
+        decoration: BoxDecoration(
+          color: cursor.data['color'] ?? Colors.blue,
+          shape: BoxShape.circle,
+        ),
+      ),
+    );
+  }
+}
+```
+
+## Monitoring and Analytics
+
+### Performance Monitoring
+
+Track performance metrics:
+
+```dart
+class PerformanceMonitor {
+  static final Map<String, PerformanceMetric> _metrics = {};
+
+  static void startTimer(String operation) {
+    _metrics[operation] = PerformanceMetric(
+      operation: operation,
+      startTime: DateTime.now(),
+    );
+  }
+
+  static void endTimer(String operation) {
+    final metric = _metrics[operation];
+    if (metric != null) {
+      metric.endTime = DateTime.now();
+      _logMetric(metric);
+    }
+  }
+
+  static void _logMetric(PerformanceMetric metric) {
+    final duration = metric.duration;
+    print('Performance: ${metric.operation} took ${duration.inMilliseconds}ms');
+    
+    // Send to analytics service
+    _sendToAnalytics(metric);
+  }
+
+  static void _sendToAnalytics(PerformanceMetric metric) {
+    // Implementation for your analytics service
+    // e.g., Firebase Performance, custom analytics
+  }
+
+  static Future<T> measureAsync<T>(
+    String operation,
+    Future<T> Function() action,
+  ) async {
+    startTimer(operation);
+    try {
+      return await action();
+    } finally {
+      endTimer(operation);
+    }
+  }
+
+  static T measure<T>(
+    String operation,
+    T Function() action,
+  ) {
+    startTimer(operation);
+    try {
+      return action();
+    } finally {
+      endTimer(operation);
+    }
+  }
+}
+
+class PerformanceMetric {
+  final String operation;
+  final DateTime startTime;
+  DateTime? endTime;
+
+  PerformanceMetric({
+    required this.operation,
+    required this.startTime,
+  });
+
+  Duration get duration => endTime!.difference(startTime);
+}
+
+// Usage
+class PerformanceAwareService {
+  Future<void> performExpensiveOperation() async {
+    await PerformanceMonitor.measureAsync('expensive_operation', () async {
+      // Your expensive operation here
+      await Future.delayed(const Duration(seconds: 2));
+    });
+  }
+}
+```
+
+### Memory Usage Tracking
+
+Monitor memory consumption:
+
+```dart
+class MemoryMonitor {
+  static void logMemoryUsage(String context) {
+    // Get current memory usage (implementation varies by platform)
+    final rss = _getCurrentMemoryUsage();
+    
+    print('Memory usage at $context: ${rss}MB');
+    
+    if (rss > _getMemoryThreshold()) {
+      print('WARNING: High memory usage detected');
+      _handleHighMemoryUsage();
+    }
+  }
+
+  static double _getCurrentMemoryUsage() {
+    // Implementation depends on platform
+    // This is a placeholder
+    return 0.0;
+  }
+
+  static double _getMemoryThreshold() {
+    // Define your memory threshold (e.g., 200MB)
+    return 200.0;
+  }
+
+  static void _handleHighMemoryUsage() {
+    // Clear caches, dispose unused resources, etc.
+    QueryCache.clear();
+    _forceGarbageCollection();
+  }
+
+  static void _forceGarbageCollection() {
+    // Force garbage collection if supported
+    // Implementation varies by platform
+  }
+}
+```
+
+## Best Practices
+
+### 1. Use Specific Queries
+
+Always filter data at the query level:
+
+```dart
+// ✅ Good: Filter in query
+final activeUsers = db.subscribeQuery({
+  'users': {
+    'where': {'status': 'active'},
+    'limit': 100,
+  }
+});
+
+// ❌ Avoid: Filter in UI
+final allUsers = db.subscribeQuery({'users': {}});
+// Then filtering in build method
+```
+
+### 2. Implement Proper Pagination
+
+Don't load all data at once:
+
+```dart
+// ✅ Good: Paginated loading
+void loadNextPage() {
+  final offset = currentPage * pageSize;
+  final query = {
+    'items': {
+      'limit': pageSize,
+      'offset': offset,
+    }
+  };
+}
+```
+
+### 3. Batch Related Operations
+
+Group operations for efficiency:
+
+```dart
+// ✅ Good: Batch operations
+await db.transact([
+  ...db.create('post', postData),
+  db.update(authorId, {'postCount': {'\$increment': 1}}),
+  ...db.create('notification', notificationData),
+]);
+
+// ❌ Avoid: Separate transactions
+await db.transact([...db.create('post', postData)]);
+await db.transact([db.update(authorId, {'postCount': {'\$increment': 1}})]);
+await db.transact([...db.create('notification', notificationData)]);
+```
+
+### 4. Use Keys for List Items
+
+Always provide keys for dynamic lists:
+
+```dart
+ListView.builder(
+  itemCount: items.length,
+  itemBuilder: (context, index) {
+    final item = items[index];
+    return ListTile(
+      key: Key(item['id']), // Important for performance
+      title: Text(item['title']),
+    );
+  },
+)
+```
+
+### 5. Profile and Measure
+
+Regularly profile your app:
+
+```dart
+void main() {
+  // Enable performance overlay in debug mode
+  if (kDebugMode) {
+    debugProfileBuildsEnabled = true;
+  }
+  
+  runApp(MyApp());
+}
+```
+
+## Performance Checklist
+
+Use this checklist to ensure optimal performance:
+
+- [ ] Queries use specific filters and limits
+- [ ] Large lists use ListView.builder with keys
+- [ ] Resources are properly disposed
+- [ ] Batch operations are used where possible
+- [ ] Presence updates are throttled
+- [ ] Memory usage is monitored
+- [ ] Performance metrics are tracked
+- [ ] Caching is implemented appropriately
+- [ ] UI rebuilds are minimized
+- [ ] Network requests are optimized
+
+## Next Steps
+
+Learn more about optimizing your InstantDB Flutter app:
+
+- [Troubleshooting](../troubleshooting/) - Debugging performance issues
+- [Migration Strategies](../migration/) - Upgrading performant apps
+- [Offline Functionality](../offline/) - Optimizing offline performance
+- [Real-time Sync](../../realtime/sync/) - Sync performance optimization

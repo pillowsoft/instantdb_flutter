@@ -1,0 +1,1058 @@
+---
+title: Troubleshooting
+description: Common issues and debugging techniques for InstantDB Flutter
+sidebar:
+  order: 3
+---
+
+import { Code, Tabs, TabItem } from "@astrojs/starlight/components";
+
+Debug and resolve common issues with InstantDB Flutter applications using systematic troubleshooting techniques and diagnostic tools.
+
+## Common Issues
+
+### Connection and Sync Problems
+
+#### 1. "Failed to connect to InstantDB server"
+
+**Symptoms:** App shows offline status, sync doesn't work
+
+**Causes & Solutions:**
+
+```dart
+// Check your app ID and configuration
+final db = await InstantDB.init(
+  appId: 'your-correct-app-id', // Verify this is correct
+  config: const InstantConfig(
+    syncEnabled: true,
+    // Use custom endpoint if needed
+    apiUrl: 'https://api.instantdb.com', // Default
+    websocketUrl: 'wss://api.instantdb.com/ws', // Default
+  ),
+);
+
+// Enable verbose logging to see connection details
+final db = await InstantDB.init(
+  appId: 'your-app-id',
+  config: const InstantConfig(
+    syncEnabled: true,
+    verboseLogging: true, // Enable detailed logs
+  ),
+);
+```
+
+**Debugging steps:**
+1. Check your internet connection
+2. Verify app ID is correct
+3. Check firewall/proxy settings
+4. Enable verbose logging to see detailed error messages
+
+#### 2. "Data not syncing between devices"
+
+**Symptoms:** Changes on one device don't appear on others
+
+**Common causes:**
+
+```dart
+// ❌ Problem: Different app IDs
+Device1: InstantDB.init(appId: 'app-123')
+Device2: InstantDB.init(appId: 'app-456') // Wrong!
+
+// ✅ Solution: Same app ID everywhere
+Device1: InstantDB.init(appId: 'your-app-id')
+Device2: InstantDB.init(appId: 'your-app-id')
+
+// ❌ Problem: Sync disabled
+InstantDB.init(
+  appId: 'your-app-id',
+  config: const InstantConfig(
+    syncEnabled: false, // This disables sync!
+  ),
+)
+
+// ✅ Solution: Enable sync
+InstantDB.init(
+  appId: 'your-app-id',
+  config: const InstantConfig(
+    syncEnabled: true, // Enable sync
+  ),
+)
+```
+
+#### 3. "Sync is slow or inconsistent"
+
+**Diagnostic widget:**
+
+```dart
+class SyncDiagnostics extends StatefulWidget {
+  @override
+  State<SyncDiagnostics> createState() => _SyncDiagnosticsState();
+}
+
+class _SyncDiagnosticsState extends State<SyncDiagnostics> {
+  final List<String> _syncEvents = [];
+  StreamSubscription? _connectionSubscription;
+
+  @override
+  void initState() {
+    super.initState();
+    _monitorSync();
+  }
+
+  void _monitorSync() {
+    final db = InstantProvider.of(context);
+    
+    // Monitor connection status changes
+    _connectionSubscription = db.syncEngine?.connectionStatus.stream.listen((isConnected) {
+      final event = '${DateTime.now()}: Connection ${isConnected ? 'restored' : 'lost'}';
+      setState(() {
+        _syncEvents.add(event);
+        if (_syncEvents.length > 50) {
+          _syncEvents.removeRange(0, _syncEvents.length - 50);
+        }
+      });
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final db = InstantProvider.of(context);
+    
+    return Scaffold(
+      appBar: AppBar(title: const Text('Sync Diagnostics')),
+      body: Column(
+        children: [
+          // Current status
+          Watch((context) {
+            final isConnected = db.syncEngine?.connectionStatus.value ?? false;
+            return Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              color: isConnected ? Colors.green : Colors.red,
+              child: Text(
+                'Status: ${isConnected ? 'Connected' : 'Disconnected'}',
+                style: const TextStyle(color: Colors.white, fontSize: 18),
+              ),
+            );
+          }),
+          
+          // Test sync button
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: ElevatedButton(
+              onPressed: _testSync,
+              child: const Text('Test Sync'),
+            ),
+          ),
+          
+          // Event log
+          Expanded(
+            child: ListView.builder(
+              itemCount: _syncEvents.length,
+              itemBuilder: (context, index) {
+                return ListTile(
+                  dense: true,
+                  title: Text(
+                    _syncEvents[index],
+                    style: const TextStyle(fontSize: 12, fontFamily: 'monospace'),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _testSync() async {
+    final db = InstantProvider.of(context);
+    final testId = db.id();
+    
+    setState(() {
+      _syncEvents.add('${DateTime.now()}: Testing sync with item $testId');
+    });
+    
+    try {
+      await db.transact([
+        ...db.create('sync_test', {
+          'id': testId,
+          'timestamp': DateTime.now().millisecondsSinceEpoch,
+          'test': true,
+        }),
+      ]);
+      
+      setState(() {
+        _syncEvents.add('${DateTime.now()}: Sync test transaction completed');
+      });
+    } catch (e) {
+      setState(() {
+        _syncEvents.add('${DateTime.now()}: Sync test failed: $e');
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _connectionSubscription?.cancel();
+    super.dispose();
+  }
+}
+```
+
+### Authentication Issues
+
+#### 1. "Invalid email format" error
+
+**Problem:** Email validation is too strict or has issues
+
+```dart
+// Debug email validation
+void debugEmailValidation(String email) {
+  final isValid = RegExp(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$').hasMatch(email);
+  print('Email: $email');
+  print('Valid: $isValid');
+  print('Length: ${email.length}');
+  
+  if (!isValid) {
+    if (email.contains(' ')) print('Contains spaces');
+    if (!email.contains('@')) print('Missing @ symbol');
+    if (!email.contains('.')) print('Missing domain extension');
+  }
+}
+```
+
+#### 2. Magic code/link not working
+
+**Debugging authentication flow:**
+
+```dart
+class AuthDebugScreen extends StatefulWidget {
+  @override
+  State<AuthDebugScreen> createState() => _AuthDebugScreenState();
+}
+
+class _AuthDebugScreenState extends State<AuthDebugScreen> {
+  final _emailController = TextEditingController();
+  final _codeController = TextEditingController();
+  final List<String> _debugLog = [];
+
+  void _log(String message) {
+    setState(() {
+      _debugLog.add('${DateTime.now()}: $message');
+    });
+    print(message);
+  }
+
+  Future<void> _testMagicCode() async {
+    final email = _emailController.text.trim();
+    _log('Testing magic code for: $email');
+    
+    try {
+      final db = InstantProvider.of(context);
+      
+      // Step 1: Send magic code
+      _log('Sending magic code...');
+      await db.auth.sendMagicCode(email);
+      _log('Magic code sent successfully');
+      
+    } catch (e) {
+      _log('Failed to send magic code: $e');
+      
+      if (e is InstantException) {
+        _log('Error code: ${e.code}');
+        _log('Error message: ${e.message}');
+        
+        // Specific debugging for common errors
+        if (e.code == 'invalid_email') {
+          _log('Email validation failed - check email format');
+        } else if (e.code == 'endpoint_not_found') {
+          _log('Auth endpoint not found - check app configuration');
+        }
+      }
+    }
+  }
+
+  Future<void> _testVerifyCode() async {
+    final email = _emailController.text.trim();
+    final code = _codeController.text.trim();
+    
+    _log('Verifying code: $code for email: $email');
+    
+    try {
+      final db = InstantProvider.of(context);
+      final user = await db.auth.verifyMagicCode(
+        email: email,
+        code: code,
+      );
+      
+      _log('Verification successful!');
+      _log('User ID: ${user.id}');
+      _log('User email: ${user.email}');
+      
+    } catch (e) {
+      _log('Verification failed: $e');
+      
+      if (e is InstantException) {
+        _log('Error code: ${e.code}');
+        if (e.code == 'invalid_code') {
+          _log('Code is invalid or expired');
+        }
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Auth Debug')),
+      body: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            TextField(
+              controller: _emailController,
+              decoration: const InputDecoration(labelText: 'Email'),
+            ),
+            const SizedBox(height: 16),
+            
+            ElevatedButton(
+              onPressed: _testMagicCode,
+              child: const Text('Test Send Magic Code'),
+            ),
+            const SizedBox(height: 16),
+            
+            TextField(
+              controller: _codeController,
+              decoration: const InputDecoration(labelText: 'Magic Code'),
+            ),
+            const SizedBox(height: 16),
+            
+            ElevatedButton(
+              onPressed: _testVerifyCode,
+              child: const Text('Test Verify Code'),
+            ),
+            const SizedBox(height: 24),
+            
+            // Debug log
+            Expanded(
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.grey[100],
+                  border: Border.all(color: Colors.grey),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: ListView.builder(
+                  itemCount: _debugLog.length,
+                  itemBuilder: (context, index) {
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 2),
+                      child: Text(
+                        _debugLog[index],
+                        style: const TextStyle(fontSize: 12, fontFamily: 'monospace'),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+```
+
+### Query Issues
+
+#### 1. "Query returns no results"
+
+**Debug query structure:**
+
+```dart
+class QueryDebugger {
+  static void debugQuery(InstantDB db, Map<String, dynamic> query) {
+    print('=== Query Debug ===');
+    print('Query: ${jsonEncode(query)}');
+    
+    // Test the query
+    db.queryOnce(query).then((result) {
+      print('Result: ${result.data}');
+      print('Error: ${result.error}');
+      
+      if (result.data != null) {
+        result.data!.forEach((entityType, entities) {
+          final count = (entities as List).length;
+          print('$entityType: $count items');
+        });
+      }
+    }).catchError((error) {
+      print('Query failed: $error');
+    });
+  }
+
+  static void debugEntityStructure(InstantDB db, String entityType) {
+    print('=== Entity Structure Debug ===');
+    
+    // Get a sample of entities to see structure
+    db.queryOnce({
+      entityType: {'limit': 5}
+    }).then((result) {
+      final entities = result.data?[entityType] as List? ?? [];
+      
+      if (entities.isEmpty) {
+        print('No $entityType entities found');
+        return;
+      }
+      
+      print('Sample $entityType entities:');
+      for (int i = 0; i < entities.length; i++) {
+        final entity = entities[i] as Map<String, dynamic>;
+        print('Entity $i: ${entity.keys.join(', ')}');
+        if (i == 0) {
+          // Show full structure of first entity
+          entity.forEach((key, value) {
+            print('  $key: ${value.runtimeType} = $value');
+          });
+        }
+      }
+    });
+  }
+}
+
+// Usage
+void testQuery() {
+  final query = {
+    'todos': {
+      'where': {'completed': false},
+      'orderBy': {'createdAt': 'desc'},
+    }
+  };
+  
+  QueryDebugger.debugQuery(db, query);
+  QueryDebugger.debugEntityStructure(db, 'todos');
+}
+```
+
+#### 2. "Widget not updating when data changes"
+
+**Debug reactive updates:**
+
+```dart
+class ReactivityDebugger extends StatefulWidget {
+  final Map<String, dynamic> query;
+  
+  const ReactivityDebugger({super.key, required this.query});
+
+  @override
+  State<ReactivityDebugger> createState() => _ReactivityDebuggerState();
+}
+
+class _ReactivityDebuggerState extends State<ReactivityDebugger> {
+  final List<String> _updateLog = [];
+  late Signal<QueryResult> _querySignal;
+
+  @override
+  void initState() {
+    super.initState();
+    final db = InstantProvider.of(context);
+    _querySignal = db.subscribeQuery(widget.query);
+    
+    // Monitor signal changes
+    _querySignal.toStream().listen((result) {
+      final timestamp = DateTime.now().toString();
+      setState(() {
+        _updateLog.add('$timestamp: Query updated');
+        if (_updateLog.length > 20) {
+          _updateLog.removeRange(0, _updateLog.length - 20);
+        }
+      });
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        // Current data
+        Watch((context) {
+          final result = _querySignal.value;
+          final hasData = result.data != null;
+          final hasError = result.error != null;
+          
+          return Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: hasError ? Colors.red[100] : 
+                     hasData ? Colors.green[100] : Colors.grey[100],
+              border: Border.all(color: Colors.grey),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Status: ${hasError ? 'Error' : hasData ? 'Data' : 'Loading'}'),
+                if (hasError) Text('Error: ${result.error}'),
+                if (hasData) 
+                  Text('Data keys: ${result.data!.keys.join(', ')}'),
+              ],
+            ),
+          );
+        }),
+        
+        const SizedBox(height: 16),
+        
+        // Update log
+        Text('Update Log (${_updateLog.length}):'),
+        Expanded(
+          child: ListView.builder(
+            itemCount: _updateLog.length,
+            itemBuilder: (context, index) {
+              return Text(
+                _updateLog[index],
+                style: const TextStyle(fontSize: 12, fontFamily: 'monospace'),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+}
+```
+
+## Diagnostic Tools
+
+### Logging Configuration
+
+Set up comprehensive logging:
+
+```dart
+import 'package:logging/logging.dart';
+
+void setupLogging() {
+  // Set up hierarchical logging
+  Logger.root.level = Level.ALL;
+  Logger.root.onRecord.listen((record) {
+    final timestamp = record.time.toString().substring(11, 23);
+    final level = record.level.name.padRight(7);
+    final logger = record.loggerName.padRight(20);
+    
+    print('$timestamp $level $logger ${record.message}');
+    
+    if (record.error != null) {
+      print('  Error: ${record.error}');
+    }
+    
+    if (record.stackTrace != null) {
+      print('  Stack: ${record.stackTrace}');
+    }
+  });
+}
+
+// Custom logger for InstantDB components
+class InstantDBLogger {
+  static final _logger = Logger('InstantDB');
+  
+  static void debug(String message) => _logger.fine(message);
+  static void info(String message) => _logger.info(message);
+  static void warning(String message) => _logger.warning(message);
+  static void error(String message, [Object? error, StackTrace? stackTrace]) {
+    _logger.severe(message, error, stackTrace);
+  }
+}
+```
+
+### Database Inspector
+
+Create a database inspection tool:
+
+```dart
+class DatabaseInspector extends StatefulWidget {
+  @override
+  State<DatabaseInspector> createState() => _DatabaseInspectorState();
+}
+
+class _DatabaseInspectorState extends State<DatabaseInspector> {
+  String? _selectedEntity;
+  Map<String, dynamic>? _entityData;
+
+  @override
+  Widget build(BuildContext context) {
+    final db = InstantProvider.of(context);
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Database Inspector'),
+        actions: [
+          IconButton(
+            onPressed: _exportData,
+            icon: const Icon(Icons.download),
+          ),
+        ],
+      ),
+      body: Row(
+        children: [
+          // Entity list
+          SizedBox(
+            width: 200,
+            child: _buildEntityList(db),
+          ),
+          
+          const VerticalDivider(),
+          
+          // Entity data
+          Expanded(
+            child: _selectedEntity != null 
+              ? _buildEntityData(db, _selectedEntity!)
+              : const Center(child: Text('Select an entity')),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEntityList(InstantDB db) {
+    // List of known entity types - you might want to make this configurable
+    final entityTypes = ['users', 'posts', 'comments', 'todos', 'sync_test'];
+    
+    return ListView.builder(
+      itemCount: entityTypes.length,
+      itemBuilder: (context, index) {
+        final entityType = entityTypes[index];
+        return ListTile(
+          title: Text(entityType),
+          selected: _selectedEntity == entityType,
+          onTap: () => _selectEntity(entityType),
+        );
+      },
+    );
+  }
+
+  Widget _buildEntityData(InstantDB db, String entityType) {
+    return InstantBuilder(
+      query: {entityType: {'limit': 100}},
+      builder: (context, result) {
+        if (result.error != null) {
+          return Center(child: Text('Error: ${result.error}'));
+        }
+
+        final entities = (result.data?[entityType] as List? ?? [])
+            .cast<Map<String, dynamic>>();
+
+        return Column(
+          children: [
+            // Header
+            Container(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  Text(
+                    '$entityType (${entities.length} items)',
+                    style: Theme.of(context).textTheme.headlineSmall,
+                  ),
+                  const Spacer(),
+                  ElevatedButton(
+                    onPressed: () => _addTestEntity(db, entityType),
+                    child: const Text('Add Test Item'),
+                  ),
+                ],
+              ),
+            ),
+            
+            // Data table
+            Expanded(
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: SingleChildScrollView(
+                  child: _buildDataTable(entities),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildDataTable(List<Map<String, dynamic>> entities) {
+    if (entities.isEmpty) {
+      return const Center(child: Text('No data'));
+    }
+
+    // Get all unique keys
+    final Set<String> allKeys = {};
+    for (final entity in entities) {
+      allKeys.addAll(entity.keys);
+    }
+
+    final keys = allKeys.toList()..sort();
+
+    return DataTable(
+      columns: keys.map((key) => DataColumn(label: Text(key))).toList(),
+      rows: entities.map((entity) {
+        return DataRow(
+          cells: keys.map((key) {
+            final value = entity[key];
+            return DataCell(
+              Text(
+                value?.toString() ?? '',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            );
+          }).toList(),
+        );
+      }).toList(),
+    );
+  }
+
+  void _selectEntity(String entityType) {
+    setState(() {
+      _selectedEntity = entityType;
+    });
+  }
+
+  Future<void> _addTestEntity(InstantDB db, String entityType) async {
+    final testData = {
+      'id': db.id(),
+      'test': true,
+      'createdAt': DateTime.now().millisecondsSinceEpoch,
+      'name': 'Test ${entityType.substring(0, entityType.length - 1)}',
+    };
+
+    try {
+      await db.transact([
+        ...db.create(entityType, testData),
+      ]);
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Test $entityType created')),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to create test $entityType: $e')),
+      );
+    }
+  }
+
+  void _exportData() {
+    // Export database data for debugging
+    print('Database export requested');
+    // Implementation depends on your export requirements
+  }
+}
+```
+
+## Performance Issues
+
+### Memory Leaks
+
+Detect and fix memory leaks:
+
+```dart
+class MemoryLeakDetector {
+  static final Map<String, int> _widgetCounts = {};
+  
+  static void registerWidget(String widgetName) {
+    _widgetCounts[widgetName] = (_widgetCounts[widgetName] ?? 0) + 1;
+  }
+  
+  static void unregisterWidget(String widgetName) {
+    _widgetCounts[widgetName] = (_widgetCounts[widgetName] ?? 1) - 1;
+    if (_widgetCounts[widgetName]! <= 0) {
+      _widgetCounts.remove(widgetName);
+    }
+  }
+  
+  static void printReport() {
+    print('=== Widget Memory Report ===');
+    _widgetCounts.forEach((widget, count) {
+      if (count > 10) { // Threshold for potential leaks
+        print('WARNING: $widget has $count instances (potential leak)');
+      } else {
+        print('$widget: $count instances');
+      }
+    });
+  }
+}
+
+// Use in your widgets
+class LeakAwareWidget extends StatefulWidget {
+  @override
+  State<LeakAwareWidget> createState() => _LeakAwareWidgetState();
+}
+
+class _LeakAwareWidgetState extends State<LeakAwareWidget> {
+  @override
+  void initState() {
+    super.initState();
+    MemoryLeakDetector.registerWidget('LeakAwareWidget');
+  }
+  
+  @override
+  void dispose() {
+    MemoryLeakDetector.unregisterWidget('LeakAwareWidget');
+    super.dispose();
+  }
+  
+  @override
+  Widget build(BuildContext context) {
+    return Container();
+  }
+}
+```
+
+## Error Recovery
+
+### Automatic Error Recovery
+
+Implement robust error recovery:
+
+```dart
+class ErrorRecoveryService {
+  final InstantDB db;
+  int _retryCount = 0;
+  static const int _maxRetries = 3;
+  static const Duration _retryDelay = Duration(seconds: 2);
+
+  ErrorRecoveryService(this.db);
+
+  Future<T> withRetry<T>(
+    String operation,
+    Future<T> Function() action,
+  ) async {
+    _retryCount = 0;
+    
+    while (_retryCount < _maxRetries) {
+      try {
+        final result = await action();
+        _retryCount = 0; // Reset on success
+        return result;
+      } catch (e) {
+        _retryCount++;
+        
+        print('$operation failed (attempt $_retryCount/$_maxRetries): $e');
+        
+        if (_retryCount >= _maxRetries) {
+          print('$operation failed permanently after $_maxRetries attempts');
+          rethrow;
+        }
+        
+        // Wait before retry
+        await Future.delayed(_retryDelay * _retryCount);
+        
+        // Try to recover based on error type
+        await _attemptRecovery(e);
+      }
+    }
+    
+    throw Exception('Maximum retries exceeded for $operation');
+  }
+
+  Future<void> _attemptRecovery(dynamic error) async {
+    if (error is InstantException) {
+      switch (error.code) {
+        case 'network_error':
+          // Try to reconnect
+          try {
+            await db.syncEngine?.connect();
+          } catch (_) {}
+          break;
+        case 'auth_error':
+          // Try to refresh auth
+          try {
+            await db.auth.refreshUser();
+          } catch (_) {}
+          break;
+      }
+    }
+  }
+}
+```
+
+## Best Practices for Debugging
+
+### 1. Enable Verbose Logging in Development
+
+```dart
+InstantDB.init(
+  appId: 'your-app-id',
+  config: InstantConfig(
+    syncEnabled: true,
+    verboseLogging: kDebugMode, // Only in debug mode
+  ),
+);
+```
+
+### 2. Use Structured Error Handling
+
+```dart
+Future<void> handleOperation(Future<void> Function() operation) async {
+  try {
+    await operation();
+  } on InstantException catch (e) {
+    // Handle InstantDB specific errors
+    print('InstantDB Error: ${e.code} - ${e.message}');
+    _showUserFriendlyError(e);
+  } catch (e, stackTrace) {
+    // Handle other errors
+    print('Unexpected error: $e');
+    print('Stack trace: $stackTrace');
+    _reportError(e, stackTrace);
+  }
+}
+```
+
+### 3. Create Debug Screens
+
+```dart
+class DebugScreen extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Debug Tools')),
+      body: ListView(
+        children: [
+          ListTile(
+            title: const Text('Sync Diagnostics'),
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => SyncDiagnostics()),
+            ),
+          ),
+          ListTile(
+            title: const Text('Database Inspector'),
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => DatabaseInspector()),
+            ),
+          ),
+          ListTile(
+            title: const Text('Auth Debug'),
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => AuthDebugScreen()),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+```
+
+### 4. Monitor App State
+
+```dart
+class AppStateMonitor extends StatefulWidget {
+  final Widget child;
+  
+  const AppStateMonitor({super.key, required this.child});
+
+  @override
+  State<AppStateMonitor> createState() => _AppStateMonitorState();
+}
+
+class _AppStateMonitorState extends State<AppStateMonitor>
+    with WidgetsBindingObserver {
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    print('App lifecycle state changed: $state');
+    
+    final db = InstantProvider.of(context);
+    
+    switch (state) {
+      case AppLifecycleState.paused:
+        // App is paused - might want to pause sync
+        break;
+      case AppLifecycleState.resumed:
+        // App is resumed - ensure connection is active
+        db.syncEngine?.connect();
+        break;
+      case AppLifecycleState.detached:
+        // App is being terminated
+        break;
+      default:
+        break;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return widget.child;
+  }
+}
+```
+
+## Getting Help
+
+### 1. Collect Debug Information
+
+Before asking for help, collect this information:
+
+```dart
+void collectDebugInfo() {
+  print('=== InstantDB Debug Info ===');
+  print('App ID: ${db.appId}');
+  print('Sync enabled: ${db.config.syncEnabled}');
+  print('Is authenticated: ${db.auth.isAuthenticated}');
+  print('Current user: ${db.auth.currentUser.value?.email}');
+  print('Connection status: ${db.syncEngine?.connectionStatus.value}');
+  print('Flutter version: ${Platform.version}');
+  print('Platform: ${Platform.operatingSystem}');
+}
+```
+
+### 2. Reproduce Issues
+
+Create minimal reproduction cases:
+
+```dart
+Future<void> reproduceIssue() async {
+  // Minimal code that reproduces the problem
+  final db = await InstantDB.init(appId: 'your-app-id');
+  
+  try {
+    // Steps to reproduce
+    await db.transact([...db.create('test', {'id': db.id()})]);
+  } catch (e) {
+    print('Issue reproduced: $e');
+  }
+}
+```
+
+### 3. Report Bugs
+
+Include this information when reporting bugs:
+- InstantDB Flutter version
+- Flutter/Dart version
+- Platform (iOS/Android/Web)
+- Complete error messages and stack traces
+- Steps to reproduce
+- Expected vs actual behavior
+
+## Next Steps
+
+Learn more about maintaining robust InstantDB applications:
+
+- [Migration Strategies](../migration/) - Handling app updates and migrations
+- [Performance Optimization](../performance/) - Preventing performance issues
+- [Offline Functionality](../offline/) - Debugging offline scenarios
+- [API Reference](../../api/) - Complete API documentation

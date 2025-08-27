@@ -1,0 +1,769 @@
+---
+title: Session Management
+description: Managing user sessions, tokens, and authentication persistence in InstantDB Flutter
+sidebar:
+  order: 2
+---
+
+import { Code, Tabs, TabItem } from "@astrojs/starlight/components";
+
+InstantDB Flutter provides robust session management with automatic token handling, refresh mechanisms, and secure storage. Sessions persist across app restarts and handle token expiration gracefully.
+
+## Session Lifecycle
+
+### Automatic Session Management
+
+InstantDB automatically handles session creation, persistence, and cleanup:
+
+```dart
+final db = await InstantDB.init(
+  appId: 'your-app-id',
+  config: const InstantConfig(
+    syncEnabled: true,
+    // Sessions are automatically managed
+  ),
+);
+
+// Check if user has an existing session
+final existingUser = db.auth.currentUser.value;
+if (existingUser != null) {
+  print('User already authenticated: ${existingUser.email}');
+} else {
+  print('No active session');
+}
+```
+
+### Session State Monitoring
+
+Monitor session changes in real-time:
+
+```dart
+class SessionMonitor extends StatefulWidget {
+  @override
+  State<SessionMonitor> createState() => _SessionMonitorState();
+}
+
+class _SessionMonitorState extends State<SessionMonitor> {
+  StreamSubscription<AuthUser?>? _authSubscription;
+  SessionInfo? _currentSession;
+
+  @override
+  void initState() {
+    super.initState();
+    _monitorSession();
+  }
+
+  void _monitorSession() {
+    final db = InstantProvider.of(context);
+    
+    _authSubscription = db.auth.onAuthStateChange.listen((user) {
+      setState(() {
+        if (user != null) {
+          _currentSession = SessionInfo(
+            userId: user.id,
+            email: user.email,
+            createdAt: user.createdAt,
+            lastActivity: DateTime.now(),
+            isActive: true,
+          );
+        } else {
+          _currentSession = null;
+        }
+      });
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Session Status',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 12),
+            
+            if (_currentSession != null) ...[
+              _buildSessionDetail('User ID', _currentSession!.userId),
+              _buildSessionDetail('Email', _currentSession!.email),
+              _buildSessionDetail('Created', _formatDate(_currentSession!.createdAt)),
+              _buildSessionDetail('Last Activity', _formatDate(_currentSession!.lastActivity)),
+              _buildSessionDetail('Status', _currentSession!.isActive ? 'Active' : 'Inactive'),
+            ] else ...[
+              const Text('No active session'),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSessionDetail(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 100,
+            child: Text(
+              '$label:',
+              style: const TextStyle(fontWeight: FontWeight.w500),
+            ),
+          ),
+          Expanded(child: Text(value)),
+        ],
+      ),
+    );
+  }
+
+  String _formatDate(DateTime date) {
+    return '${date.toLocal()}'.split('.')[0];
+  }
+
+  @override
+  void dispose() {
+    _authSubscription?.cancel();
+    super.dispose();
+  }
+}
+
+class SessionInfo {
+  final String userId;
+  final String email;
+  final DateTime createdAt;
+  final DateTime lastActivity;
+  final bool isActive;
+
+  SessionInfo({
+    required this.userId,
+    required this.email,
+    required this.createdAt,
+    required this.lastActivity,
+    required this.isActive,
+  });
+}
+```
+
+## Token Management
+
+### Access Token Information
+
+```dart
+class TokenManager {
+  final InstantDB db;
+
+  TokenManager(this.db);
+
+  String? get currentToken => db.auth.authToken;
+  
+  bool get hasValidToken => db.auth.isAuthenticated;
+
+  // Check if token needs refresh (if available)
+  bool get needsRefresh {
+    final user = db.auth.currentUser.value;
+    if (user?.refreshToken == null) return false;
+    
+    // Implement your token expiry logic here
+    // This is a placeholder - actual implementation depends on token format
+    return false;
+  }
+
+  Future<void> refreshTokenIfNeeded() async {
+    if (needsRefresh) {
+      try {
+        await db.auth.refreshUser();
+      } catch (e) {
+        print('Token refresh failed: $e');
+        // Handle refresh failure (e.g., redirect to login)
+      }
+    }
+  }
+}
+```
+
+### Token-based Authentication
+
+Sign in with existing tokens:
+
+```dart
+class TokenAuth extends StatefulWidget {
+  @override
+  State<TokenAuth> createState() => _TokenAuthState();
+}
+
+class _TokenAuthState extends State<TokenAuth> {
+  final _tokenController = TextEditingController();
+  bool _isLoading = false;
+  String? _errorMessage;
+
+  Future<void> _signInWithToken() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final db = InstantProvider.of(context);
+      final user = await db.auth.signInWithToken(_tokenController.text.trim());
+      
+      print('User authenticated with token: ${user.email}');
+      // Navigation handled by AuthBuilder
+    } on InstantException catch (e) {
+      setState(() {
+        _errorMessage = e.message;
+      });
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        const Text(
+          'Sign In with Token',
+          style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 16),
+        
+        TextField(
+          controller: _tokenController,
+          decoration: const InputDecoration(
+            labelText: 'Authentication Token',
+            border: OutlineInputBorder(),
+            hintText: 'Paste your token here',
+          ),
+          maxLines: 3,
+        ),
+        const SizedBox(height: 16),
+
+        if (_errorMessage != null) ...[
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.red.shade100,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(
+              _errorMessage!,
+              style: TextStyle(color: Colors.red.shade700),
+            ),
+          ),
+          const SizedBox(height: 16),
+        ],
+
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton(
+            onPressed: _isLoading ? null : _signInWithToken,
+            child: _isLoading
+                ? const CircularProgressIndicator()
+                : const Text('Sign In'),
+          ),
+        ),
+      ],
+    );
+  }
+}
+```
+
+## Session Persistence
+
+### Custom Session Storage
+
+Extend session persistence with custom storage:
+
+```dart
+import 'package:shared_preferences/shared_preferences.dart';
+
+class SessionStorage {
+  static const String _tokenKey = 'instantdb_auth_token';
+  static const String _userKey = 'instantdb_user_data';
+
+  static Future<void> saveSession(AuthUser user, String token) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_tokenKey, token);
+    await prefs.setString(_userKey, jsonEncode(user.toJson()));
+  }
+
+  static Future<SessionData?> loadSession() async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString(_tokenKey);
+    final userData = prefs.getString(_userKey);
+
+    if (token != null && userData != null) {
+      try {
+        final userJson = jsonDecode(userData) as Map<String, dynamic>;
+        final user = AuthUser.fromJson(userJson);
+        return SessionData(user: user, token: token);
+      } catch (e) {
+        print('Failed to load session: $e');
+        await clearSession();
+      }
+    }
+
+    return null;
+  }
+
+  static Future<void> clearSession() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_tokenKey);
+    await prefs.remove(_userKey);
+  }
+}
+
+class SessionData {
+  final AuthUser user;
+  final String token;
+
+  SessionData({required this.user, required this.token});
+}
+```
+
+### Session Restoration
+
+Restore sessions on app startup:
+
+```dart
+class SessionRestorationService {
+  final InstantDB db;
+
+  SessionRestorationService(this.db);
+
+  Future<bool> restoreSession() async {
+    try {
+      final sessionData = await SessionStorage.loadSession();
+      if (sessionData != null) {
+        // Verify token is still valid
+        final user = await db.auth.signInWithToken(sessionData.token);
+        print('Session restored for: ${user.email}');
+        return true;
+      }
+    } catch (e) {
+      print('Session restoration failed: $e');
+      await SessionStorage.clearSession();
+    }
+    
+    return false;
+  }
+}
+
+// Usage in main app
+class MyApp extends StatefulWidget {
+  @override
+  State<MyApp> createState() => _MyAppState();
+}
+
+class _MyAppState extends State<MyApp> {
+  bool _isRestoringSession = true;
+  late final InstantDB db;
+
+  @override
+  void initState() {
+    super.initState();
+    _initializeApp();
+  }
+
+  Future<void> _initializeApp() async {
+    // Initialize InstantDB
+    db = await InstantDB.init(
+      appId: 'your-app-id',
+      config: const InstantConfig(syncEnabled: true),
+    );
+
+    // Try to restore session
+    final sessionService = SessionRestorationService(db);
+    await sessionService.restoreSession();
+
+    setState(() {
+      _isRestoringSession = false;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isRestoringSession) {
+      return MaterialApp(
+        home: Scaffold(
+          body: Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(height: 16),
+                Text('Restoring session...'),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    return InstantProvider(
+      db: db,
+      child: MaterialApp(
+        home: AuthBuilder(
+          builder: (context, user) => user != null 
+              ? MainApp(user: user) 
+              : AuthScreen(),
+        ),
+      ),
+    );
+  }
+}
+```
+
+## Session Security
+
+### Automatic Session Timeout
+
+Implement session timeout for security:
+
+```dart
+class SessionTimeoutManager {
+  final InstantDB db;
+  final Duration timeout;
+  Timer? _timeoutTimer;
+  DateTime _lastActivity = DateTime.now();
+
+  SessionTimeoutManager({
+    required this.db,
+    this.timeout = const Duration(minutes: 30),
+  });
+
+  void startMonitoring() {
+    _resetTimer();
+  }
+
+  void recordActivity() {
+    _lastActivity = DateTime.now();
+    _resetTimer();
+  }
+
+  void _resetTimer() {
+    _timeoutTimer?.cancel();
+    _timeoutTimer = Timer(timeout, _handleTimeout);
+  }
+
+  void _handleTimeout() {
+    final timeSinceLastActivity = DateTime.now().difference(_lastActivity);
+    
+    if (timeSinceLastActivity >= timeout) {
+      // Session has timed out
+      db.auth.signOut();
+      // Show timeout dialog
+      _showTimeoutDialog();
+    } else {
+      // Reset timer for remaining time
+      final remainingTime = timeout - timeSinceLastActivity;
+      _timeoutTimer = Timer(remainingTime, _handleTimeout);
+    }
+  }
+
+  void _showTimeoutDialog() {
+    // Implementation depends on your navigation setup
+    print('Session timed out');
+  }
+
+  void dispose() {
+    _timeoutTimer?.cancel();
+  }
+}
+
+// Usage in app
+class SessionAwareWidget extends StatefulWidget {
+  final Widget child;
+
+  const SessionAwareWidget({super.key, required this.child});
+
+  @override
+  State<SessionAwareWidget> createState() => _SessionAwareWidgetState();
+}
+
+class _SessionAwareWidgetState extends State<SessionAwareWidget> {
+  SessionTimeoutManager? _timeoutManager;
+
+  @override
+  void initState() {
+    super.initState();
+    final db = InstantProvider.of(context);
+    
+    _timeoutManager = SessionTimeoutManager(db: db);
+    _timeoutManager?.startMonitoring();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: () => _timeoutManager?.recordActivity(),
+      onPanDown: (_) => _timeoutManager?.recordActivity(),
+      child: widget.child,
+    );
+  }
+
+  @override
+  void dispose() {
+    _timeoutManager?.dispose();
+    super.dispose();
+  }
+}
+```
+
+### Secure Session Data
+
+Protect sensitive session information:
+
+```dart
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+
+class SecureSessionStorage {
+  static const _storage = FlutterSecureStorage(
+    aOptions: AndroidOptions(
+      encryptedSharedPreferences: true,
+    ),
+    iOptions: IOSOptions(
+      accessibility: IOSAccessibility.first_unlock_this_device,
+    ),
+  );
+
+  static Future<void> saveToken(String token) async {
+    await _storage.write(key: 'auth_token', value: token);
+  }
+
+  static Future<String?> getToken() async {
+    return await _storage.read(key: 'auth_token');
+  }
+
+  static Future<void> saveUserData(Map<String, dynamic> userData) async {
+    await _storage.write(
+      key: 'user_data', 
+      value: jsonEncode(userData),
+    );
+  }
+
+  static Future<Map<String, dynamic>?> getUserData() async {
+    final data = await _storage.read(key: 'user_data');
+    if (data != null) {
+      return jsonDecode(data) as Map<String, dynamic>;
+    }
+    return null;
+  }
+
+  static Future<void> clearAll() async {
+    await _storage.deleteAll();
+  }
+}
+```
+
+## Session Analytics
+
+Track session metrics for insights:
+
+```dart
+class SessionAnalytics {
+  final Map<String, dynamic> _metrics = {};
+
+  void trackSessionStart(String userId) {
+    _metrics['session_start'] = DateTime.now().millisecondsSinceEpoch;
+    _metrics['user_id'] = userId;
+  }
+
+  void trackSessionEnd() {
+    final sessionStart = _metrics['session_start'] as int?;
+    if (sessionStart != null) {
+      final duration = DateTime.now().millisecondsSinceEpoch - sessionStart;
+      _metrics['session_duration'] = duration;
+    }
+    
+    _sendAnalytics();
+  }
+
+  void trackUserActivity(String action) {
+    _metrics['last_activity'] = DateTime.now().millisecondsSinceEpoch;
+    _metrics['last_action'] = action;
+  }
+
+  Future<void> _sendAnalytics() async {
+    // Send metrics to your analytics service
+    print('Session metrics: $_metrics');
+    
+    // Example: Send to Firebase Analytics, Mixpanel, etc.
+    // await FirebaseAnalytics.instance.logEvent(
+    //   name: 'session_end',
+    //   parameters: _metrics,
+    // );
+  }
+}
+
+// Integration with authentication
+class AnalyticsAwareAuth extends StatefulWidget {
+  @override
+  State<AnalyticsAwareAuth> createState() => _AnalyticsAwareAuthState();
+}
+
+class _AnalyticsAwareAuthState extends State<AnalyticsAwareAuth> {
+  final _analytics = SessionAnalytics();
+  StreamSubscription<AuthUser?>? _authSubscription;
+
+  @override
+  void initState() {
+    super.initState();
+    _monitorAuthState();
+  }
+
+  void _monitorAuthState() {
+    final db = InstantProvider.of(context);
+    
+    _authSubscription = db.auth.onAuthStateChange.listen((user) {
+      if (user != null) {
+        _analytics.trackSessionStart(user.id);
+      } else {
+        _analytics.trackSessionEnd();
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AuthBuilder(
+      builder: (context, user) {
+        if (user != null) {
+          return MainApp(user: user);
+        } else {
+          return LoginScreen();
+        }
+      },
+    );
+  }
+
+  @override
+  void dispose() {
+    _authSubscription?.cancel();
+    super.dispose();
+  }
+}
+```
+
+## Best Practices
+
+### 1. Handle Session Expiration
+
+Always handle expired sessions gracefully:
+
+```dart
+class SessionExpirationHandler {
+  static void handleExpiredSession(BuildContext context) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Text('Session Expired'),
+        content: const Text('Your session has expired. Please sign in again.'),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+              // Navigate to login
+            },
+            child: const Text('Sign In'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+```
+
+### 2. Implement Proper Cleanup
+
+Clean up sessions on sign out:
+
+```dart
+Future<void> signOutAndCleanup() async {
+  final db = InstantProvider.of(context);
+  
+  // Sign out from InstantDB
+  await db.auth.signOut();
+  
+  // Clear stored session data
+  await SessionStorage.clearSession();
+  
+  // Clear sensitive data
+  await SecureSessionStorage.clearAll();
+  
+  // Reset app state if needed
+  // Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
+}
+```
+
+### 3. Monitor Network Connectivity
+
+Handle offline sessions:
+
+```dart
+class OfflineSessionHandler {
+  static bool _isOffline = false;
+  
+  static void handleNetworkChange(bool isOnline) {
+    if (!isOnline && !_isOffline) {
+      _isOffline = true;
+      // Cache current session state
+      _cacheSessionState();
+    } else if (isOnline && _isOffline) {
+      _isOffline = false;
+      // Validate cached session
+      _validateCachedSession();
+    }
+  }
+  
+  static Future<void> _cacheSessionState() async {
+    // Implementation for caching session
+  }
+  
+  static Future<void> _validateCachedSession() async {
+    // Implementation for validating cached session
+  }
+}
+```
+
+### 4. Security Considerations
+
+Follow security best practices:
+
+```dart
+class SessionSecurity {
+  // Validate session integrity
+  static bool validateSessionIntegrity(AuthUser user, String token) {
+    // Implement your validation logic
+    return user.id.isNotEmpty && token.isNotEmpty;
+  }
+  
+  // Detect session tampering
+  static bool detectTampering(String storedHash, String currentData) {
+    // Implement tampering detection
+    return storedHash == _generateHash(currentData);
+  }
+  
+  static String _generateHash(String data) {
+    // Generate hash for data integrity
+    return data.hashCode.toString();
+  }
+}
+```
+
+## Next Steps
+
+Learn more about authentication and session features:
+
+- [User Management](../users/) - User authentication methods
+- [Permissions](../permissions/) - Role-based access control
+- [Offline Authentication](../../advanced/offline/) - Handling auth when offline
+- [Security Best Practices](../../advanced/troubleshooting/) - Advanced security considerations

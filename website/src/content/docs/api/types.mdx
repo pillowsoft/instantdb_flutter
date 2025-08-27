@@ -1,0 +1,982 @@
+---
+title: Types Reference
+description: Complete type definitions and interfaces for InstantDB Flutter
+sidebar:
+  order: 6
+---
+
+import { Code, Tabs, TabItem } from "@astrojs/starlight/components";
+
+This reference documents all the types, classes, and interfaces used in InstantDB Flutter, providing complete type information for building type-safe applications.
+
+## Core Types
+
+### `InstantDB`
+
+Main database class providing all database operations.
+
+```dart
+class InstantDB {
+  // Core properties
+  String get appId;
+  InstantConfig get config;
+  AuthManager get auth;
+  PresenceManager get presence;
+  SyncEngine? get syncEngine;
+  TransactionNamespace get tx;
+
+  // Methods
+  static Future<InstantDB> init({
+    required String appId,
+    InstantConfig config = const InstantConfig(),
+  });
+  
+  Signal<QueryResult> subscribeQuery(Map<String, dynamic> query);
+  Future<QueryResult> queryOnce(Map<String, dynamic> query);
+  Future<TransactionResult> transact(dynamic transaction);
+  
+  String id();
+  LookupRef lookup(String entityType, String attribute, dynamic value);
+  AuthUser? getAuth();
+  Signal<AuthUser?> subscribeAuth();
+  String getAnonymousUserId();
+  
+  Future<void> dispose();
+}
+```
+
+### `InstantConfig`
+
+Configuration options for database initialization.
+
+```dart
+class InstantConfig {
+  const InstantConfig({
+    this.syncEnabled = true,
+    this.verboseLogging = false,
+    this.apiUrl = 'https://api.instantdb.com',
+    this.websocketUrl = 'wss://api.instantdb.com/ws',
+  });
+
+  final bool syncEnabled;
+  final bool verboseLogging;
+  final String apiUrl;
+  final String websocketUrl;
+
+  // Methods
+  InstantConfig copyWith({
+    bool? syncEnabled,
+    bool? verboseLogging,
+    String? apiUrl,
+    String? websocketUrl,
+  });
+  
+  Map<String, dynamic> toJson();
+  factory InstantConfig.fromJson(Map<String, dynamic> json);
+}
+```
+
+### `InstantException`
+
+Exception class for InstantDB-specific errors.
+
+```dart
+class InstantException implements Exception {
+  const InstantException({
+    required this.message,
+    required this.code,
+    this.originalError,
+    this.stackTrace,
+  });
+
+  final String message;
+  final String code;
+  final dynamic originalError;
+  final StackTrace? stackTrace;
+
+  @override
+  String toString() => 'InstantException($code): $message';
+}
+```
+
+**Common error codes:**
+- `'validation_error'` - Data validation failed
+- `'network_error'` - Network connectivity issues
+- `'auth_error'` - Authentication problems
+- `'permission_denied'` - Access control violation
+- `'not_found'` - Resource not found
+- `'conflict'` - Data conflict during sync
+- `'rate_limit'` - Too many requests
+
+## Query Types
+
+### `QueryResult`
+
+Result returned by query operations.
+
+```dart
+class QueryResult {
+  const QueryResult({
+    this.data,
+    this.error,
+    this.isLoading = false,
+  });
+
+  final Map<String, dynamic>? data;
+  final String? error;
+  final bool isLoading;
+
+  bool get hasData => data != null;
+  bool get hasError => error != null;
+}
+```
+
+### `LookupRef`
+
+Reference for looking up entities by attribute instead of ID.
+
+```dart
+class LookupRef {
+  const LookupRef({
+    required this.entityType,
+    required this.attribute,
+    required this.value,
+  });
+
+  final String entityType;
+  final String attribute;
+  final dynamic value;
+
+  Map<String, dynamic> toJson();
+  factory LookupRef.fromJson(Map<String, dynamic> json);
+}
+```
+
+### Query Operators
+
+#### Comparison Operators
+
+```dart
+class ComparisonOperators {
+  static const String gt = '\$gt';           // Greater than
+  static const String gte = '\$gte';         // Greater than or equal
+  static const String lt = '\$lt';           // Less than
+  static const String lte = '\$lte';         // Less than or equal
+  static const String eq = '\$eq';           // Equal
+  static const String ne = '\$ne';           // Not equal
+}
+```
+
+#### String Operators
+
+```dart
+class StringOperators {
+  static const String like = '\$like';           // Pattern matching
+  static const String ilike = '\$ilike';         // Case-insensitive like
+  static const String startsWith = '\$startsWith'; // Starts with
+  static const String endsWith = '\$endsWith';   // Ends with
+  static const String regex = '\$regex';         // Regular expression
+}
+```
+
+#### Array Operators
+
+```dart
+class ArrayOperators {
+  static const String contains = '\$contains';       // Array contains value
+  static const String containsAny = '\$containsAny'; // Contains any of values
+  static const String size = '\$size';               // Array size
+  static const String in_ = '\$in';                  // Value in array
+  static const String nin = '\$nin';                 // Value not in array
+}
+```
+
+#### Logical Operators
+
+```dart
+class LogicalOperators {
+  static const String and = '\$and';     // Logical AND
+  static const String or = '\$or';       // Logical OR
+  static const String not = '\$not';     // Logical NOT
+}
+```
+
+## Transaction Types
+
+### `TransactionResult`
+
+Result returned by transaction operations.
+
+```dart
+class TransactionResult {
+  const TransactionResult({
+    required this.success,
+    this.error,
+    this.data,
+  });
+
+  final bool success;
+  final String? error;
+  final Map<String, dynamic>? data;
+}
+```
+
+### `Operation`
+
+Represents a single database operation.
+
+```dart
+abstract class Operation {
+  String get type;
+  String get entityType;
+  Map<String, dynamic> get data;
+  
+  Map<String, dynamic> toJson();
+}
+```
+
+#### `CreateOperation`
+
+```dart
+class CreateOperation extends Operation {
+  const CreateOperation({
+    required this.entityType,
+    required this.data,
+  });
+
+  @override
+  final String entityType;
+  
+  @override
+  final Map<String, dynamic> data;
+  
+  @override
+  String get type => 'create';
+}
+```
+
+#### `UpdateOperation`
+
+```dart
+class UpdateOperation extends Operation {
+  const UpdateOperation({
+    required this.entityId,
+    required this.data,
+  });
+
+  final String entityId;
+  
+  @override
+  final Map<String, dynamic> data;
+  
+  @override
+  String get type => 'update';
+  
+  @override
+  String get entityType => 'entity'; // Derived from entityId context
+}
+```
+
+#### `DeleteOperation`
+
+```dart
+class DeleteOperation extends Operation {
+  const DeleteOperation({
+    required this.entityId,
+  });
+
+  final String entityId;
+  
+  @override
+  Map<String, dynamic> get data => {'id': entityId};
+  
+  @override
+  String get type => 'delete';
+  
+  @override
+  String get entityType => 'entity'; // Derived from entityId context
+}
+```
+
+#### `MergeOperation`
+
+```dart
+class MergeOperation extends Operation {
+  const MergeOperation({
+    required this.entityId,
+    required this.data,
+  });
+
+  final String entityId;
+  
+  @override
+  final Map<String, dynamic> data;
+  
+  @override
+  String get type => 'merge';
+  
+  @override
+  String get entityType => 'entity';
+}
+```
+
+#### `LinkOperation`
+
+```dart
+class LinkOperation extends Operation {
+  const LinkOperation({
+    required this.fromId,
+    required this.linkName,
+    required this.toId,
+  });
+
+  final String fromId;
+  final String linkName;
+  final String toId;
+  
+  @override
+  String get type => 'link';
+  
+  @override
+  String get entityType => 'link';
+  
+  @override
+  Map<String, dynamic> get data => {
+    'from': fromId,
+    'link': linkName,
+    'to': toId,
+  };
+}
+```
+
+### `TransactionChunk`
+
+Container for fluent transaction operations.
+
+```dart
+class TransactionChunk {
+  const TransactionChunk({
+    required this.operations,
+  });
+
+  final List<Operation> operations;
+
+  TransactionChunk update(Map<String, dynamic> data);
+  TransactionChunk merge(Map<String, dynamic> data);
+  TransactionChunk link(Map<String, List<String>> links);
+  TransactionChunk unlink(Map<String, List<String>> links);
+}
+```
+
+### `TransactionNamespace`
+
+Fluent API for building transactions.
+
+```dart
+class TransactionNamespace {
+  EntityTransactionBuilder operator [](String entityType);
+}
+
+class EntityTransactionBuilder {
+  EntityOperationBuilder operator [](String entityId);
+}
+
+class EntityOperationBuilder {
+  TransactionChunk update(Map<String, dynamic> data);
+  TransactionChunk merge(Map<String, dynamic> data);
+  TransactionChunk link(Map<String, List<String>> links);
+  TransactionChunk unlink(Map<String, List<String>> links);
+}
+```
+
+## Authentication Types
+
+### `AuthUser`
+
+Represents an authenticated user.
+
+```dart
+class AuthUser {
+  const AuthUser({
+    required this.id,
+    required this.email,
+    required this.createdAt,
+    this.refreshToken,
+    this.metadata,
+  });
+
+  final String id;
+  final String email;
+  final DateTime createdAt;
+  final String? refreshToken;
+  final Map<String, dynamic>? metadata;
+
+  factory AuthUser.fromJson(Map<String, dynamic> json);
+  Map<String, dynamic> toJson();
+  
+  AuthUser copyWith({
+    String? id,
+    String? email,
+    DateTime? createdAt,
+    String? refreshToken,
+    Map<String, dynamic>? metadata,
+  });
+}
+```
+
+### `AuthManager`
+
+Manages user authentication.
+
+```dart
+class AuthManager {
+  // Properties
+  ReadonlySignal<AuthUser?> get currentUser;
+  Stream<AuthUser?> get onAuthStateChange;
+  String? get authToken;
+  bool get isAuthenticated;
+
+  // Methods
+  Future<AuthUser> signUp({
+    required String email,
+    required String password,
+    Map<String, dynamic>? metadata,
+  });
+
+  Future<AuthUser> signIn({
+    required String email,
+    required String password,
+  });
+
+  Future<AuthUser> signInWithToken(String token);
+  Future<void> signOut();
+  Future<AuthUser?> refreshUser();
+  
+  Future<AuthUser> updateUser(Map<String, dynamic> metadata);
+  Future<void> resetPassword(String email);
+  Future<void> sendMagicLink(String email);
+  Future<void> sendMagicCode(String email);
+  
+  Future<AuthUser> verifyMagicCode({
+    required String email,
+    required String code,
+  });
+}
+```
+
+## Presence Types
+
+### `PresenceManager`
+
+Manages real-time presence and collaboration.
+
+```dart
+class PresenceManager {
+  // Room management
+  InstantRoom joinRoom(
+    String roomId, {
+    Map<String, dynamic>? initialPresence,
+  });
+  
+  Future<void> leaveRoom(String roomId);
+
+  // Direct API methods
+  Future<void> setPresence(String roomId, Map<String, dynamic> presence);
+  Future<void> updateCursor(String roomId, {required double x, required double y});
+  Future<void> setTyping(String roomId, bool isTyping);
+  Future<void> sendReaction(String roomId, String reaction, {Map<String, dynamic>? metadata});
+}
+```
+
+### `InstantRoom`
+
+Room-scoped presence operations.
+
+```dart
+class InstantRoom {
+  // Properties
+  String get roomId;
+
+  // Presence
+  Future<void> setPresence(Map<String, dynamic> presence);
+  Signal<Map<String, PresenceUser>> getPresence();
+
+  // Cursors
+  Future<void> updateCursor({required double x, required double y});
+  Signal<Map<String, CursorData>> getCursors();
+
+  // Typing
+  Future<void> setTyping(bool isTyping);
+  Signal<Map<String, PresenceUser>> getTyping();
+
+  // Reactions
+  Future<void> sendReaction(String reaction, {Map<String, dynamic>? metadata});
+  Signal<List<ReactionData>> getReactions();
+
+  // Topics
+  Future<void> publishTopic(String topic, Map<String, dynamic> data);
+  Stream<Map<String, dynamic>> subscribeTopic(String topic);
+}
+```
+
+### `PresenceUser`
+
+Represents a user's presence data.
+
+```dart
+class PresenceUser {
+  const PresenceUser({
+    required this.userId,
+    required this.data,
+    required this.lastUpdated,
+  });
+
+  final String userId;
+  final Map<String, dynamic> data;
+  final DateTime lastUpdated;
+
+  factory PresenceUser.fromJson(Map<String, dynamic> json);
+  Map<String, dynamic> toJson();
+}
+```
+
+### `CursorData`
+
+Represents cursor position and metadata.
+
+```dart
+class CursorData {
+  const CursorData({
+    required this.userId,
+    required this.x,
+    required this.y,
+    required this.data,
+    required this.lastUpdated,
+  });
+
+  final String userId;
+  final double x;
+  final double y;
+  final Map<String, dynamic> data;
+  final DateTime lastUpdated;
+
+  factory CursorData.fromJson(Map<String, dynamic> json);
+  Map<String, dynamic> toJson();
+}
+```
+
+### `ReactionData`
+
+Represents a reaction sent to a room.
+
+```dart
+class ReactionData {
+  const ReactionData({
+    required this.userId,
+    required this.reaction,
+    required this.data,
+    required this.createdAt,
+  });
+
+  final String userId;
+  final String reaction;
+  final Map<String, dynamic> data;
+  final DateTime createdAt;
+
+  factory ReactionData.fromJson(Map<String, dynamic> json);
+  Map<String, dynamic> toJson();
+}
+```
+
+## Sync Types
+
+### `SyncEngine`
+
+Manages real-time synchronization.
+
+```dart
+class SyncEngine {
+  // Properties
+  Signal<bool> get connectionStatus;
+  Stream<bool> get onConnectionChange;
+
+  // Methods
+  Future<void> connect();
+  Future<void> disconnect();
+  Future<void> ping();
+}
+```
+
+### `SyncEvent`
+
+Represents sync events for debugging.
+
+```dart
+class SyncEvent {
+  const SyncEvent({
+    required this.type,
+    required this.data,
+    required this.timestamp,
+  });
+
+  final String type;
+  final Map<String, dynamic> data;
+  final DateTime timestamp;
+}
+```
+
+**Event types:**
+- `'connected'` - Connection established
+- `'disconnected'` - Connection lost
+- `'sync_started'` - Synchronization started
+- `'sync_completed'` - Synchronization finished
+- `'conflict_resolved'` - Data conflict resolved
+- `'error'` - Sync error occurred
+
+## Widget Types
+
+### Widget Builder Types
+
+```dart
+typedef WidgetBuilder = Widget Function(BuildContext context);
+
+typedef DataWidgetBuilder = Widget Function(
+  BuildContext context,
+  Map<String, dynamic>? data,
+);
+
+typedef TypedWidgetBuilder<T> = Widget Function(
+  BuildContext context,
+  T data,
+);
+
+typedef ErrorWidgetBuilder = Widget Function(
+  BuildContext context,
+  String error,
+);
+
+typedef AuthWidgetBuilder = Widget Function(
+  BuildContext context,
+  AuthUser? user,
+);
+
+typedef ConnectionStatusBuilder = Widget Function(
+  BuildContext context,
+  bool isOnline,
+);
+
+typedef PresenceWidgetBuilder = Widget Function(
+  BuildContext context,
+  Map<String, PresenceUser> presence,
+);
+```
+
+### Data Transformer Types
+
+```dart
+typedef DataTransformer<T> = T Function(Map<String, dynamic> data);
+
+typedef QueryTransformer<T> = T Function(QueryResult result);
+
+typedef PresenceTransformer<T> = T Function(Map<String, PresenceUser> presence);
+```
+
+## Schema Types
+
+### `Schema`
+
+Schema validation types (if using schema validation).
+
+```dart
+abstract class Schema {
+  bool validate(dynamic value);
+  String? getError(dynamic value);
+
+  // Factory constructors
+  static Schema string({int? minLength, int? maxLength});
+  static Schema number({num? min, num? max});
+  static Schema boolean();
+  static Schema array(Schema itemSchema);
+  static Schema object(Map<String, Schema> properties, {List<String>? required});
+  static Schema email();
+  static Schema url();
+  static Schema id();
+}
+```
+
+## Signal Types
+
+InstantDB Flutter uses the `signals_flutter` package for reactivity:
+
+```dart
+// Core signal types
+abstract class Signal<T> {
+  T get value;
+  void set value(T newValue);
+  
+  Stream<T> get stream;
+  ReadonlySignal<T> readonly();
+}
+
+abstract class ReadonlySignal<T> {
+  T get value;
+  Stream<T> get stream;
+}
+
+// Computed signals
+Signal<R> computed<R>(R Function() computation);
+
+// Signal extensions
+extension SignalExtensions<T> on Signal<T> {
+  Stream<T> toStream();
+  void dispose();
+}
+```
+
+## Utility Types
+
+### Common Type Aliases
+
+```dart
+// JSON types
+typedef JsonMap = Map<String, dynamic>;
+typedef JsonList = List<dynamic>;
+
+// Entity types
+typedef EntityId = String;
+typedef EntityType = String;
+typedef EntityData = Map<String, dynamic>;
+
+// Query types
+typedef QueryMap = Map<String, dynamic>;
+typedef WhereClause = Map<String, dynamic>;
+typedef OrderByClause = Map<String, String>;
+
+// Presence types
+typedef PresenceData = Map<String, dynamic>;
+typedef CursorPosition = ({double x, double y});
+typedef ReactionMetadata = Map<String, dynamic>;
+
+// Callback types
+typedef VoidCallback = void Function();
+typedef ErrorCallback = void Function(String error);
+typedef DataCallback = void Function(Map<String, dynamic> data);
+```
+
+### Enum Types
+
+```dart
+enum ConnectionState {
+  disconnected,
+  connecting,
+  connected,
+  reconnecting,
+}
+
+enum TransactionType {
+  create,
+  update,
+  delete,
+  merge,
+  link,
+  unlink,
+}
+
+enum QueryOperator {
+  eq,
+  ne,
+  gt,
+  gte,
+  lt,
+  lte,
+  like,
+  ilike,
+  contains,
+  in_,
+  nin,
+}
+
+enum LogLevel {
+  debug,
+  info,
+  warning,
+  error,
+}
+```
+
+## Generic Constraints
+
+Common generic constraints used throughout the API:
+
+```dart
+// Entity constraints
+class Entity {
+  String get id;
+  Map<String, dynamic> toJson();
+}
+
+// Data constraints
+T extends Map<String, dynamic>
+
+// JSON serializable
+T extends JsonSerializable
+
+// Widget constraints
+T extends Widget
+
+// Exception constraints
+T extends Exception
+```
+
+## Type Guards and Helpers
+
+Utility functions for type checking:
+
+```dart
+class TypeGuards {
+  static bool isValidEntityId(dynamic value) {
+    return value is String && value.isNotEmpty;
+  }
+
+  static bool isValidEmail(String email) {
+    return RegExp(r'^[^@]+@[^@]+\.[^@]+$').hasMatch(email);
+  }
+
+  static bool isValidUrl(String url) {
+    return Uri.tryParse(url)?.hasAbsolutePath == true;
+  }
+
+  static bool isQueryResult(dynamic value) {
+    return value is QueryResult;
+  }
+
+  static bool isAuthUser(dynamic value) {
+    return value is AuthUser;
+  }
+
+  static bool isPresenceUser(dynamic value) {
+    return value is PresenceUser;
+  }
+}
+```
+
+## Extension Types
+
+Useful extensions for working with InstantDB types:
+
+```dart
+extension QueryResultExtensions on QueryResult {
+  List<T> getEntities<T>(
+    String entityType,
+    T Function(Map<String, dynamic>) fromJson,
+  ) {
+    final entities = data?[entityType] as List? ?? [];
+    return entities.map((json) => fromJson(json as Map<String, dynamic>)).toList();
+  }
+
+  bool hasEntity(String entityType) {
+    return data?.containsKey(entityType) == true;
+  }
+
+  int getEntityCount(String entityType) {
+    return (data?[entityType] as List?)?.length ?? 0;
+  }
+}
+
+extension AuthUserExtensions on AuthUser {
+  bool hasMetadata(String key) {
+    return metadata?.containsKey(key) == true;
+  }
+
+  T? getMetadata<T>(String key) {
+    return metadata?[key] as T?;
+  }
+
+  bool get isVerified {
+    return getMetadata<bool>('verified') == true;
+  }
+}
+
+extension PresenceUserExtensions on PresenceUser {
+  bool get isOnline {
+    return data['status'] == 'online';
+  }
+
+  String get displayName {
+    return data['name'] as String? ?? 
+           data['userName'] as String? ?? 
+           'User ${userId.substring(0, 8)}';
+  }
+
+  Color? get userColor {
+    final colorString = data['color'] as String?;
+    if (colorString != null) {
+      return Color(int.parse(colorString.substring(1), radix: 16) + 0xFF000000);
+    }
+    return null;
+  }
+}
+```
+
+## Complete Type Example
+
+Here's an example showing how to use InstantDB types in a type-safe application:
+
+```dart
+class TypedTodoService {
+  final InstantDB db;
+
+  TypedTodoService(this.db);
+
+  Signal<QueryResult> getTodos(): Signal<QueryResult> {
+    return db.subscribeQuery({
+      'todos': {
+        'where': {'completed': false},
+        'orderBy': {'createdAt': 'desc'},
+      },
+    });
+  }
+
+  Future<TransactionResult> createTodo({
+    required String text,
+    bool completed = false,
+  }): Future<TransactionResult> {
+    final EntityData todoData = {
+      'id': db.id(),
+      'text': text,
+      'completed': completed,
+      'createdAt': DateTime.now().millisecondsSinceEpoch,
+    };
+
+    final List<Operation> operations = db.create('todos', todoData);
+    return db.transact(operations);
+  }
+
+  Future<TransactionResult> updateTodo(
+    EntityId todoId,
+    EntityData updates,
+  ): Future<TransactionResult> {
+    final Operation operation = db.update(todoId, updates);
+    return db.transact([operation]);
+  }
+
+  Future<TransactionResult> deleteTodo(EntityId todoId): Future<TransactionResult> {
+    final Operation operation = db.delete(todoId);
+    return db.transact([operation]);
+  }
+
+  LookupRef lookupUserByEmail(String email): LookupRef {
+    return db.lookup('users', 'email', email);
+  }
+}
+```
+
+## Next Steps
+
+Now that you understand all the types, explore the APIs:
+
+- [InstantDB Core](../instantdb/) - Main database class usage
+- [Transactions API](../transactions/) - Working with operations and transactions
+- [Queries API](../queries/) - Advanced querying with type safety
+- [Presence API](../presence-api/) - Real-time collaboration types
+- [Flutter Widgets](../widgets/) - Type-safe reactive widgets

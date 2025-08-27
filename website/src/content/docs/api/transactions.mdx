@@ -1,0 +1,826 @@
+---
+title: Transactions API
+description: Complete API reference for InstantDB transactions and operations
+sidebar:
+  order: 2
+---
+
+import { Code, Tabs, TabItem } from "@astrojs/starlight/components";
+
+InstantDB transactions provide atomic operations for creating, updating, and deleting data. All mutations in InstantDB happen within transactions to ensure data consistency and enable optimistic updates.
+
+## Core Concepts
+
+### Transaction Atomicity
+
+All operations within a transaction are applied atomically - either all succeed or all fail:
+
+```dart
+await db.transact([
+  ...db.create('user', userData),
+  ...db.create('profile', profileData),
+  db.update(settingsId, newSettings),
+]);
+// All operations succeed together or all fail
+```
+
+### Optimistic Updates
+
+InstantDB applies transactions optimistically - changes appear immediately in the UI, with automatic rollback if the server rejects the transaction:
+
+```dart
+// UI updates immediately, sync happens in background
+await db.transact([
+  db.update(postId, {'likes': {'$increment': 1}}),
+]);
+```
+
+## Transaction Methods
+
+### `transact()`
+
+Execute a transaction with operations or transaction chunks.
+
+```dart
+Future<TransactionResult> transact(dynamic transaction)
+```
+
+**Parameters:**
+- `transaction`: Either `List<Operation>` or `TransactionChunk`
+
+**Returns:** `Future<TransactionResult>`
+
+<Tabs>
+  <TabItem label="List Operations">
+    ```dart
+    await db.transact([
+      ...db.create('posts', {
+        'id': db.id(),
+        'title': 'Hello World',
+        'content': 'My first post',
+      }),
+      db.update(userId, {'postCount': {'$increment': 1}}),
+    ]);
+    ```
+  </TabItem>
+  <TabItem label="Transaction Chunk">
+    ```dart
+    await db.transact(
+      db.tx['posts'][postId].update({
+        'title': 'Updated Title',
+        'updatedAt': DateTime.now().millisecondsSinceEpoch,
+      })
+    );
+    ```
+  </TabItem>
+</Tabs>
+
+### `TransactionResult`
+
+Result object returned by transaction operations.
+
+```dart
+class TransactionResult {
+  final bool success;
+  final String? error;
+  final Map<String, dynamic>? data;
+}
+```
+
+**Properties:**
+- `success` (`bool`): Whether the transaction succeeded
+- `error` (`String?`): Error message if transaction failed
+- `data` (`Map<String, dynamic>?`): Additional result data
+
+## Operation Types
+
+### Create Operations
+
+#### `create()`
+
+Create a new entity.
+
+```dart
+List<Operation> create(String entityType, Map<String, dynamic> data)
+```
+
+**Parameters:**
+- `entityType` (`String`): Type of entity to create
+- `data` (`Map<String, dynamic>`): Entity data (must include `id`)
+
+**Returns:** `List<Operation>` - List containing the create operation
+
+**Examples:**
+
+```dart
+// Basic create
+await db.transact([
+  ...db.create('todos', {
+    'id': db.id(),
+    'text': 'Learn InstantDB',
+    'completed': false,
+    'createdAt': DateTime.now().millisecondsSinceEpoch,
+  }),
+]);
+
+// Create with relationships
+await db.transact([
+  ...db.create('posts', {
+    'id': db.id(),
+    'title': 'My Post',
+    'authorId': userId,
+    'tags': ['flutter', 'database'],
+  }),
+]);
+
+// Create multiple entities
+final postId = db.id();
+final commentId = db.id();
+
+await db.transact([
+  ...db.create('posts', {
+    'id': postId,
+    'title': 'Hello World',
+    'content': 'First post!',
+  }),
+  ...db.create('comments', {
+    'id': commentId,
+    'postId': postId,
+    'text': 'Great post!',
+    'authorId': userId,
+  }),
+]);
+```
+
+### Update Operations
+
+#### `update()`
+
+Update an existing entity.
+
+```dart
+Operation update(String entityId, Map<String, dynamic> data)
+```
+
+**Parameters:**
+- `entityId` (`String`): ID of entity to update
+- `data` (`Map<String, dynamic>`): Data to update
+
+**Returns:** `Operation` - The update operation
+
+**Examples:**
+
+```dart
+// Basic update
+await db.transact([
+  db.update(todoId, {
+    'completed': true,
+    'updatedAt': DateTime.now().millisecondsSinceEpoch,
+  }),
+]);
+
+// Partial update
+await db.transact([
+  db.update(postId, {
+    'title': 'Updated Title', // Only updates title
+  }),
+]);
+
+// Update with increment
+await db.transact([
+  db.update(postId, {
+    'viewCount': {'$increment': 1},
+    'likes': {'$increment': 5},
+  }),
+]);
+
+// Update arrays
+await db.transact([
+  db.update(postId, {
+    'tags': {'$push': 'new-tag'},
+    'categories': {'$addToSet': 'programming'}, // Only adds if not exists
+  }),
+]);
+```
+
+#### `merge()`
+
+Deep merge data into an entity.
+
+```dart
+Operation merge(String entityId, Map<String, dynamic> data)
+```
+
+**Parameters:**
+- `entityId` (`String`): ID of entity to merge into
+- `data` (`Map<String, dynamic>`): Data to deep merge
+
+**Returns:** `Operation` - The merge operation
+
+**Examples:**
+
+```dart
+// Deep merge nested objects
+await db.transact([
+  db.merge(userId, {
+    'preferences': {
+      'theme': 'dark',        // Updates theme
+      'notifications': {      // Merges with existing notifications
+        'email': false,       // Updates email setting
+        'push': true,         // Updates push setting
+      },
+    },
+    'profile': {
+      'bio': 'Updated bio',   // Updates bio in profile
+    },
+  }),
+]);
+
+// Original data:
+// {
+//   'preferences': {
+//     'theme': 'light',
+//     'notifications': {'email': true, 'sms': true},
+//     'language': 'en'
+//   },
+//   'profile': {'bio': 'Old bio', 'avatar': 'avatar.png'}
+// }
+//
+// After merge:
+// {
+//   'preferences': {
+//     'theme': 'dark',      // ← Updated
+//     'notifications': {'email': false, 'sms': true, 'push': true}, // ← Merged
+//     'language': 'en'      // ← Preserved
+//   },
+//   'profile': {'bio': 'Updated bio', 'avatar': 'avatar.png'} // ← Merged
+// }
+```
+
+### Delete Operations
+
+#### `delete()`
+
+Delete an entity.
+
+```dart
+Operation delete(String entityId)
+```
+
+**Parameters:**
+- `entityId` (`String`): ID of entity to delete
+
+**Returns:** `Operation` - The delete operation
+
+**Examples:**
+
+```dart
+// Delete single entity
+await db.transact([
+  db.delete(todoId),
+]);
+
+// Delete multiple entities
+await db.transact([
+  db.delete(postId),
+  db.delete(commentId),
+  db.delete(tagId),
+]);
+
+// Conditional delete with cleanup
+final post = await db.queryOnce({'posts': {'where': {'id': postId}}});
+if (post.data?['posts']?.isNotEmpty == true) {
+  final postData = post.data!['posts'][0] as Map<String, dynamic>;
+  
+  await db.transact([
+    db.delete(postId),
+    // Update author's post count
+    db.update(postData['authorId'], {
+      'postCount': {'$increment': -1},
+    }),
+  ]);
+}
+```
+
+### Relationship Operations
+
+#### `link()`
+
+Create a relationship between entities.
+
+```dart
+Operation link(String fromId, String linkName, String toId)
+```
+
+**Parameters:**
+- `fromId` (`String`): Source entity ID
+- `linkName` (`String`): Name of the relationship
+- `toId` (`String`): Target entity ID
+
+**Returns:** `Operation` - The link operation
+
+#### `unlink()`
+
+Remove a relationship between entities.
+
+```dart
+Operation unlink(String fromId, String linkName, String toId)
+```
+
+**Parameters:**
+- `fromId` (`String`): Source entity ID
+- `linkName` (`String`): Name of the relationship
+- `toId` (`String`): Target entity ID
+
+**Returns:** `Operation` - The unlink operation
+
+**Examples:**
+
+```dart
+// Link user to post
+await db.transact([
+  db.link(userId, 'posts', postId),
+]);
+
+// Link post to multiple tags
+await db.transact([
+  db.link(postId, 'tags', tag1Id),
+  db.link(postId, 'tags', tag2Id),
+  db.link(postId, 'tags', tag3Id),
+]);
+
+// Unlink relationship
+await db.transact([
+  db.unlink(userId, 'posts', postId),
+]);
+
+// Replace links (unlink old, link new)
+await db.transact([
+  db.unlink(postId, 'category', oldCategoryId),
+  db.link(postId, 'category', newCategoryId),
+]);
+```
+
+## New Transaction API (tx namespace)
+
+### `TransactionNamespace`
+
+The new fluent transaction API provides a more intuitive way to build complex operations.
+
+```dart
+TransactionNamespace get tx
+```
+
+**Access pattern:**
+```dart
+db.tx[entityType][entityId].method(data)
+```
+
+### Fluent Operations
+
+#### `update()`
+
+```dart
+TransactionChunk update(Map<String, dynamic> data)
+```
+
+**Example:**
+```dart
+await db.transact(
+  db.tx['users'][userId].update({
+    'name': 'New Name',
+    'updatedAt': DateTime.now().millisecondsSinceEpoch,
+  })
+);
+```
+
+#### `merge()`
+
+```dart
+TransactionChunk merge(Map<String, dynamic> data)
+```
+
+**Example:**
+```dart
+await db.transact(
+  db.tx['users'][userId].merge({
+    'preferences': {
+      'theme': 'dark',
+      'notifications': {'email': false},
+    },
+  })
+);
+```
+
+#### `link()`
+
+```dart
+TransactionChunk link(Map<String, List<String>> links)
+```
+
+**Example:**
+```dart
+await db.transact(
+  db.tx['users'][userId].link({
+    'posts': [postId1, postId2],
+    'groups': [groupId],
+  })
+);
+```
+
+#### `unlink()`
+
+```dart
+TransactionChunk unlink(Map<String, List<String>> links)
+```
+
+**Example:**
+```dart
+await db.transact(
+  db.tx['users'][userId].unlink({
+    'posts': [oldPostId],
+  })
+);
+```
+
+### Chaining Operations
+
+Chain multiple operations on the same entity:
+
+```dart
+await db.transact(
+  db.tx['users'][userId]
+    .update({'name': 'New Name'})
+    .merge({'preferences': {'theme': 'dark'}})
+    .link({'groups': [groupId]})
+);
+```
+
+### Complex Transaction Examples
+
+```dart
+// Blog post creation with full relationships
+final postId = db.id();
+final authorId = db.auth.currentUser.value!.id;
+
+await db.transact(
+  db.tx['users'][authorId]
+    .update({'postCount': {'$increment': 1}})
+    .link({'posts': [postId]})
+);
+
+await db.transact([
+  ...db.create('posts', {
+    'id': postId,
+    'title': 'My New Post',
+    'content': 'Post content here...',
+    'authorId': authorId,
+    'publishedAt': DateTime.now().millisecondsSinceEpoch,
+  }),
+]);
+
+// User profile update with multiple relationships
+await db.transact(
+  db.tx['users'][userId]
+    .merge({
+      'profile': {
+        'bio': 'Updated bio',
+        'website': 'https://example.com',
+      },
+      'preferences': {
+        'emailNotifications': true,
+      },
+    })
+    .link({
+      'followers': [followerId1, followerId2],
+      'interests': [interestId1, interestId2],
+    })
+    .unlink({
+      'blockedUsers': [unblockedUserId],
+    })
+);
+```
+
+## Advanced Operations
+
+### Conditional Updates
+
+Update entities only if they meet certain conditions:
+
+```dart
+// Check condition first
+final result = await db.queryOnce({
+  'posts': {'where': {'id': postId}},
+});
+
+final posts = result.data?['posts'] as List?;
+if (posts?.isNotEmpty == true) {
+  final post = posts!.first as Map<String, dynamic>;
+  
+  // Only update if not already published
+  if (post['status'] != 'published') {
+    await db.transact([
+      db.update(postId, {
+        'status': 'published',
+        'publishedAt': DateTime.now().millisecondsSinceEpoch,
+      }),
+    ]);
+  }
+}
+```
+
+### Batch Operations
+
+Process large numbers of operations efficiently:
+
+```dart
+class BatchProcessor {
+  final InstantDB db;
+  static const int batchSize = 50;
+
+  BatchProcessor(this.db);
+
+  Future<void> processBatch(List<Operation> operations) async {
+    for (int i = 0; i < operations.length; i += batchSize) {
+      final batch = operations.skip(i).take(batchSize).toList();
+      
+      try {
+        await db.transact(batch);
+        print('Processed batch ${(i / batchSize).floor() + 1}');
+      } catch (e) {
+        print('Batch ${(i / batchSize).floor() + 1} failed: $e');
+        rethrow;
+      }
+      
+      // Small delay to avoid overwhelming the system
+      await Future.delayed(const Duration(milliseconds: 100));
+    }
+  }
+}
+
+// Usage
+final processor = BatchProcessor(db);
+final operations = <Operation>[];
+
+// Add many operations
+for (int i = 0; i < 500; i++) {
+  operations.addAll(db.create('items', {
+    'id': db.id(),
+    'name': 'Item $i',
+    'value': i,
+  }));
+}
+
+await processor.processBatch(operations);
+```
+
+### Transaction Validation
+
+Validate data before transactions:
+
+```dart
+class TransactionValidator {
+  static void validateTodo(Map<String, dynamic> data) {
+    if (!data.containsKey('text') || data['text']?.toString().trim().isEmpty) {
+      throw InstantException(
+        message: 'Todo text is required',
+        code: 'validation_error',
+      );
+    }
+    
+    if (data['text'].toString().length > 1000) {
+      throw InstantException(
+        message: 'Todo text too long (max 1000 characters)',
+        code: 'validation_error',
+      );
+    }
+  }
+
+  static void validateUser(Map<String, dynamic> data) {
+    if (data.containsKey('email')) {
+      final email = data['email']?.toString() ?? '';
+      if (!RegExp(r'^[^@]+@[^@]+\.[^@]+$').hasMatch(email)) {
+        throw InstantException(
+          message: 'Invalid email format',
+          code: 'validation_error',
+        );
+      }
+    }
+  }
+}
+
+// Usage
+Future<void> createTodoSafely(String text) async {
+  final todoData = {
+    'id': db.id(),
+    'text': text,
+    'completed': false,
+    'createdAt': DateTime.now().millisecondsSinceEpoch,
+  };
+
+  try {
+    TransactionValidator.validateTodo(todoData);
+    
+    await db.transact([
+      ...db.create('todos', todoData),
+    ]);
+  } on InstantException catch (e) {
+    if (e.code == 'validation_error') {
+      // Handle validation error
+      showError('Validation Error: ${e.message}');
+    } else {
+      rethrow;
+    }
+  }
+}
+```
+
+## Update Operators
+
+InstantDB supports various update operators for advanced data manipulation:
+
+### Numeric Operations
+
+```dart
+await db.transact([
+  db.update(entityId, {
+    'count': {'$increment': 5},      // Add 5 to count
+    'score': {'$decrement': 1},      // Subtract 1 from score
+    'total': {'$multiply': 2},       // Multiply total by 2
+    'average': {'$divide': 3},       // Divide average by 3
+    'max': {'$max': 100},           // Set to max of current and 100
+    'min': {'$min': 10},            // Set to min of current and 10
+  }),
+]);
+```
+
+### Array Operations
+
+```dart
+await db.transact([
+  db.update(entityId, {
+    'tags': {'$push': 'new-tag'},                    // Add item to array
+    'items': {'$push': ['item1', 'item2']},          // Add multiple items
+    'categories': {'$addToSet': 'unique-item'},      // Add only if not exists
+    'oldTags': {'$pull': 'remove-tag'},             // Remove specific item
+    'numbers': {'$pullAll': [1, 2, 3]},             // Remove multiple items
+    'list': {'$pop': 1},                            // Remove last item (1) or first (-1)
+  }),
+]);
+```
+
+### String Operations
+
+```dart
+await db.transact([
+  db.update(entityId, {
+    'title': {'$concat': ' - Updated'},              // Append string
+    'slug': {'$toLowerCase': true},                  // Convert to lowercase
+    'name': {'$toUpperCase': true},                  // Convert to uppercase
+    'text': {'$trim': true},                         // Trim whitespace
+  }),
+]);
+```
+
+### Date Operations
+
+```dart
+await db.transact([
+  db.update(entityId, {
+    'updatedAt': {'$currentDate': true},             // Set to current timestamp
+    'expiresAt': {'$addDays': 30},                   // Add 30 days
+    'startDate': {'$subtractHours': 2},              // Subtract 2 hours
+  }),
+]);
+```
+
+## Error Handling
+
+Handle transaction errors appropriately:
+
+```dart
+Future<void> safeTransaction(List<Operation> operations) async {
+  try {
+    final result = await db.transact(operations);
+    
+    if (!result.success) {
+      print('Transaction failed: ${result.error}');
+      return;
+    }
+    
+    print('Transaction completed successfully');
+  } on InstantException catch (e) {
+    switch (e.code) {
+      case 'validation_error':
+        print('Validation failed: ${e.message}');
+        // Show user-friendly validation error
+        break;
+      case 'network_error':
+        print('Network error: ${e.message}');
+        // Retry or show offline message
+        break;
+      case 'auth_error':
+        print('Authentication error: ${e.message}');
+        // Redirect to login
+        break;
+      case 'permission_denied':
+        print('Permission denied: ${e.message}');
+        // Show access denied message
+        break;
+      default:
+        print('Unknown error: ${e.message}');
+        // Generic error handling
+    }
+  } catch (e) {
+    print('Unexpected error: $e');
+    // Handle unexpected errors
+  }
+}
+```
+
+## Best Practices
+
+### 1. Use Appropriate IDs
+
+Always use `db.id()` for entity IDs:
+
+```dart
+// ✅ Good: Use generated UUIDs
+await db.transact([
+  ...db.create('posts', {
+    'id': db.id(),           // Proper UUID
+    'title': 'My Post',
+  }),
+]);
+
+// ❌ Avoid: Custom string IDs
+await db.transact([
+  ...db.create('posts', {
+    'id': 'my-custom-id',    // May cause server errors
+    'title': 'My Post',
+  }),
+]);
+```
+
+### 2. Group Related Operations
+
+Batch related operations in single transactions:
+
+```dart
+// ✅ Good: Atomic operation
+await db.transact([
+  ...db.create('order', orderData),
+  db.update(productId, {'stock': {'$decrement': 1}}),
+  db.update(userId, {'orderCount': {'$increment': 1}}),
+]);
+
+// ❌ Avoid: Separate transactions
+await db.transact([...db.create('order', orderData)]);
+await db.transact([db.update(productId, {'stock': {'$decrement': 1}})]);
+await db.transact([db.update(userId, {'orderCount': {'$increment': 1}})]);
+```
+
+### 3. Validate Before Transacting
+
+Always validate data before sending to the server:
+
+```dart
+// Validate data structure and constraints
+void validateBeforeCreate(Map<String, dynamic> data) {
+  if (!data.containsKey('id')) {
+    throw ArgumentError('Entity must have an ID');
+  }
+  
+  if (data['id'] == null || data['id'].toString().isEmpty) {
+    throw ArgumentError('ID cannot be empty');
+  }
+}
+```
+
+### 4. Handle Optimistic Update Failures
+
+Be prepared for optimistic updates to fail:
+
+```dart
+Future<void> optimisticUpdate(String entityId, Map<String, dynamic> data) async {
+  try {
+    await db.transact([db.update(entityId, data)]);
+  } catch (e) {
+    // Update failed - UI will automatically revert
+    print('Optimistic update failed: $e');
+    
+    // Optionally show user feedback
+    showSnackBar('Update failed, please try again');
+  }
+}
+```
+
+## Next Steps
+
+Explore related APIs:
+
+- [InstantDB Core](../instantdb/) - Main database class and methods
+- [Queries API](../queries/) - Advanced querying capabilities
+- [Presence API](../presence-api/) - Real-time collaboration
+- [Flutter Widgets](../widgets/) - Reactive UI components
+- [Types Reference](../types/) - Complete type definitions

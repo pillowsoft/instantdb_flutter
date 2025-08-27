@@ -1,0 +1,834 @@
+---
+title: Presence API
+description: Complete API reference for InstantDB presence and real-time collaboration
+sidebar:
+  order: 4
+---
+
+import { Code, Tabs, TabItem } from "@astrojs/starlight/components";
+
+The Presence API enables real-time collaboration features like cursors, typing indicators, reactions, and user awareness. It provides both room-based and direct APIs for building collaborative applications.
+
+## PresenceManager
+
+The main entry point for presence functionality, accessed via `db.presence`.
+
+### `joinRoom()`
+
+Join a presence room and get a scoped API for room operations.
+
+```dart
+InstantRoom joinRoom(
+  String roomId, {
+  Map<String, dynamic>? initialPresence,
+})
+```
+
+**Parameters:**
+- `roomId` (`String`): Unique identifier for the room
+- `initialPresence` (`Map<String, dynamic>?`): Initial presence data
+
+**Returns:** `InstantRoom` - Room instance with scoped operations
+
+**Example:**
+```dart
+final room = db.presence.joinRoom('editor-room', initialPresence: {
+  'userName': 'Alice',
+  'status': 'online',
+  'color': '#ff6b6b',
+});
+```
+
+### `leaveRoom()`
+
+Leave a presence room and clean up resources.
+
+```dart
+Future<void> leaveRoom(String roomId)
+```
+
+**Parameters:**
+- `roomId` (`String`): Room ID to leave
+
+**Example:**
+```dart
+await db.presence.leaveRoom('editor-room');
+```
+
+### Direct Presence Methods
+
+For simple use cases, you can use direct methods without joining a room:
+
+#### `setPresence()`
+
+```dart
+Future<void> setPresence(String roomId, Map<String, dynamic> presence)
+```
+
+#### `updateCursor()`
+
+```dart
+Future<void> updateCursor(String roomId, {required double x, required double y})
+```
+
+#### `setTyping()`
+
+```dart
+Future<void> setTyping(String roomId, bool isTyping)
+```
+
+#### `sendReaction()`
+
+```dart
+Future<void> sendReaction(String roomId, String reaction, {Map<String, dynamic>? metadata})
+```
+
+## InstantRoom
+
+Room-scoped presence API providing isolated operations for a specific collaboration space.
+
+### Presence Operations
+
+#### `setPresence()`
+
+Update user presence data in the room.
+
+```dart
+Future<void> setPresence(Map<String, dynamic> presence)
+```
+
+**Parameters:**
+- `presence` (`Map<String, dynamic>`): Presence data to set
+
+**Example:**
+```dart
+await room.setPresence({
+  'status': 'editing',
+  'currentDocument': documentId,
+  'mood': '😊',
+  'tool': 'text-editor',
+});
+```
+
+#### `getPresence()`
+
+Get a reactive signal of all user presence data in the room.
+
+```dart
+Signal<Map<String, PresenceUser>> getPresence()
+```
+
+**Returns:** `Signal<Map<String, PresenceUser>>` - Map of user ID to presence data
+
+**Example:**
+```dart
+Watch((context) {
+  final presence = room.getPresence().value;
+  final onlineCount = presence.values.where((user) => 
+    user.data['status'] == 'online'
+  ).length;
+  
+  return Text('$onlineCount users online');
+});
+```
+
+### Cursor Operations
+
+#### `updateCursor()`
+
+Update cursor position in the room.
+
+```dart
+Future<void> updateCursor({required double x, required double y})
+```
+
+**Parameters:**
+- `x` (`double`): X coordinate
+- `y` (`double`): Y coordinate
+
+**Example:**
+```dart
+void _onMouseMove(PointerEvent event) {
+  room.updateCursor(
+    x: event.localPosition.dx,
+    y: event.localPosition.dy,
+  );
+}
+```
+
+#### `getCursors()`
+
+Get a reactive signal of all cursor positions in the room.
+
+```dart
+Signal<Map<String, CursorData>> getCursors()
+```
+
+**Returns:** `Signal<Map<String, CursorData>>` - Map of user ID to cursor data
+
+**Example:**
+```dart
+Watch((context) {
+  final cursors = room.getCursors().value;
+  
+  return Stack(
+    children: cursors.entries.map((entry) {
+      final cursor = entry.value;
+      return Positioned(
+        left: cursor.x,
+        top: cursor.y,
+        child: CursorWidget(
+          userName: cursor.data['userName'] ?? 'Unknown',
+          color: cursor.data['color'] ?? Colors.blue,
+        ),
+      );
+    }).toList(),
+  );
+});
+```
+
+### Typing Operations
+
+#### `setTyping()`
+
+Set typing indicator status.
+
+```dart
+Future<void> setTyping(bool isTyping)
+```
+
+**Parameters:**
+- `isTyping` (`bool`): Whether user is currently typing
+
+**Example:**
+```dart
+final _textController = TextEditingController();
+Timer? _typingTimer;
+
+void _onTextChanged(String text) {
+  // Set typing to true
+  room.setTyping(true);
+  
+  // Clear typing after delay
+  _typingTimer?.cancel();
+  _typingTimer = Timer(const Duration(seconds: 2), () {
+    room.setTyping(false);
+  });
+}
+```
+
+#### `getTyping()`
+
+Get a reactive signal of users currently typing.
+
+```dart
+Signal<Map<String, PresenceUser>> getTyping()
+```
+
+**Returns:** `Signal<Map<String, PresenceUser>>` - Map of typing users
+
+**Example:**
+```dart
+Watch((context) {
+  final typing = room.getTyping().value;
+  
+  if (typing.isEmpty) {
+    return const SizedBox.shrink();
+  }
+  
+  final typingUsers = typing.values
+      .map((user) => user.data['userName'] as String? ?? 'Someone')
+      .toList();
+  
+  String message;
+  if (typingUsers.length == 1) {
+    message = '${typingUsers.first} is typing...';
+  } else {
+    message = '${typingUsers.length} people are typing...';
+  }
+  
+  return Text(message);
+});
+```
+
+### Reaction Operations
+
+#### `sendReaction()`
+
+Send a reaction to the room.
+
+```dart
+Future<void> sendReaction(
+  String reaction, {
+  Map<String, dynamic>? metadata,
+})
+```
+
+**Parameters:**
+- `reaction` (`String`): Reaction emoji or identifier
+- `metadata` (`Map<String, dynamic>?`): Additional reaction data
+
+**Example:**
+```dart
+void _onDoubleTap(TapDownDetails details) {
+  room.sendReaction('❤️', metadata: {
+    'x': details.localPosition.dx,
+    'y': details.localPosition.dy,
+    'message': 'Great idea!',
+    'timestamp': DateTime.now().millisecondsSinceEpoch,
+  });
+}
+```
+
+#### `getReactions()`
+
+Get a reactive signal of recent reactions.
+
+```dart
+Signal<List<ReactionData>> getReactions()
+```
+
+**Returns:** `Signal<List<ReactionData>>` - List of recent reactions
+
+**Example:**
+```dart
+Watch((context) {
+  final reactions = room.getReactions().value;
+  
+  return Stack(
+    children: reactions.map((reaction) {
+      final metadata = reaction.data['metadata'] as Map<String, dynamic>?;
+      final x = metadata?['x']?.toDouble() ?? 0.0;
+      final y = metadata?['y']?.toDouble() ?? 0.0;
+      
+      return Positioned(
+        left: x,
+        top: y,
+        child: AnimatedReaction(
+          emoji: reaction.data['reaction'] as String? ?? '❤️',
+          onComplete: () {
+            // Reaction animation completed
+          },
+        ),
+      );
+    }).toList(),
+  );
+});
+```
+
+## Topic-Based Messaging
+
+Rooms support topic-based messaging for structured communication.
+
+### `publishTopic()`
+
+Publish a message to a specific topic within the room.
+
+```dart
+Future<void> publishTopic(String topic, Map<String, dynamic> data)
+```
+
+**Parameters:**
+- `topic` (`String`): Topic name
+- `data` (`Map<String, dynamic>`): Message data
+
+**Example:**
+```dart
+await room.publishTopic('chat', {
+  'message': 'Hello everyone!',
+  'userName': 'Alice',
+  'timestamp': DateTime.now().millisecondsSinceEpoch,
+});
+
+await room.publishTopic('document-changes', {
+  'type': 'text-insert',
+  'position': 42,
+  'text': 'Hello',
+  'userId': currentUserId,
+});
+```
+
+### `subscribeTopic()`
+
+Subscribe to messages on a specific topic.
+
+```dart
+Stream<Map<String, dynamic>> subscribeTopic(String topic)
+```
+
+**Parameters:**
+- `topic` (`String`): Topic name to subscribe to
+
+**Returns:** `Stream<Map<String, dynamic>>` - Stream of messages
+
+**Example:**
+```dart
+class ChatRoomWidget extends StatefulWidget {
+  final InstantRoom room;
+  
+  const ChatRoomWidget({super.key, required this.room});
+  
+  @override
+  State<ChatRoomWidget> createState() => _ChatRoomWidgetState();
+}
+
+class _ChatRoomWidgetState extends State<ChatRoomWidget> {
+  final List<ChatMessage> _messages = [];
+  StreamSubscription? _chatSubscription;
+  
+  @override
+  void initState() {
+    super.initState();
+    
+    // Subscribe to chat messages
+    _chatSubscription = widget.room.subscribeTopic('chat').listen((data) {
+      final message = ChatMessage.fromJson(data);
+      setState(() {
+        _messages.add(message);
+      });
+    });
+  }
+  
+  @override
+  void dispose() {
+    _chatSubscription?.cancel();
+    super.dispose();
+  }
+  
+  void _sendMessage(String text) {
+    widget.room.publishTopic('chat', {
+      'message': text,
+      'userName': 'Current User',
+      'timestamp': DateTime.now().millisecondsSinceEpoch,
+    });
+  }
+  
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Expanded(
+          child: ListView.builder(
+            itemCount: _messages.length,
+            itemBuilder: (context, index) {
+              return MessageBubble(message: _messages[index]);
+            },
+          ),
+        ),
+        MessageInput(onSend: _sendMessage),
+      ],
+    );
+  }
+}
+```
+
+## Data Types
+
+### `PresenceUser`
+
+Represents a user's presence data.
+
+```dart
+class PresenceUser {
+  final String userId;
+  final Map<String, dynamic> data;
+  final DateTime lastUpdated;
+  
+  const PresenceUser({
+    required this.userId,
+    required this.data,
+    required this.lastUpdated,
+  });
+}
+```
+
+**Properties:**
+- `userId` (`String`): Unique user identifier
+- `data` (`Map<String, dynamic>`): Presence data
+- `lastUpdated` (`DateTime`): When presence was last updated
+
+### `CursorData`
+
+Represents cursor position and metadata.
+
+```dart
+class CursorData {
+  final String userId;
+  final double x;
+  final double y;
+  final Map<String, dynamic> data;
+  final DateTime lastUpdated;
+  
+  const CursorData({
+    required this.userId,
+    required this.x,
+    required this.y,
+    required this.data,
+    required this.lastUpdated,
+  });
+}
+```
+
+**Properties:**
+- `userId` (`String`): User who owns the cursor
+- `x` (`double`): X coordinate
+- `y` (`double`): Y coordinate  
+- `data` (`Map<String, dynamic>`): Additional cursor metadata
+- `lastUpdated` (`DateTime`): When cursor was last updated
+
+### `ReactionData`
+
+Represents a reaction sent to the room.
+
+```dart
+class ReactionData {
+  final String userId;
+  final String reaction;
+  final Map<String, dynamic> data;
+  final DateTime createdAt;
+  
+  const ReactionData({
+    required this.userId,
+    required this.reaction,
+    required this.data,
+    required this.createdAt,
+  });
+}
+```
+
+**Properties:**
+- `userId` (`String`): User who sent the reaction
+- `reaction` (`String`): Reaction emoji or identifier
+- `data` (`Map<String, dynamic>`): Reaction metadata
+- `createdAt` (`DateTime`): When reaction was created
+
+## Complete Examples
+
+### Collaborative Text Editor
+
+```dart
+class CollaborativeEditor extends StatefulWidget {
+  final String documentId;
+  
+  const CollaborativeEditor({super.key, required this.documentId});
+  
+  @override
+  State<CollaborativeEditor> createState() => _CollaborativeEditorState();
+}
+
+class _CollaborativeEditorState extends State<CollaborativeEditor> {
+  final TextEditingController _controller = TextEditingController();
+  InstantRoom? _room;
+  Timer? _typingTimer;
+  
+  @override
+  void initState() {
+    super.initState();
+    _initializeCollaboration();
+  }
+  
+  void _initializeCollaboration() {
+    final db = InstantProvider.of(context);
+    final currentUser = db.auth.currentUser.value;
+    
+    _room = db.presence.joinRoom('doc-${widget.documentId}', initialPresence: {
+      'userName': currentUser?.email ?? 'Anonymous',
+      'status': 'editing',
+      'color': _generateUserColor(currentUser?.id ?? 'anonymous'),
+    });
+    
+    // Listen to text changes for typing indicators
+    _controller.addListener(_handleTextChange);
+    
+    // Listen to selection changes for cursor updates
+    _controller.addListener(_handleSelectionChange);
+  }
+  
+  void _handleTextChange() {
+    // Set typing status
+    _room?.setTyping(true);
+    
+    // Clear typing after delay
+    _typingTimer?.cancel();
+    _typingTimer = Timer(const Duration(seconds: 2), () {
+      _room?.setTyping(false);
+    });
+  }
+  
+  void _handleSelectionChange() {
+    final selection = _controller.selection;
+    if (selection.isValid) {
+      // Convert text position to screen coordinates (simplified)
+      final cursorX = selection.baseOffset * 10.0; // Approximation
+      final cursorY = 0.0;
+      
+      _room?.updateCursor(x: cursorX, y: cursorY);
+    }
+  }
+  
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Collaborative Editor'),
+        actions: [
+          // Show connected users
+          if (_room != null) UserAvatars(room: _room!),
+        ],
+      ),
+      body: Column(
+        children: [
+          // Typing indicators
+          if (_room != null) TypingIndicator(room: _room!),
+          
+          // Main editor
+          Expanded(
+            child: Stack(
+              children: [
+                // Text input
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: TextField(
+                    controller: _controller,
+                    maxLines: null,
+                    expands: true,
+                    decoration: const InputDecoration(
+                      border: InputBorder.none,
+                      hintText: 'Start typing...',
+                    ),
+                  ),
+                ),
+                
+                // Cursor overlay
+                if (_room != null) CursorOverlay(room: _room!),
+                
+                // Reactions overlay  
+                if (_room != null) ReactionsOverlay(room: _room!),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+  
+  Color _generateUserColor(String userId) {
+    final hash = userId.hashCode;
+    return Color(0xFF000000 | (hash & 0xFFFFFF));
+  }
+  
+  @override
+  void dispose() {
+    _room?.setPresence({'status': 'offline'});
+    _controller.dispose();
+    _typingTimer?.cancel();
+    super.dispose();
+  }
+}
+```
+
+### Multiplayer Whiteboard
+
+```dart
+class CollaborativeWhiteboard extends StatefulWidget {
+  @override
+  State<CollaborativeWhiteboard> createState() => _CollaborativeWhiteboardState();
+}
+
+class _CollaborativeWhiteboardState extends State<CollaborativeWhiteboard> {
+  InstantRoom? _room;
+  final List<DrawingPoint> _points = [];
+  StreamSubscription? _drawingSubscription;
+  
+  @override
+  void initState() {
+    super.initState();
+    _initializeWhiteboard();
+  }
+  
+  void _initializeWhiteboard() {
+    final db = InstantProvider.of(context);
+    
+    _room = db.presence.joinRoom('whiteboard', initialPresence: {
+      'userName': 'Artist ${DateTime.now().millisecondsSinceEpoch % 1000}',
+      'tool': 'pen',
+      'color': '#000000',
+    });
+    
+    // Subscribe to drawing events
+    _drawingSubscription = _room!.subscribeTopic('drawing').listen((data) {
+      final point = DrawingPoint.fromJson(data);
+      setState(() {
+        _points.add(point);
+      });
+    });
+  }
+  
+  void _handlePanStart(DragStartDetails details) {
+    _room?.setPresence({'status': 'drawing'});
+    _addPoint(details.localPosition, isStart: true);
+  }
+  
+  void _handlePanUpdate(DragUpdateDetails details) {
+    _addPoint(details.localPosition, isStart: false);
+    
+    // Update cursor for other users
+    _room?.updateCursor(
+      x: details.localPosition.dx,
+      y: details.localPosition.dy,
+    );
+  }
+  
+  void _handlePanEnd(DragEndDetails details) {
+    _room?.setPresence({'status': 'idle'});
+  }
+  
+  void _addPoint(Offset position, {required bool isStart}) {
+    final point = DrawingPoint(
+      x: position.dx,
+      y: position.dy,
+      isStart: isStart,
+      userId: 'current-user', // Get from auth
+      timestamp: DateTime.now().millisecondsSinceEpoch,
+    );
+    
+    // Broadcast drawing point
+    _room?.publishTopic('drawing', point.toJson());
+  }
+  
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Collaborative Whiteboard'),
+        actions: [
+          if (_room != null) UserAvatars(room: _room!),
+        ],
+      ),
+      body: Stack(
+        children: [
+          // Drawing canvas
+          GestureDetector(
+            onPanStart: _handlePanStart,
+            onPanUpdate: _handlePanUpdate,
+            onPanEnd: _handlePanEnd,
+            child: CustomPaint(
+              painter: WhiteboardPainter(_points),
+              size: Size.infinite,
+            ),
+          ),
+          
+          // Collaborative cursors
+          if (_room != null) CursorOverlay(room: _room!),
+          
+          // Reactions
+          if (_room != null) 
+            GestureDetector(
+              onDoubleTapDown: (details) {
+                _room!.sendReaction('✨', metadata: {
+                  'x': details.localPosition.dx,
+                  'y': details.localPosition.dy,
+                });
+              },
+              child: ReactionsOverlay(room: _room!),
+            ),
+        ],
+      ),
+    );
+  }
+  
+  @override
+  void dispose() {
+    _room?.setPresence({'status': 'offline'});
+    _drawingSubscription?.cancel();
+    super.dispose();
+  }
+}
+```
+
+## Performance Considerations
+
+### Throttle Updates
+
+Prevent excessive presence updates:
+
+```dart
+class ThrottledPresence {
+  final InstantRoom room;
+  Timer? _cursorTimer;
+  static const Duration _throttleDuration = Duration(milliseconds: 100);
+  
+  ThrottledPresence(this.room);
+  
+  void updateCursor(double x, double y) {
+    _cursorTimer?.cancel();
+    _cursorTimer = Timer(_throttleDuration, () {
+      room.updateCursor(x: x, y: y);
+    });
+  }
+  
+  void dispose() {
+    _cursorTimer?.cancel();
+  }
+}
+```
+
+### Limit Displayed Elements
+
+Prevent performance issues with many users:
+
+```dart
+Watch((context) {
+  final cursors = room.getCursors().value;
+  
+  // Limit to 10 most recent cursors
+  final recentCursors = cursors.entries
+      .toList()
+      ..sort((a, b) => b.value.lastUpdated.compareTo(a.value.lastUpdated))
+      ..take(10);
+  
+  return Stack(
+    children: recentCursors.map((entry) => 
+      CursorWidget(cursor: entry.value)
+    ).toList(),
+  );
+});
+```
+
+## Error Handling
+
+```dart
+class SafePresenceOperations {
+  final InstantRoom room;
+  
+  SafePresenceOperations(this.room);
+  
+  Future<void> safeSetPresence(Map<String, dynamic> presence) async {
+    try {
+      await room.setPresence(presence);
+    } catch (e) {
+      print('Failed to set presence: $e');
+      // Handle gracefully - presence is not critical
+    }
+  }
+  
+  Future<void> safeUpdateCursor(double x, double y) async {
+    try {
+      await room.updateCursor(x: x, y: y);
+    } catch (e) {
+      print('Failed to update cursor: $e');
+      // Cursor updates are not critical
+    }
+  }
+}
+```
+
+## Next Steps
+
+Explore related APIs and features:
+
+- [InstantDB Core](../instantdb/) - Main database initialization and methods
+- [Flutter Widgets](../widgets/) - Presence-aware reactive widgets
+- [Real-time Sync](../../realtime/sync/) - Understanding data synchronization
+- [Collaborative Features](../../realtime/collaboration/) - Complete collaboration examples
+- [Types Reference](../types/) - Presence data types and structures

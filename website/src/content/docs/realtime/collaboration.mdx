@@ -1,0 +1,792 @@
+---
+title: Collaborative Features
+description: Build multi-user collaborative experiences with InstantDB Flutter
+sidebar:
+  order: 3
+---
+
+import { Code, Tabs, TabItem } from "@astrojs/starlight/components";
+
+Build powerful collaborative applications with InstantDB's real-time synchronization, presence system, and conflict resolution. Create experiences like shared whiteboards, collaborative editors, multiplayer games, and team workspaces.
+
+## Complete Collaborative Editor
+
+Here's a full example of a collaborative text editor with cursors, typing indicators, and presence:
+
+```dart
+class CollaborativeEditor extends StatefulWidget {
+  @override
+  State<CollaborativeEditor> createState() => _CollaborativeEditorState();
+}
+
+class _CollaborativeEditorState extends State<CollaborativeEditor> {
+  final TextEditingController _controller = TextEditingController();
+  final FocusNode _focusNode = FocusNode();
+  InstantRoom? _room;
+  String? _documentId;
+  Timer? _typingTimer;
+  
+  @override
+  void initState() {
+    super.initState();
+    _documentId = 'doc-${widget.documentId}';
+    _initializeCollaboration();
+  }
+  
+  void _initializeCollaboration() {
+    final db = InstantProvider.of(context);
+    final currentUser = db.auth.currentUser.value;
+    
+    // Join collaboration room
+    _room = db.presence.joinRoom(_documentId!, initialPresence: {
+      'userName': currentUser?.email ?? 'Anonymous',
+      'status': 'editing',
+      'color': _generateUserColor(currentUser?.id ?? 'anonymous'),
+    });
+    
+    // Listen to document changes
+    _subscribeToDocument();
+    
+    // Handle text selection changes for cursor position
+    _controller.addListener(_updateCursorPosition);
+  }
+  
+  void _subscribeToDocument() {
+    final db = InstantProvider.of(context);
+    
+    // Subscribe to document content changes
+    db.subscribeQuery({
+      'documents': {
+        'where': {'id': _documentId},
+      }
+    }).stream.listen((result) {
+      final documents = result.data?['documents'] as List? ?? [];
+      if (documents.isNotEmpty) {
+        final document = documents.first as Map<String, dynamic>;
+        final content = document['content'] as String? ?? '';
+        
+        // Update content if different (avoid cursor jumps)
+        if (_controller.text != content) {
+          final selection = _controller.selection;
+          _controller.text = content;
+          _controller.selection = selection;
+        }
+      }
+    });
+  }
+  
+  void _updateCursorPosition() {
+    final selection = _controller.selection;
+    if (selection.isValid && _room != null) {
+      _room!.updateCursor(
+        x: selection.baseOffset.toDouble(),
+        y: 0, // For text, we use line-based positioning
+      );
+    }
+  }
+  
+  void _handleTextChange(String text) {
+    // Update document with debouncing
+    _typingTimer?.cancel();
+    _room?.setTyping(true);
+    
+    _typingTimer = Timer(const Duration(milliseconds: 500), () async {
+      await _saveDocument(text);
+      _room?.setTyping(false);
+    });
+  }
+  
+  Future<void> _saveDocument(String content) async {
+    final db = InstantProvider.of(context);
+    
+    await db.transact([
+      db.update(_documentId!, {
+        'content': content,
+        'lastModified': DateTime.now().millisecondsSinceEpoch,
+      }),
+    ]);
+  }
+  
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Collaborative Editor'),
+        actions: [
+          // Show connected users
+          UserAvatars(room: _room!),
+          const SizedBox(width: 16),
+        ],
+      ),
+      body: Column(
+        children: [
+          // Connection status
+          ConnectionStatusBanner(),
+          
+          // Typing indicators
+          TypingIndicatorBanner(room: _room!),
+          
+          // Editor with cursor overlay
+          Expanded(
+            child: Stack(
+              children: [
+                // Main text editor
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: TextField(
+                    controller: _controller,
+                    focusNode: _focusNode,
+                    maxLines: null,
+                    expands: true,
+                    onChanged: _handleTextChange,
+                    decoration: const InputDecoration(
+                      border: InputBorder.none,
+                      hintText: 'Start typing...',
+                    ),
+                  ),
+                ),
+                
+                // Collaborative cursors overlay
+                CursorOverlay(room: _room!),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+```
+
+## Real-time Whiteboard
+
+Create a collaborative drawing canvas:
+
+```dart
+class CollaborativeWhiteboard extends StatefulWidget {
+  @override
+  State<CollaborativeWhiteboard> createState() => _CollaborativeWhiteboardState();
+}
+
+class _CollaborativeWhiteboardState extends State<CollaborativeWhiteboard> {
+  InstantRoom? _room;
+  final List<DrawingPoint> _points = [];
+  String? _currentStroke;
+  
+  @override
+  void initState() {
+    super.initState();
+    _initializeWhiteboard();
+  }
+  
+  void _initializeWhiteboard() {
+    final db = InstantProvider.of(context);
+    
+    _room = db.presence.joinRoom('whiteboard', initialPresence: {
+      'userName': 'Artist ${DateTime.now().millisecondsSinceEpoch % 1000}',
+      'tool': 'pen',
+      'color': '#000000',
+    });
+    
+    // Subscribe to drawing strokes
+    db.subscribeQuery({
+      'strokes': {
+        'where': {'whiteboardId': 'main'},
+        'orderBy': {'createdAt': 'asc'},
+      }
+    }).stream.listen((result) {
+      final strokes = result.data?['strokes'] as List? ?? [];
+      setState(() {
+        _points.clear();
+        _points.addAll(strokes.map((s) => DrawingPoint.fromJson(s)));
+      });
+    });
+  }
+  
+  void _handlePanStart(DragStartDetails details) {
+    _currentStroke = db.id();
+    _room?.setPresence({'status': 'drawing'});
+    
+    final point = DrawingPoint(
+      id: _currentStroke!,
+      x: details.localPosition.dx,
+      y: details.localPosition.dy,
+      isStart: true,
+    );
+    
+    _addPoint(point);
+  }
+  
+  void _handlePanUpdate(DragUpdateDetails details) {
+    if (_currentStroke == null) return;
+    
+    final point = DrawingPoint(
+      id: _currentStroke!,
+      x: details.localPosition.dx,
+      y: details.localPosition.dy,
+      isStart: false,
+    );
+    
+    _addPoint(point);
+    
+    // Update cursor position for others
+    _room?.updateCursor(
+      x: details.localPosition.dx,
+      y: details.localPosition.dy,
+    );
+  }
+  
+  void _handlePanEnd(DragEndDetails details) {
+    _currentStroke = null;
+    _room?.setPresence({'status': 'idle'});
+  }
+  
+  Future<void> _addPoint(DrawingPoint point) async {
+    final db = InstantProvider.of(context);
+    
+    await db.transact([
+      ...db.create('points', {
+        'id': db.id(),
+        'strokeId': point.id,
+        'x': point.x,
+        'y': point.y,
+        'isStart': point.isStart,
+        'whiteboardId': 'main',
+        'createdAt': DateTime.now().millisecondsSinceEpoch,
+      }),
+    ]);
+  }
+  
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Collaborative Whiteboard'),
+        actions: [
+          UserAvatars(room: _room!),
+        ],
+      ),
+      body: Stack(
+        children: [
+          // Drawing canvas
+          GestureDetector(
+            onPanStart: _handlePanStart,
+            onPanUpdate: _handlePanUpdate,
+            onPanEnd: _handlePanEnd,
+            child: CustomPaint(
+              painter: WhiteboardPainter(_points),
+              size: Size.infinite,
+            ),
+          ),
+          
+          // Collaborative cursors
+          CursorOverlay(room: _room!),
+          
+          // Reactions overlay
+          ReactionsOverlay(room: _room!),
+        ],
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: _clearCanvas,
+        child: const Icon(Icons.clear),
+      ),
+    );
+  }
+}
+```
+
+## Team Chat with Presence
+
+Build a team chat with rich presence information:
+
+```dart
+class TeamChat extends StatefulWidget {
+  final String teamId;
+  
+  const TeamChat({super.key, required this.teamId});
+  
+  @override
+  State<TeamChat> createState() => _TeamChatState();
+}
+
+class _TeamChatState extends State<TeamChat> {
+  final TextEditingController _messageController = TextEditingController();
+  InstantRoom? _room;
+  StreamSubscription? _chatSubscription;
+  final List<ChatMessage> _messages = [];
+  
+  @override
+  void initState() {
+    super.initState();
+    _initializeChat();
+  }
+  
+  void _initializeChat() {
+    final db = InstantProvider.of(context);
+    final currentUser = db.auth.currentUser.value;
+    
+    // Join team room
+    _room = db.presence.joinRoom('team-${widget.teamId}', initialPresence: {
+      'userName': currentUser?.email ?? 'Anonymous',
+      'status': 'online',
+      'avatar': currentUser?.metadata?['avatar'],
+      'lastSeen': DateTime.now().millisecondsSinceEpoch,
+    });
+    
+    // Subscribe to chat messages
+    _chatSubscription = _room!.subscribeTopic('messages').listen((data) {
+      final message = ChatMessage.fromJson(data);
+      setState(() {
+        _messages.add(message);
+        _messages.sort((a, b) => a.timestamp.compareTo(b.timestamp));
+      });
+    });
+    
+    // Load existing messages
+    _loadChatHistory();
+    
+    // Update typing status
+    _messageController.addListener(_handleTyping);
+  }
+  
+  Timer? _typingTimer;
+  void _handleTyping() {
+    _room?.setTyping(true);
+    
+    _typingTimer?.cancel();
+    _typingTimer = Timer(const Duration(seconds: 2), () {
+      _room?.setTyping(false);
+    });
+  }
+  
+  Future<void> _loadChatHistory() async {
+    final db = InstantProvider.of(context);
+    
+    final result = await db.queryOnce({
+      'messages': {
+        'where': {'teamId': widget.teamId},
+        'orderBy': {'timestamp': 'asc'},
+        'limit': 100,
+      }
+    });
+    
+    final messages = result.data?['messages'] as List? ?? [];
+    setState(() {
+      _messages.clear();
+      _messages.addAll(messages.map((m) => ChatMessage.fromJson(m)));
+    });
+  }
+  
+  Future<void> _sendMessage() async {
+    final text = _messageController.text.trim();
+    if (text.isEmpty) return;
+    
+    final db = InstantProvider.of(context);
+    final currentUser = db.auth.currentUser.value;
+    
+    final message = {
+      'id': db.id(),
+      'teamId': widget.teamId,
+      'userId': currentUser?.id ?? 'anonymous',
+      'userName': currentUser?.email ?? 'Anonymous',
+      'text': text,
+      'timestamp': DateTime.now().millisecondsSinceEpoch,
+    };
+    
+    // Save to database
+    await db.transact([
+      ...db.create('messages', message),
+    ]);
+    
+    // Broadcast via presence
+    await _room!.publishTopic('messages', message);
+    
+    _messageController.clear();
+    _room?.setTyping(false);
+  }
+  
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('Team ${widget.teamId}'),
+        actions: [
+          // Team presence indicators
+          Watch((context) {
+            final presence = _room?.getPresence().value ?? {};
+            final onlineCount = presence.values
+                .where((p) => p.data['status'] == 'online')
+                .length;
+            
+            return Padding(
+              padding: const EdgeInsets.all(8.0),
+              child: Chip(
+                label: Text('$onlineCount online'),
+                avatar: const Icon(Icons.people, size: 16),
+              ),
+            );
+          }),
+        ],
+      ),
+      body: Column(
+        children: [
+          // Messages list
+          Expanded(
+            child: ListView.builder(
+              itemCount: _messages.length,
+              itemBuilder: (context, index) {
+                final message = _messages[index];
+                return MessageBubble(
+                  message: message,
+                  isOwn: message.userId == 
+                         InstantProvider.of(context).auth.currentUser.value?.id,
+                );
+              },
+            ),
+          ),
+          
+          // Typing indicators
+          TypingIndicator(room: _room!),
+          
+          // Message input
+          Container(
+            padding: const EdgeInsets.all(8),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _messageController,
+                    decoration: const InputDecoration(
+                      hintText: 'Type a message...',
+                      border: OutlineInputBorder(),
+                    ),
+                    onSubmitted: (_) => _sendMessage(),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                IconButton(
+                  onPressed: _sendMessage,
+                  icon: const Icon(Icons.send),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+```
+
+## Collaborative Task Management
+
+Build a shared task board with real-time updates:
+
+```dart
+class CollaborativeTaskBoard extends StatefulWidget {
+  @override
+  State<CollaborativeTaskBoard> createState() => _CollaborativeTaskBoardState();
+}
+
+class _CollaborativeTaskBoardState extends State<CollaborativeTaskBoard> {
+  InstantRoom? _room;
+  
+  @override
+  void initState() {
+    super.initState();
+    _initializeTaskBoard();
+  }
+  
+  void _initializeTaskBoard() {
+    final db = InstantProvider.of(context);
+    final currentUser = db.auth.currentUser.value;
+    
+    _room = db.presence.joinRoom('task-board', initialPresence: {
+      'userName': currentUser?.email ?? 'Team Member',
+      'status': 'viewing',
+      'currentColumn': null,
+    });
+  }
+  
+  Future<void> _moveTask(String taskId, String toColumn) async {
+    final db = InstantProvider.of(context);
+    
+    // Optimistic update with presence
+    _room?.setPresence({
+      'status': 'moving_task',
+      'taskId': taskId,
+      'toColumn': toColumn,
+    });
+    
+    // Send reaction for visual feedback
+    await _room?.sendReaction('📋', metadata: {
+      'action': 'task_moved',
+      'taskId': taskId,
+      'column': toColumn,
+    });
+    
+    await db.transact([
+      db.update(taskId, {
+        'status': toColumn,
+        'updatedAt': DateTime.now().millisecondsSinceEpoch,
+      }),
+    ]);
+    
+    _room?.setPresence({'status': 'viewing'});
+  }
+  
+  @override
+  Widget build(BuildContext context) {
+    final db = InstantProvider.of(context);
+    
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Task Board'),
+        actions: [
+          UserAvatars(room: _room!),
+          IconButton(
+            onPressed: _addNewTask,
+            icon: const Icon(Icons.add),
+          ),
+        ],
+      ),
+      body: Row(
+        children: [
+          // Task columns
+          Expanded(
+            child: InstantBuilder(
+              query: {
+                'tasks': {
+                  'where': {'boardId': 'main'},
+                  'orderBy': {'createdAt': 'desc'},
+                }
+              },
+              builder: (context, result) {
+                final tasks = result.data?['tasks'] as List? ?? [];
+                
+                return Row(
+                  children: [
+                    TaskColumn(
+                      title: 'To Do',
+                      status: 'todo',
+                      tasks: tasks.where((t) => t['status'] == 'todo').toList(),
+                      onTaskMoved: _moveTask,
+                      room: _room!,
+                    ),
+                    TaskColumn(
+                      title: 'In Progress',
+                      status: 'inprogress',
+                      tasks: tasks.where((t) => t['status'] == 'inprogress').toList(),
+                      onTaskMoved: _moveTask,
+                      room: _room!,
+                    ),
+                    TaskColumn(
+                      title: 'Done',
+                      status: 'done',
+                      tasks: tasks.where((t) => t['status'] == 'done').toList(),
+                      onTaskMoved: _moveTask,
+                      room: _room!,
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+```
+
+## Conflict Resolution
+
+InstantDB automatically handles conflicts, but you can implement custom resolution:
+
+```dart
+class ConflictAwareDocument extends StatefulWidget {
+  @override
+  State<ConflictAwareDocument> createState() => _ConflictAwareDocumentState();
+}
+
+class _ConflictAwareDocumentState extends State<ConflictAwareDocument> {
+  final TextEditingController _controller = TextEditingController();
+  String? _localVersion;
+  String? _serverVersion;
+  
+  void _handleConflict(String localContent, String serverContent) {
+    if (localContent == serverContent) return;
+    
+    // Show conflict resolution UI
+    showDialog(
+      context: context,
+      builder: (context) => ConflictResolutionDialog(
+        localVersion: localContent,
+        serverVersion: serverContent,
+        onResolved: _resolveConflict,
+      ),
+    );
+  }
+  
+  Future<void> _resolveConflict(String resolvedContent) async {
+    final db = InstantProvider.of(context);
+    
+    await db.transact([
+      db.update('document-id', {
+        'content': resolvedContent,
+        'lastModified': DateTime.now().millisecondsSinceEpoch,
+        'resolvedBy': db.auth.currentUser.value?.id,
+      }),
+    ]);
+    
+    _controller.text = resolvedContent;
+  }
+  
+  @override
+  Widget build(BuildContext context) {
+    return InstantBuilder(
+      query: {'documents': {'where': {'id': 'document-id'}}},
+      builder: (context, result) {
+        final documents = result.data?['documents'] as List? ?? [];
+        if (documents.isNotEmpty) {
+          final document = documents.first as Map<String, dynamic>;
+          final serverContent = document['content'] as String? ?? '';
+          
+          // Check for conflicts
+          if (_localVersion != null && 
+              _localVersion != serverContent && 
+              _controller.text != serverContent) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              _handleConflict(_controller.text, serverContent);
+            });
+          }
+        }
+        
+        return TextField(
+          controller: _controller,
+          onChanged: (text) => _localVersion = text,
+        );
+      },
+    );
+  }
+}
+```
+
+## Performance Optimization
+
+Optimize collaborative features for large teams:
+
+```dart
+class OptimizedCollaboration {
+  static const int MAX_CURSORS = 10;
+  static const Duration PRESENCE_THROTTLE = Duration(milliseconds: 100);
+  static const Duration TYPING_DEBOUNCE = Duration(milliseconds: 300);
+  
+  // Throttle cursor updates
+  static Timer? _cursorTimer;
+  static void updateCursor(InstantRoom room, double x, double y) {
+    _cursorTimer?.cancel();
+    _cursorTimer = Timer(PRESENCE_THROTTLE, () {
+      room.updateCursor(x: x, y: y);
+    });
+  }
+  
+  // Limit displayed cursors
+  static List<MapEntry<String, dynamic>> getLimitedCursors(
+    Map<String, dynamic> allCursors,
+  ) {
+    final entries = allCursors.entries.toList();
+    entries.sort((a, b) {
+      final aTime = a.value.data['lastUpdate'] ?? 0;
+      final bTime = b.value.data['lastUpdate'] ?? 0;
+      return bTime.compareTo(aTime);
+    });
+    
+    return entries.take(MAX_CURSORS).toList();
+  }
+  
+  // Batch presence updates
+  static void batchPresenceUpdate(
+    InstantRoom room,
+    Map<String, dynamic> updates,
+  ) {
+    Timer(PRESENCE_THROTTLE, () {
+      room.setPresence(updates);
+    });
+  }
+}
+```
+
+## Best Practices
+
+### 1. Handle Connection States
+
+Always show connection status in collaborative apps:
+
+```dart
+Widget buildConnectionAwareUI() {
+  return Column(
+    children: [
+      ConnectionStatusBanner(),
+      // Your collaborative UI
+    ],
+  );
+}
+```
+
+### 2. Provide Visual Feedback
+
+Show user actions with reactions and animations:
+
+```dart
+void _showCollaborativeAction(String action, String user) {
+  _room?.sendReaction('✨', metadata: {
+    'action': action,
+    'user': user,
+    'timestamp': DateTime.now().millisecondsSinceEpoch,
+  });
+}
+```
+
+### 3. Handle Graceful Degradation
+
+Ensure your app works offline:
+
+```dart
+Widget buildOfflineCapableFeature() {
+  return Watch((context) {
+    final isOnline = db.syncEngine?.connectionStatus.value ?? false;
+    
+    return Column(
+      children: [
+        if (!isOnline) OfflineIndicator(),
+        // Feature works regardless of connection
+        YourFeature(),
+      ],
+    );
+  });
+}
+```
+
+### 4. Clean Up Resources
+
+Always clean up presence and subscriptions:
+
+```dart
+@override
+void dispose() {
+  _room?.setPresence({'status': 'offline'});
+  _chatSubscription?.cancel();
+  _typingTimer?.cancel();
+  super.dispose();
+}
+```
+
+## Next Steps
+
+Explore more collaborative patterns:
+
+- [Presence System](../presence/) - Detailed presence API reference
+- [WebSocket Sync](../sync/) - Understanding real-time synchronization
+- [Authentication](../../auth/users/) - User management for collaboration
+- [Performance Tips](../../advanced/performance/) - Optimizing collaborative features

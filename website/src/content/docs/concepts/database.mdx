@@ -1,0 +1,230 @@
+---
+title: Database Initialization
+description: How to initialize and configure InstantDB
+sidebar:
+  order: 1
+---
+
+import { Code, Tabs, TabItem } from "@astrojs/starlight/components";
+
+The `InstantDB` class is the main entry point for your real-time database. It manages local storage, real-time synchronization, and provides the query and mutation APIs.
+
+## Basic Initialization
+
+The simplest way to initialize InstantDB:
+
+```dart
+final db = await InstantDB.init(
+  appId: 'your-app-id',
+);
+```
+
+## Configuration Options
+
+Customize your database behavior with `InstantConfig`:
+
+```dart
+final db = await InstantDB.init(
+  appId: 'your-app-id',
+  config: const InstantConfig(
+    syncEnabled: true,              // Enable real-time sync
+    persistenceDir: 'my_app_db',    // Custom database directory
+    logLevel: LogLevel.info,        // Logging level
+    apiUrl: 'https://api.instantdb.com', // Custom API endpoint
+  ),
+);
+```
+
+### Configuration Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `syncEnabled` | `bool` | `true` | Enable/disable real-time synchronization |
+| `persistenceDir` | `String?` | `null` | Custom directory for local database files |
+| `logLevel` | `LogLevel` | `LogLevel.warning` | Logging verbosity level |
+| `apiUrl` | `String` | `'https://api.instantdb.com'` | InstantDB API endpoint |
+| `websocketUrl` | `String?` | `null` | Custom WebSocket endpoint for real-time sync |
+
+## Application Integration
+
+### Using InstantProvider
+
+The recommended way to provide your database instance throughout your app:
+
+```dart
+class MyApp extends StatelessWidget {
+  final InstantDB db;
+  
+  const MyApp({super.key, required this.db});
+
+  @override
+  Widget build(BuildContext context) {
+    return InstantProvider(
+      db: db,
+      child: MaterialApp(
+        title: 'My App',
+        home: const HomePage(),
+      ),
+    );
+  }
+}
+```
+
+### Accessing the Database
+
+Access your database instance from any widget:
+
+```dart
+class MyWidget extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final db = InstantProvider.of(context);
+    
+    // Use db for queries and mutations
+    return Container();
+  }
+}
+```
+
+## Lifecycle Management
+
+### Initialization Status
+
+Check if your database is ready:
+
+```dart
+// Reactive signal that tracks initialization
+final isReady = db.isReady;
+
+// Use in widgets
+Watch((context) {
+  if (!db.isReady.value) {
+    return const CircularProgressIndicator();
+  }
+  return MyMainWidget();
+});
+```
+
+### Disposal
+
+Clean up resources when your app closes:
+
+```dart
+@override
+void dispose() {
+  db.dispose(); // Clean up database resources
+  super.dispose();
+}
+```
+
+## Error Handling
+
+Handle initialization errors gracefully:
+
+```dart
+try {
+  final db = await InstantDB.init(appId: 'your-app-id');
+  print('Database initialized successfully');
+} on InstantException catch (e) {
+  print('Failed to initialize database: ${e.message}');
+  // Handle error appropriately
+}
+```
+
+## Development vs Production
+
+### Development Setup
+
+For development, enable verbose logging:
+
+```dart
+final db = await InstantDB.init(
+  appId: 'dev-app-id',
+  config: const InstantConfig(
+    logLevel: LogLevel.debug,
+    syncEnabled: true,
+  ),
+);
+```
+
+### Production Setup
+
+For production, optimize for performance:
+
+```dart
+final db = await InstantDB.init(
+  appId: 'prod-app-id',
+  config: const InstantConfig(
+    logLevel: LogLevel.warning,
+    syncEnabled: true,
+  ),
+);
+```
+
+## Multiple Database Instances
+
+You can create multiple database instances for different purposes:
+
+```dart
+// Main app database
+final appDb = await InstantDB.init(appId: 'main-app-id');
+
+// Analytics database
+final analyticsDb = await InstantDB.init(
+  appId: 'analytics-app-id',
+  config: const InstantConfig(
+    persistenceDir: 'analytics_db',
+  ),
+);
+```
+
+## Platform Considerations
+
+### Web Platform
+
+On web, InstantDB uses IndexedDB for local storage:
+
+```dart
+// No special configuration needed for web
+final db = await InstantDB.init(appId: 'your-app-id');
+```
+
+### Mobile Platforms
+
+On mobile, InstantDB uses SQLite:
+
+```dart
+// Optional: Specify custom database directory
+final db = await InstantDB.init(
+  appId: 'your-app-id',
+  config: const InstantConfig(
+    persistenceDir: 'my_mobile_db',
+  ),
+);
+```
+
+### Desktop Platforms
+
+Desktop platforms use SQLite with full filesystem access:
+
+```dart
+import 'dart:io';
+
+final db = await InstantDB.init(
+  appId: 'your-app-id',
+  config: InstantConfig(
+    persistenceDir: Platform.isWindows 
+      ? 'my_windows_db' 
+      : 'my_desktop_db',
+  ),
+);
+```
+
+## Next Steps
+
+Now that your database is initialized, learn about:
+
+- [Schema Definition](../schema/) - Structure your data
+- [Queries](../../queries/basics/) - Fetch data reactively
+- [Mutations](../transactions/) - Create, update, and delete data
+- [Real-time Sync](../../realtime/sync/) - Handle live updates

@@ -1,0 +1,8 @@
+name = "instantdb-flutter-docs"
+pages_build_output_dir = "./dist"
+
+[env.production]
+name = "instantdb-flutter-docs"
+
+[env.preview]
+name = "instantdb-flutter-docs-preview"

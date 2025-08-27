@@ -1,0 +1,366 @@
+---
+title: WebSocket Synchronization
+description: Real-time data synchronization with InstantDB Flutter
+sidebar:
+  order: 1
+---
+
+import { Code, Tabs, TabItem } from "@astrojs/starlight/components";
+
+InstantDB Flutter provides real-time synchronization across all connected clients using WebSocket connections. Changes are propagated instantly with conflict resolution and offline support.
+
+## Enabling Sync
+
+Enable real-time synchronization during database initialization:
+
+```dart
+final db = await InstantDB.init(
+  appId: 'your-app-id',
+  config: const InstantConfig(
+    syncEnabled: true,  // Enable real-time sync
+    verboseLogging: false, // Set to true for detailed sync logs
+  ),
+);
+```
+
+## Connection Status
+
+Monitor the connection status to provide user feedback:
+
+```dart
+// Using a reactive widget
+Watch((context) {
+  final syncEngine = db.syncEngine;
+  final isConnected = syncEngine?.connectionStatus.value ?? false;
+  
+  return Row(
+    children: [
+      Icon(
+        isConnected ? Icons.cloud_done : Icons.cloud_off,
+        color: isConnected ? Colors.green : Colors.grey,
+      ),
+      Text(isConnected ? 'Connected' : 'Offline'),
+    ],
+  );
+});
+
+// Or create a custom connection status widget
+class ConnectionStatusIndicator extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final db = InstantProvider.of(context);
+    
+    return Watch((context) {
+      final isOnline = db.syncEngine?.connectionStatus.value ?? false;
+      
+      return AnimatedContainer(
+        duration: const Duration(milliseconds: 300),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: isOnline ? Colors.green : Colors.orange,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              isOnline ? Icons.wifi : Icons.wifi_off,
+              size: 16,
+              color: Colors.white,
+            ),
+            const SizedBox(width: 4),
+            Text(
+              isOnline ? 'Online' : 'Offline',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      );
+    });
+  }
+}
+```
+
+## How Sync Works
+
+### Differential Sync
+
+InstantDB uses differential synchronization to efficiently sync only the changes:
+
+1. **Local Changes**: When you make local changes, they're applied immediately (optimistic updates)
+2. **Sync Queue**: Changes are queued for synchronization with the server
+3. **WebSocket Transmission**: Changes are sent via WebSocket in real-time
+4. **Server Processing**: Server processes and broadcasts changes to other clients
+5. **Conflict Resolution**: Automatic handling of concurrent modifications
+
+### Transaction Integrity
+
+All operations maintain transaction integrity during sync:
+
+```dart
+// This transaction will be synced atomically
+await db.transact([
+  ...db.create('posts', {
+    'id': db.id(),
+    'title': 'New Post',
+    'authorId': userId,
+  }),
+  db.update(userId, {
+    'postCount': {'$increment': 1},
+  }),
+]);
+```
+
+## Sync Events
+
+Monitor sync events for debugging or user feedback:
+
+```dart
+// Listen to sync engine events (if available)
+db.syncEngine?.onConnectionChange.listen((isConnected) {
+  print('Connection status changed: $isConnected');
+  
+  if (isConnected) {
+    // Connection restored - sync pending changes
+    showSnackBar('Connection restored');
+  } else {
+    // Connection lost - work offline
+    showSnackBar('Working offline');
+  }
+});
+```
+
+## Handling Offline/Online Transitions
+
+InstantDB handles offline scenarios gracefully:
+
+### Offline Behavior
+
+When offline, InstantDB:
+- Stores all changes locally in SQLite
+- Continues to serve queries from local data
+- Queues mutations for later synchronization
+- Provides immediate UI updates (optimistic)
+
+### Coming Back Online
+
+When connection is restored:
+- Pending transactions are automatically synced
+- Server changes are downloaded and applied
+- Conflicts are resolved automatically
+- UI updates reflect the synchronized state
+
+```dart
+// Example of handling online/offline states
+class OfflineAwareWidget extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final db = InstantProvider.of(context);
+    
+    return Watch((context) {
+      final isOnline = db.syncEngine?.connectionStatus.value ?? false;
+      
+      return Column(
+        children: [
+          if (!isOnline)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(8),
+              color: Colors.orange,
+              child: const Text(
+                'Working offline - changes will sync when connected',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.white),
+              ),
+            ),
+          
+          // Your main content
+          InstantBuilder(
+            query: {'todos': {}},
+            builder: (context, result) {
+              // Data is always available, even offline
+              return TodoList(todos: result.data!['todos']);
+            },
+          ),
+        ],
+      );
+    });
+  }
+}
+```
+
+## Sync Performance
+
+### Batching Operations
+
+For better performance, batch multiple operations:
+
+```dart
+// Instead of multiple separate transactions
+await db.transact([...db.create('item1', data1)]);
+await db.transact([...db.create('item2', data2)]);
+await db.transact([...db.create('item3', data3)]);
+
+// Use a single batched transaction
+await db.transact([
+  ...db.create('item1', data1),
+  ...db.create('item2', data2),
+  ...db.create('item3', data3),
+]);
+```
+
+### Optimistic Updates
+
+InstantDB provides optimistic updates by default:
+
+```dart
+// UI updates immediately, then syncs in background
+await db.transact([
+  db.update(todoId, {'completed': true}),
+]);
+
+// The UI shows the change instantly, sync happens asynchronously
+```
+
+## Advanced Sync Configuration
+
+### Custom Sync Settings
+
+Configure sync behavior during initialization:
+
+```dart
+final db = await InstantDB.init(
+  appId: 'your-app-id',
+  config: const InstantConfig(
+    syncEnabled: true,
+    
+    // Custom WebSocket URL (optional)
+    websocketUrl: 'wss://custom.instantdb.com/ws',
+    
+    // Enable detailed logging for debugging
+    verboseLogging: true,
+    
+    // Custom API endpoint
+    apiUrl: 'https://custom.instantdb.com',
+  ),
+);
+```
+
+### Sync Debugging
+
+Enable verbose logging to debug sync issues:
+
+```dart
+final db = await InstantDB.init(
+  appId: 'your-app-id',
+  config: const InstantConfig(
+    syncEnabled: true,
+    verboseLogging: true, // Detailed sync logs
+  ),
+);
+```
+
+This will log:
+- WebSocket connection events
+- Transaction synchronization
+- Conflict resolution
+- Network errors and retries
+
+## Best Practices
+
+### 1. Handle Connection States
+
+Always provide feedback for offline states:
+
+```dart
+// Good: Show connection status
+if (!isOnline) {
+  return OfflineBanner();
+}
+
+// Bad: No indication of offline state
+```
+
+### 2. Optimistic UI Updates
+
+Trust InstantDB's optimistic updates:
+
+```dart
+// Good: Update immediately, let InstantDB handle sync
+await db.transact([db.update(id, newData)]);
+
+// Bad: Wait for server confirmation
+```
+
+### 3. Batch Operations
+
+Group related operations into single transactions:
+
+```dart
+// Good: Atomic operation
+await db.transact([
+  ...db.create('post', postData),
+  db.update(userId, {'postCount': {'$increment': 1}}),
+]);
+
+// Bad: Separate operations that could fail independently
+```
+
+### 4. Monitor Connection
+
+Provide connection status in your UI:
+
+```dart
+// Always show connection status in critical apps
+AppBar(
+  actions: [
+    ConnectionStatusIndicator(),
+  ],
+)
+```
+
+## Troubleshooting Sync Issues
+
+### Common Issues
+
+1. **Not Syncing**: Check if `syncEnabled: true` in config
+2. **Slow Sync**: Check network connection and server status
+3. **Conflicts**: Review conflict resolution logs
+4. **Memory Issues**: Ensure proper disposal of database instances
+
+### Debug Logging
+
+Enable verbose logging to diagnose issues:
+
+```dart
+// Add this to see detailed sync logs
+config: const InstantConfig(
+  syncEnabled: true,
+  verboseLogging: true,
+),
+```
+
+### Network Debugging
+
+Test sync with network conditions:
+
+```dart
+// Simulate offline mode for testing
+db.syncEngine?.disconnect();
+
+// Reconnect
+db.syncEngine?.connect();
+```
+
+## Next Steps
+
+Learn more about InstantDB's real-time features:
+
+- [Presence System](../presence/) - Real-time collaboration
+- [Collaborative Features](../collaboration/) - Building multi-user apps
+- [Performance Tips](../../advanced/performance/) - Optimizing sync performance
+- [Troubleshooting](../../advanced/troubleshooting/) - Debugging sync issues

@@ -1,0 +1,76 @@
+---
+title: Installation
+description: How to install InstantDB Flutter
+sidebar:
+  order: 1
+---
+
+import { Code, Tabs, TabItem } from "@astrojs/starlight/components";
+
+InstantDB Flutter is a real-time, offline-first database client that provides reactive bindings for Flutter applications. It enables you to build collaborative, real-time applications with ease.
+
+## Requirements
+
+- Flutter SDK >= 3.8.0
+- Dart SDK >= 3.8.0
+- An InstantDB app ID (get one at [instantdb.com](https://instantdb.com))
+
+## Installation
+
+Add InstantDB Flutter to your `pubspec.yaml`:
+
+```yaml
+dependencies:
+  instantdb_flutter: ^0.1.0
+```
+
+Or install from the command line:
+
+<Tabs>
+  <TabItem label="Flutter">
+    <Code code="flutter pub add instantdb_flutter" lang="sh" />
+  </TabItem>
+  <TabItem label="Dart">
+    <Code code="dart pub add instantdb_flutter" lang="sh" />
+  </TabItem>
+</Tabs>
+
+## Platform Support
+
+InstantDB Flutter supports all Flutter platforms:
+
+| Platform | Support | Notes |
+|----------|---------|--------|
+| 🤖 Android | ✅ | Full support with SQLite storage |
+| 🍎 iOS | ✅ | Full support with SQLite storage |
+| 🌐 Web | ✅ | IndexedDB storage with WebSocket sync |
+| 🖥️ macOS | ✅ | Full support with SQLite storage |
+| 🪟 Windows | ✅ | Full support with SQLite storage |
+| 🐧 Linux | ✅ | Full support with SQLite storage |
+
+## Import
+
+Add the import to your Dart files:
+
+```dart
+import 'package:instantdb_flutter/instantdb_flutter.dart';
+```
+
+## Get Your App ID
+
+1. Visit [instantdb.com](https://instantdb.com) and create an account
+2. Create a new app
+3. Copy your App ID from the dashboard
+4. **Store your App ID in a `.env` file** in your project root:
+   ```env
+   INSTANTDB_APP_ID=your-app-id-here
+   ```
+5. Use it in your Flutter app initialization
+
+## Next Steps
+
+Now that you have InstantDB Flutter installed, let's set up your first database connection:
+
+- [Quick Start Guide](../quick-start/) - Create your first real-time app
+- [Database Setup](../../concepts/database/) - Initialize and configure your database
+- [Schema Definition](../../concepts/schema/) - Define your data structure

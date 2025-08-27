@@ -1,0 +1,411 @@
+---
+title: Flutter Widgets
+description: Reactive widgets for InstantDB Flutter
+sidebar:
+  order: 1
+---
+
+import { Code, Tabs, TabItem } from "@astrojs/starlight/components";
+
+InstantDB Flutter provides specialized widgets that automatically update when your data changes. These widgets handle loading states, errors, and real-time updates seamlessly.
+
+## InstantBuilder
+
+The `InstantBuilder` widget is the foundation for reactive UI in InstantDB Flutter. It automatically rebuilds when query results change.
+
+### Basic Usage
+
+```dart
+InstantBuilder(
+  query: {'todos': {}},
+  builder: (context, result) {
+    if (result.isLoading) {
+      return const CircularProgressIndicator();
+    }
+    
+    if (result.hasError) {
+      return Text('Error: ${result.error}');
+    }
+    
+    final todos = result.data!['todos'] as List;
+    return ListView.builder(
+      itemCount: todos.length,
+      itemBuilder: (context, index) {
+        final todo = todos[index];
+        return ListTile(
+          title: Text(todo['text']),
+          trailing: Checkbox(
+            value: todo['completed'],
+            onChanged: (value) => _toggleTodo(todo['id'], value),
+          ),
+        );
+      },
+    );
+  },
+)
+```
+
+### With Custom Loading and Error Widgets
+
+```dart
+InstantBuilder(
+  query: {'todos': {}},
+  loadingBuilder: (context) => const Center(
+    child: Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        CircularProgressIndicator(),
+        SizedBox(height: 16),
+        Text('Loading todos...'),
+      ],
+    ),
+  ),
+  errorBuilder: (context, error) => Center(
+    child: Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Icon(Icons.error, size: 64, color: Colors.red),
+        SizedBox(height: 16),
+        Text('Failed to load todos'),
+        SizedBox(height: 8),
+        Text(error, style: TextStyle(fontSize: 12)),
+        SizedBox(height: 16),
+        ElevatedButton(
+          onPressed: () => _retry(),
+          child: Text('Retry'),
+        ),
+      ],
+    ),
+  ),
+  builder: (context, result) {
+    final todos = result.data!['todos'] as List;
+    
+    if (todos.isEmpty) {
+      return const Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.check_circle, size: 64, color: Colors.grey),
+            SizedBox(height: 16),
+            Text('No todos yet'),
+            Text('Add your first todo above!'),
+          ],
+        ),
+      );
+    }
+    
+    return ListView.builder(
+      itemCount: todos.length,
+      itemBuilder: (context, index) => TodoTile(todo: todos[index]),
+    );
+  },
+)
+```
+
+## InstantBuilderTyped
+
+For better type safety and data transformation, use `InstantBuilderTyped`:
+
+```dart
+InstantBuilderTyped<List<Todo>>(
+  query: {'todos': {}},
+  transformer: (data) {
+    final todosData = data['todos'] as List;
+    return todosData.map((json) => Todo.fromJson(json)).toList();
+  },
+  builder: (context, todos) {
+    return ListView.builder(
+      itemCount: todos.length,
+      itemBuilder: (context, index) {
+        final todo = todos[index];
+        return TodoTile(
+          title: todo.text,
+          isCompleted: todo.completed,
+          onToggle: () => _toggleTodo(todo.id),
+        );
+      },
+    );
+  },
+)
+```
+
+### Advanced Transformer
+
+Transform and sort data before rendering:
+
+```dart
+InstantBuilderTyped<List<Todo>>(
+  query: {'todos': {}},
+  transformer: (data) {
+    final todosData = data['todos'] as List;
+    final todos = todosData.map((json) => Todo.fromJson(json)).toList();
+    
+    // Sort by priority, then by creation date
+    todos.sort((a, b) {
+      final priorityComparison = b.priority.compareTo(a.priority);
+      if (priorityComparison != 0) return priorityComparison;
+      return b.createdAt.compareTo(a.createdAt);
+    });
+    
+    return todos;
+  },
+  builder: (context, sortedTodos) {
+    return ListView.builder(
+      itemCount: sortedTodos.length,
+      itemBuilder: (context, index) => TodoTile(todo: sortedTodos[index]),
+    );
+  },
+)
+```
+
+## Watch Widget
+
+For simpler reactive widgets that don't need query data, use the `Watch` widget:
+
+```dart
+class CounterDisplay extends StatelessWidget {
+  final Signal<int> counter;
+  
+  const CounterDisplay({super.key, required this.counter});
+  
+  @override
+  Widget build(BuildContext context) {
+    return Watch((context) {
+      return Text(
+        'Count: ${counter.value}',
+        style: Theme.of(context).textTheme.headlineMedium,
+      );
+    });
+  }
+}
+```
+
+## InstantProvider
+
+The `InstantProvider` widget provides access to your InstantDB instance throughout your widget tree:
+
+```dart
+class MyApp extends StatelessWidget {
+  final InstantDB db;
+  
+  const MyApp({super.key, required this.db});
+
+  @override
+  Widget build(BuildContext context) {
+    return InstantProvider(
+      db: db,
+      child: MaterialApp(
+        title: 'My App',
+        home: const HomePage(),
+      ),
+    );
+  }
+}
+
+// Access in child widgets
+class HomePage extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final db = InstantProvider.of(context);
+    
+    return Scaffold(
+      body: InstantBuilder(
+        query: {'todos': {}},
+        builder: (context, result) {
+          // Build your UI
+        },
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () => _addTodo(db),
+        child: const Icon(Icons.add),
+      ),
+    );
+  }
+}
+```
+
+## Custom Reactive Widgets
+
+Create your own reactive widgets using the underlying signals:
+
+```dart
+class TodoCounter extends StatelessWidget {
+  const TodoCounter({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final db = InstantProvider.of(context);
+    final todosQuery = db.query({'todos': {}});
+    
+    return Watch((context) {
+      final result = todosQuery.value;
+      
+      if (!result.hasData) {
+        return const Text('...');
+      }
+      
+      final todos = result.data!['todos'] as List;
+      final completed = todos.where((todo) => todo['completed'] == true).length;
+      
+      return Text('$completed / ${todos.length} completed');
+    });
+  }
+}
+```
+
+## Widget Composition
+
+Combine multiple InstantDB widgets for complex UIs:
+
+```dart
+class TodosPage extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Todos'),
+        actions: [
+          // Show todo count in app bar
+          const TodoCounter(),
+          const SizedBox(width: 16),
+        ],
+      ),
+      body: Column(
+        children: [
+          // Add todo form
+          const AddTodoForm(),
+          
+          // Filter tabs
+          const TodoFilters(),
+          
+          // Main todo list
+          Expanded(
+            child: InstantBuilderTyped<List<Todo>>(
+              query: {'todos': {}},
+              transformer: _transformTodos,
+              builder: (context, todos) {
+                return ListView.builder(
+                  itemCount: todos.length,
+                  itemBuilder: (context, index) => TodoTile(
+                    todo: todos[index],
+                    onToggle: () => _toggleTodo(todos[index]),
+                    onDelete: () => _deleteTodo(todos[index].id),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+```
+
+## Performance Considerations
+
+### Optimize Rebuilds
+
+Use `const` constructors when possible:
+
+```dart
+InstantBuilder(
+  query: {'todos': {}},
+  loadingBuilder: (context) => const LoadingSpinner(), // const
+  errorBuilder: (context, error) => ErrorWidget(error: error),
+  builder: (context, result) {
+    final todos = result.data!['todos'] as List;
+    return ListView.builder(
+      itemCount: todos.length,
+      itemBuilder: (context, index) => TodoTile(
+        key: ValueKey(todos[index]['id']), // Stable keys
+        todo: todos[index],
+      ),
+    );
+  },
+)
+```
+
+### Selective Updates
+
+Use specific queries to minimize unnecessary rebuilds:
+
+```dart
+// Instead of querying all todos and filtering in the widget
+InstantBuilder(
+  query: {
+    'todos': {
+      'where': {'userId': currentUserId}, // Filter at query level
+    },
+  },
+  builder: (context, result) {
+    // Only rebuilds when user's todos change
+  },
+)
+```
+
+### Memoization
+
+Use `useMemo` for expensive computations:
+
+```dart
+InstantBuilderTyped<List<Todo>>(
+  query: {'todos': {}},
+  transformer: (data) {
+    // This transformer only runs when data actually changes
+    return (data['todos'] as List)
+        .map((json) => Todo.fromJson(json))
+        .toList();
+  },
+  builder: (context, todos) {
+    // Expensive computation memoized
+    final groupedTodos = useMemo(
+      () => _groupTodosByCategory(todos),
+      [todos],
+    );
+    
+    return CategoryView(groups: groupedTodos);
+  },
+)
+```
+
+## Error Boundaries
+
+Handle errors at the widget level:
+
+```dart
+class TodosWithErrorBoundary extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return ErrorBoundary(
+      onError: (error, stackTrace) {
+        // Log error to analytics
+        Analytics.reportError(error, stackTrace);
+      },
+      child: InstantBuilder(
+        query: {'todos': {}},
+        builder: (context, result) {
+          if (result.hasError) {
+            return ErrorRetryWidget(
+              error: result.error!,
+              onRetry: () => _retryQuery(),
+            );
+          }
+          
+          // Success case
+          return TodosList(data: result.data!);
+        },
+      ),
+    );
+  }
+}
+```
+
+## Next Steps
+
+Learn more about InstantDB Flutter widgets and patterns:
+
+- [Presence Widgets](../../realtime/presence/) - Show real-time user presence
+- [Authentication Widgets](../../auth/widgets/) - Handle user authentication UI
+- [Advanced Patterns](../advanced-patterns/) - Complex widget compositions
+- [Performance Tips](../performance/) - Optimize your reactive UI

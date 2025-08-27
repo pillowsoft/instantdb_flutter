@@ -1,0 +1,667 @@
+---
+title: InstantDB API
+description: Complete API reference for the core InstantDB class
+sidebar:
+  order: 1
+---
+
+import { Code, Tabs, TabItem } from "@astrojs/starlight/components";
+
+The `InstantDB` class is the main entry point for interacting with your InstantDB database. It provides methods for initialization, queries, transactions, authentication, and real-time synchronization.
+
+## Initialization
+
+### `InstantDB.init()`
+
+Initialize a new InstantDB instance.
+
+```dart
+static Future<InstantDB> init({
+  required String appId,
+  InstantConfig config = const InstantConfig(),
+})
+```
+
+**Parameters:**
+- `appId` (`String`): Your InstantDB application ID
+- `config` (`InstantConfig`, optional): Configuration options
+
+**Returns:** `Future<InstantDB>` - The initialized database instance
+
+**Example:**
+```dart
+final db = await InstantDB.init(
+  appId: 'your-app-id',
+  config: const InstantConfig(
+    syncEnabled: true,
+    verboseLogging: false,
+  ),
+);
+```
+
+### `InstantConfig`
+
+Configuration options for InstantDB initialization.
+
+```dart
+class InstantConfig {
+  const InstantConfig({
+    this.syncEnabled = true,
+    this.verboseLogging = false,
+    this.apiUrl = 'https://api.instantdb.com',
+    this.websocketUrl = 'wss://api.instantdb.com/ws',
+  });
+
+  final bool syncEnabled;
+  final bool verboseLogging;
+  final String apiUrl;
+  final String websocketUrl;
+}
+```
+
+**Properties:**
+- `syncEnabled` (`bool`): Enable real-time synchronization (default: `true`)
+- `verboseLogging` (`bool`): Enable detailed debug logging (default: `false`)
+- `apiUrl` (`String`): Custom API endpoint URL
+- `websocketUrl` (`String`): Custom WebSocket endpoint URL
+
+## Core Properties
+
+### `appId`
+
+Get the application ID for this database instance.
+
+```dart
+String get appId
+```
+
+**Returns:** `String` - The application ID
+
+**Example:**
+```dart
+print('Database app ID: ${db.appId}');
+```
+
+### `auth`
+
+Access the authentication manager.
+
+```dart
+AuthManager get auth
+```
+
+**Returns:** `AuthManager` - The authentication manager instance
+
+**Example:**
+```dart
+final currentUser = db.auth.currentUser.value;
+if (currentUser != null) {
+  print('User: ${currentUser.email}');
+}
+```
+
+### `presence`
+
+Access the presence manager for real-time collaboration.
+
+```dart
+PresenceManager get presence
+```
+
+**Returns:** `PresenceManager` - The presence manager instance
+
+**Example:**
+```dart
+final room = db.presence.joinRoom('chat-room');
+await room.setPresence({'status': 'online'});
+```
+
+### `syncEngine`
+
+Access the synchronization engine (nullable).
+
+```dart
+SyncEngine? get syncEngine
+```
+
+**Returns:** `SyncEngine?` - The sync engine instance, null if sync is disabled
+
+**Example:**
+```dart
+final isConnected = db.syncEngine?.connectionStatus.value ?? false;
+print('Connected: $isConnected');
+```
+
+## Query Methods
+
+### `subscribeQuery()`
+
+Create a reactive query that updates automatically when data changes.
+
+```dart
+Signal<QueryResult> subscribeQuery(Map<String, dynamic> query)
+```
+
+**Parameters:**
+- `query` (`Map<String, dynamic>`): The InstaQL query object
+
+**Returns:** `Signal<QueryResult>` - A reactive signal containing query results
+
+**Example:**
+```dart
+final todosSignal = db.subscribeQuery({
+  'todos': {
+    'where': {'completed': false},
+    'orderBy': {'createdAt': 'desc'},
+    'limit': 20,
+  },
+});
+
+// Use in reactive widgets
+Watch((context) {
+  final result = todosSignal.value;
+  final todos = result.data?['todos'] ?? [];
+  return TodoList(todos: todos);
+});
+```
+
+### `queryOnce()`
+
+Execute a one-time query without creating a subscription.
+
+```dart
+Future<QueryResult> queryOnce(Map<String, dynamic> query)
+```
+
+**Parameters:**
+- `query` (`Map<String, dynamic>`): The InstaQL query object
+
+**Returns:** `Future<QueryResult>` - The query result
+
+**Example:**
+```dart
+final result = await db.queryOnce({
+  'users': {
+    'where': {'role': 'admin'},
+    'limit': 5,
+  },
+});
+
+final adminUsers = result.data?['users'] ?? [];
+print('Found ${adminUsers.length} admin users');
+```
+
+## Transaction Methods
+
+### `transact()`
+
+Execute a transaction with a list of operations or transaction chunk.
+
+```dart
+Future<TransactionResult> transact(dynamic transaction)
+```
+
+**Parameters:**
+- `transaction` (`List<Operation>` or `TransactionChunk`): The operations to execute
+
+**Returns:** `Future<TransactionResult>` - The transaction result
+
+**Example:**
+```dart
+// With list of operations
+await db.transact([
+  ...db.create('todos', {
+    'id': db.id(),
+    'text': 'Learn InstantDB',
+    'completed': false,
+  }),
+]);
+
+// With transaction chunk (new tx API)
+await db.transact(
+  db.tx['todos'][todoId].update({'completed': true})
+);
+```
+
+### `transactChunk()` (Deprecated)
+
+Execute a transaction chunk. Use `transact()` instead.
+
+```dart
+@Deprecated('Use transact() instead')
+Future<TransactionResult> transactChunk(TransactionChunk chunk)
+```
+
+### `create()`
+
+Create a new entity operation.
+
+```dart
+List<Operation> create(String entityType, Map<String, dynamic> data)
+```
+
+**Parameters:**
+- `entityType` (`String`): The type of entity to create
+- `data` (`Map<String, dynamic>`): The entity data
+
+**Returns:** `List<Operation>` - List containing the create operation
+
+**Example:**
+```dart
+final operations = db.create('posts', {
+  'id': db.id(),
+  'title': 'Hello World',
+  'content': 'This is my first post',
+  'authorId': userId,
+  'createdAt': DateTime.now().millisecondsSinceEpoch,
+});
+
+await db.transact(operations);
+```
+
+### `update()`
+
+Create an update entity operation.
+
+```dart
+Operation update(String entityId, Map<String, dynamic> data)
+```
+
+**Parameters:**
+- `entityId` (`String`): The ID of the entity to update
+- `data` (`Map<String, dynamic>`): The data to update
+
+**Returns:** `Operation` - The update operation
+
+**Example:**
+```dart
+await db.transact([
+  db.update(postId, {
+    'title': 'Updated Title',
+    'updatedAt': DateTime.now().millisecondsSinceEpoch,
+  }),
+]);
+```
+
+### `delete()`
+
+Create a delete entity operation.
+
+```dart
+Operation delete(String entityId)
+```
+
+**Parameters:**
+- `entityId` (`String`): The ID of the entity to delete
+
+**Returns:** `Operation` - The delete operation
+
+**Example:**
+```dart
+await db.transact([
+  db.delete(postId),
+]);
+```
+
+### `merge()`
+
+Create a deep merge operation.
+
+```dart
+Operation merge(String entityId, Map<String, dynamic> data)
+```
+
+**Parameters:**
+- `entityId` (`String`): The ID of the entity to merge
+- `data` (`Map<String, dynamic>`): The data to deep merge
+
+**Returns:** `Operation` - The merge operation
+
+**Example:**
+```dart
+await db.transact([
+  db.merge(userId, {
+    'preferences': {
+      'theme': 'dark',
+      'notifications': {'email': false},
+    },
+  }),
+]);
+```
+
+### `link()`
+
+Create a link operation between entities.
+
+```dart
+Operation link(String fromId, String linkName, String toId)
+```
+
+**Parameters:**
+- `fromId` (`String`): The source entity ID
+- `linkName` (`String`): The name of the link relationship
+- `toId` (`String`): The target entity ID
+
+**Returns:** `Operation` - The link operation
+
+**Example:**
+```dart
+await db.transact([
+  db.link(userId, 'posts', postId),
+]);
+```
+
+### `unlink()`
+
+Create an unlink operation between entities.
+
+```dart
+Operation unlink(String fromId, String linkName, String toId)
+```
+
+**Parameters:**
+- `fromId` (`String`): The source entity ID
+- `linkName` (`String`): The name of the link relationship
+- `toId` (`String`): The target entity ID
+
+**Returns:** `Operation` - The unlink operation
+
+**Example:**
+```dart
+await db.transact([
+  db.unlink(userId, 'posts', postId),
+]);
+```
+
+## Transaction API (tx namespace)
+
+### `tx`
+
+Access the new transaction API namespace for fluent operations.
+
+```dart
+TransactionNamespace get tx
+```
+
+**Returns:** `TransactionNamespace` - The transaction namespace
+
+**Example:**
+```dart
+// Fluent API for complex operations
+await db.transact(
+  db.tx['users'][userId]
+    .update({'name': 'New Name'})
+    .link({'posts': [postId]})
+    .merge({
+      'preferences': {'theme': 'dark'},
+    })
+);
+```
+
+## Utility Methods
+
+### `id()`
+
+Generate a new UUID for entity IDs.
+
+```dart
+String id()
+```
+
+**Returns:** `String` - A new UUID string
+
+**Example:**
+```dart
+final newId = db.id();
+print('Generated ID: $newId'); // e.g., "123e4567-e89b-12d3-a456-426614174000"
+
+await db.transact([
+  ...db.create('items', {
+    'id': newId,
+    'name': 'New Item',
+  }),
+]);
+```
+
+### `lookup()`
+
+Create a lookup reference for referencing entities by attribute instead of ID.
+
+```dart
+LookupRef lookup(String entityType, String attribute, dynamic value)
+```
+
+**Parameters:**
+- `entityType` (`String`): The type of entity to lookup
+- `attribute` (`String`): The attribute to match against
+- `value` (`dynamic`): The value to match
+
+**Returns:** `LookupRef` - A lookup reference object
+
+**Example:**
+```dart
+// Reference user by email instead of ID
+await db.transact([
+  ...db.create('posts', {
+    'id': db.id(),
+    'title': 'Hello World',
+    'authorId': lookup('users', 'email', 'john@example.com'),
+  }),
+]);
+
+// Use in queries
+final posts = db.subscribeQuery({
+  'posts': {
+    'where': {
+      'author': lookup('users', 'email', 'john@example.com'),
+    },
+  },
+});
+```
+
+## Authentication Helpers
+
+### `getAuth()`
+
+Get the current authentication state (one-time check).
+
+```dart
+AuthUser? getAuth()
+```
+
+**Returns:** `AuthUser?` - The current user, or null if not authenticated
+
+**Example:**
+```dart
+final currentUser = db.getAuth();
+if (currentUser != null) {
+  print('Logged in as: ${currentUser.email}');
+} else {
+  print('Not logged in');
+}
+```
+
+### `subscribeAuth()`
+
+Get a reactive signal for authentication state changes.
+
+```dart
+Signal<AuthUser?> subscribeAuth()
+```
+
+**Returns:** `Signal<AuthUser?>` - A reactive signal for auth state
+
+**Example:**
+```dart
+Watch((context) {
+  final user = db.subscribeAuth().value;
+  return user != null 
+    ? Text('Welcome, ${user.email}')
+    : Text('Please sign in');
+});
+```
+
+### `getAnonymousUserId()`
+
+Get or generate an anonymous user ID for presence and collaboration.
+
+```dart
+String getAnonymousUserId()
+```
+
+**Returns:** `String` - An anonymous user ID
+
+**Example:**
+```dart
+final anonymousId = db.getAnonymousUserId();
+final room = db.presence.joinRoom('public-room', initialPresence: {
+  'userId': anonymousId,
+  'userName': 'Guest ${anonymousId.substring(0, 4)}',
+});
+```
+
+## Lifecycle Methods
+
+### `dispose()`
+
+Clean up database resources and connections.
+
+```dart
+Future<void> dispose()
+```
+
+**Returns:** `Future<void>`
+
+**Example:**
+```dart
+@override
+void dispose() {
+  super.dispose();
+  // Clean up database when app is disposed
+  db.dispose();
+}
+```
+
+## Error Handling
+
+All InstantDB methods can throw `InstantException` for database-related errors:
+
+```dart
+try {
+  await db.transact([
+    ...db.create('invalid', {}), // Missing required fields
+  ]);
+} on InstantException catch (e) {
+  print('InstantDB Error: ${e.code}');
+  print('Message: ${e.message}');
+  
+  // Handle specific error types
+  switch (e.code) {
+    case 'validation_error':
+      // Handle validation errors
+      break;
+    case 'network_error':
+      // Handle network issues
+      break;
+    case 'auth_error':
+      // Handle authentication errors
+      break;
+  }
+} catch (e) {
+  print('Unexpected error: $e');
+}
+```
+
+## Complete Example
+
+Here's a complete example showing common InstantDB operations:
+
+```dart
+class TodoService {
+  final InstantDB db;
+
+  TodoService(this.db);
+
+  // Get reactive todos
+  Signal<QueryResult> getTodos({bool? completed}) {
+    return db.subscribeQuery({
+      'todos': {
+        if (completed != null) 'where': {'completed': completed},
+        'orderBy': {'createdAt': 'desc'},
+      },
+    });
+  }
+
+  // Create a new todo
+  Future<void> createTodo({
+    required String text,
+    bool completed = false,
+  }) async {
+    await db.transact([
+      ...db.create('todos', {
+        'id': db.id(),
+        'text': text,
+        'completed': completed,
+        'createdAt': DateTime.now().millisecondsSinceEpoch,
+        'userId': db.auth.currentUser.value?.id,
+      }),
+    ]);
+  }
+
+  // Update todo using new tx API
+  Future<void> updateTodo(String todoId, {String? text, bool? completed}) async {
+    final updates = <String, dynamic>{};
+    if (text != null) updates['text'] = text;
+    if (completed != null) updates['completed'] = completed;
+    updates['updatedAt'] = DateTime.now().millisecondsSinceEpoch;
+
+    await db.transact(
+      db.tx['todos'][todoId].update(updates)
+    );
+  }
+
+  // Delete todo
+  Future<void> deleteTodo(String todoId) async {
+    await db.transact([db.delete(todoId)]);
+  }
+
+  // Get todos by user email (using lookup)
+  Signal<QueryResult> getTodosByUser(String email) {
+    return db.subscribeQuery({
+      'todos': {
+        'where': {
+          'user': lookup('users', 'email', email),
+        },
+      },
+    });
+  }
+
+  // Bulk operations
+  Future<void> markAllCompleted() async {
+    final result = await db.queryOnce({
+      'todos': {'where': {'completed': false}},
+    });
+    
+    final todos = (result.data?['todos'] as List? ?? [])
+        .cast<Map<String, dynamic>>();
+
+    final operations = todos.map((todo) => 
+      db.update(todo['id'], {'completed': true})
+    ).toList();
+
+    if (operations.isNotEmpty) {
+      await db.transact(operations);
+    }
+  }
+}
+```
+
+## Next Steps
+
+Explore specific API areas:
+
+- [Transactions API](../transactions/) - Detailed transaction and operation methods
+- [Queries API](../queries/) - Advanced querying and InstaQL syntax
+- [Presence API](../presence-api/) - Real-time collaboration methods
+- [Flutter Widgets](../widgets/) - Reactive UI components
+- [Types Reference](../types/) - Complete type definitions

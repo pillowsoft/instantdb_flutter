@@ -1,0 +1,898 @@
+---
+title: Migration Strategies
+description: Upgrading InstantDB Flutter and handling data migrations
+sidebar:
+  order: 4
+---
+
+import { Code, Tabs, TabItem } from "@astrojs/starlight/components";
+
+Handle InstantDB Flutter package updates, data migrations, and schema changes with confidence using proven migration strategies and tools.
+
+## Package Updates
+
+### Semantic Versioning
+
+InstantDB Flutter follows semantic versioning (semver):
+
+- **Patch releases** (0.1.1 → 0.1.2): Bug fixes, no breaking changes
+- **Minor releases** (0.1.0 → 0.2.0): New features, backward compatible
+- **Major releases** (0.1.0 → 1.0.0): Breaking changes, requires migration
+
+### Safe Update Process
+
+Follow this process for safe updates:
+
+```dart
+// 1. Check current version
+void checkCurrentVersion() {
+  // Add to pubspec.yaml temporarily to see current version
+  print('Current InstantDB version: check pubspec.yaml');
+}
+
+// 2. Read changelog before updating
+// Always check CHANGELOG.md on GitHub or pub.dev
+
+// 3. Update in development first
+// Test thoroughly in development before production
+
+// 4. Create backup of critical data if needed
+Future<void> backupCriticalData(InstantDB db) async {
+  final criticalEntities = ['users', 'payments', 'orders'];
+  final backup = <String, List<Map<String, dynamic>>>{};
+  
+  for (final entityType in criticalEntities) {
+    final result = await db.queryOnce({entityType: {}});
+    backup[entityType] = (result.data?[entityType] as List? ?? [])
+        .cast<Map<String, dynamic>>();
+  }
+  
+  // Save backup to file or external storage
+  await _saveBackup(backup);
+}
+
+Future<void> _saveBackup(Map<String, dynamic> backup) async {
+  // Implementation depends on your backup strategy
+  // Could be local file, cloud storage, etc.
+}
+```
+
+### Breaking Changes Migration
+
+Handle breaking changes systematically:
+
+```dart
+class MigrationManager {
+  final String fromVersion;
+  final String toVersion;
+  
+  MigrationManager({
+    required this.fromVersion,
+    required this.toVersion,
+  });
+
+  Future<void> migrate(InstantDB db) async {
+    print('Migrating from $fromVersion to $toVersion');
+    
+    // Apply migrations based on version ranges
+    if (_shouldApply('0.1.0', '0.2.0')) {
+      await _migrateFrom01To02(db);
+    }
+    
+    if (_shouldApply('0.2.0', '1.0.0')) {
+      await _migrateFrom02To10(db);
+    }
+    
+    // Update stored version
+    await _setMigrationVersion(toVersion);
+  }
+
+  bool _shouldApply(String minVersion, String maxVersion) {
+    // Implement version comparison logic
+    return _isVersionInRange(fromVersion, minVersion, maxVersion);
+  }
+
+  bool _isVersionInRange(String version, String min, String max) {
+    // Simple version comparison - you might want a more robust implementation
+    final versionParts = version.split('.').map(int.parse).toList();
+    final minParts = min.split('.').map(int.parse).toList();
+    final maxParts = max.split('.').map(int.parse).toList();
+    
+    return _compareVersions(versionParts, minParts) >= 0 &&
+           _compareVersions(versionParts, maxParts) < 0;
+  }
+
+  int _compareVersions(List<int> v1, List<int> v2) {
+    for (int i = 0; i < 3; i++) {
+      final diff = v1[i] - v2[i];
+      if (diff != 0) return diff;
+    }
+    return 0;
+  }
+
+  // Example migration from 0.1.0 to 0.2.0
+  Future<void> _migrateFrom01To02(InstantDB db) async {
+    print('Applying 0.1.0 → 0.2.0 migration');
+    
+    // Example: API change in transaction methods
+    // Old: db.transactChunk() → New: db.transact()
+    // This would be handled automatically by the package,
+    // but you might need to update your code
+    
+    // Example: Schema changes
+    await _updateUserSchema(db);
+  }
+
+  Future<void> _migrateFrom02To10(InstantDB db) async {
+    print('Applying 0.2.0 → 1.0.0 migration');
+    
+    // Major version might have significant changes
+    await _updateAuthSystem(db);
+    await _migratePresenceSystem(db);
+  }
+
+  Future<void> _updateUserSchema(InstantDB db) async {
+    // Example: Add new required fields to existing users
+    final users = await db.queryOnce({'users': {}});
+    final userList = (users.data?['users'] as List? ?? [])
+        .cast<Map<String, dynamic>>();
+
+    final operations = <Operation>[];
+    
+    for (final user in userList) {
+      if (!user.containsKey('profileVersion')) {
+        operations.add(
+          db.update(user['id'], {
+            'profileVersion': 2,
+            'preferences': {
+              'notifications': true,
+              'theme': 'auto',
+            },
+          }),
+        );
+      }
+    }
+
+    if (operations.isNotEmpty) {
+      await db.transact(operations);
+      print('Updated ${operations.length} user profiles');
+    }
+  }
+
+  Future<void> _updateAuthSystem(InstantDB db) async {
+    // Example: Migration for auth system changes
+    print('Updating auth system...');
+    
+    // Handle auth token format changes, session migration, etc.
+    final currentUser = db.auth.currentUser.value;
+    if (currentUser != null) {
+      // Refresh user data with new format
+      await db.auth.refreshUser();
+    }
+  }
+
+  Future<void> _migratePresenceSystem(InstantDB db) async {
+    // Example: Presence API changes
+    print('Migrating presence system...');
+    
+    // Clean up old presence data that might be incompatible
+    // This is conceptual - actual implementation depends on changes
+  }
+
+  Future<void> _setMigrationVersion(String version) async {
+    // Store migration version in local storage
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('instantdb_migration_version', version);
+  }
+}
+```
+
+### Automated Migration Runner
+
+Create an automated migration system:
+
+```dart
+class AutoMigrationRunner {
+  static const String _versionKey = 'instantdb_migration_version';
+  static const String _currentVersion = '1.0.0'; // Your current package version
+
+  static Future<void> runMigrationsIfNeeded(InstantDB db) async {
+    final prefs = await SharedPreferences.getInstance();
+    final storedVersion = prefs.getString(_versionKey);
+
+    if (storedVersion == null) {
+      // First install - no migration needed
+      await prefs.setString(_versionKey, _currentVersion);
+      return;
+    }
+
+    if (storedVersion != _currentVersion) {
+      print('Migration needed: $storedVersion → $_currentVersion');
+      await _runMigrations(db, storedVersion, _currentVersion);
+    }
+  }
+
+  static Future<void> _runMigrations(
+    InstantDB db,
+    String fromVersion,
+    String toVersion,
+  ) async {
+    try {
+      final migrationManager = MigrationManager(
+        fromVersion: fromVersion,
+        toVersion: toVersion,
+      );
+
+      await migrationManager.migrate(db);
+      
+      // Update stored version
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_versionKey, toVersion);
+      
+      print('Migration completed successfully');
+    } catch (e) {
+      print('Migration failed: $e');
+      // Handle migration failure - might need manual intervention
+      rethrow;
+    }
+  }
+}
+
+// Usage in your app initialization
+Future<void> initializeApp() async {
+  final db = await InstantDB.init(
+    appId: 'your-app-id',
+    config: const InstantConfig(syncEnabled: true),
+  );
+
+  // Run migrations before using the database
+  await AutoMigrationRunner.runMigrationsIfNeeded(db);
+
+  runApp(MyApp(db: db));
+}
+```
+
+## Schema Migrations
+
+### Adding New Fields
+
+Safely add new fields to existing entities:
+
+```dart
+class SchemaMigration {
+  final InstantDB db;
+
+  SchemaMigration(this.db);
+
+  Future<void> addFieldToEntity({
+    required String entityType,
+    required String fieldName,
+    required dynamic defaultValue,
+  }) async {
+    print('Adding field $fieldName to $entityType entities');
+
+    // Query entities that don't have the new field
+    final result = await db.queryOnce({entityType: {}});
+    final entities = (result.data?[entityType] as List? ?? [])
+        .cast<Map<String, dynamic>>();
+
+    final operations = <Operation>[];
+
+    for (final entity in entities) {
+      if (!entity.containsKey(fieldName)) {
+        operations.add(
+          db.update(entity['id'], {fieldName: defaultValue}),
+        );
+      }
+    }
+
+    if (operations.isNotEmpty) {
+      // Process in batches to avoid overwhelming the system
+      await _processBatches(operations, batchSize: 50);
+      print('Added $fieldName to ${operations.length} entities');
+    } else {
+      print('All $entityType entities already have $fieldName field');
+    }
+  }
+
+  Future<void> _processBatches(
+    List<Operation> operations, {
+    int batchSize = 50,
+  }) async {
+    for (int i = 0; i < operations.length; i += batchSize) {
+      final batch = operations.skip(i).take(batchSize).toList();
+      await db.transact(batch);
+      
+      // Small delay between batches to avoid overwhelming the system
+      await Future.delayed(const Duration(milliseconds: 100));
+      
+      print('Processed batch ${(i / batchSize).ceil() + 1}/${(operations.length / batchSize).ceil()}');
+    }
+  }
+
+  Future<void> removeFieldFromEntity({
+    required String entityType,
+    required String fieldName,
+  }) async {
+    print('Removing field $fieldName from $entityType entities');
+
+    final result = await db.queryOnce({entityType: {}});
+    final entities = (result.data?[entityType] as List? ?? [])
+        .cast<Map<String, dynamic>>();
+
+    final operations = <Operation>[];
+
+    for (final entity in entities) {
+      if (entity.containsKey(fieldName)) {
+        final updatedEntity = Map<String, dynamic>.from(entity);
+        updatedEntity.remove(fieldName);
+        
+        operations.add(
+          db.update(entity['id'], updatedEntity),
+        );
+      }
+    }
+
+    if (operations.isNotEmpty) {
+      await _processBatches(operations);
+      print('Removed $fieldName from ${operations.length} entities');
+    }
+  }
+
+  Future<void> renameField({
+    required String entityType,
+    required String oldFieldName,
+    required String newFieldName,
+  }) async {
+    print('Renaming field $oldFieldName to $newFieldName in $entityType');
+
+    final result = await db.queryOnce({entityType: {}});
+    final entities = (result.data?[entityType] as List? ?? [])
+        .cast<Map<String, dynamic>>();
+
+    final operations = <Operation>[];
+
+    for (final entity in entities) {
+      if (entity.containsKey(oldFieldName) && !entity.containsKey(newFieldName)) {
+        final value = entity[oldFieldName];
+        operations.add(
+          db.update(entity['id'], {
+            newFieldName: value,
+            // Remove old field by setting it to null or omitting it
+          }),
+        );
+      }
+    }
+
+    if (operations.isNotEmpty) {
+      await _processBatches(operations);
+      print('Renamed field in ${operations.length} entities');
+    }
+  }
+
+  Future<void> transformFieldValues({
+    required String entityType,
+    required String fieldName,
+    required dynamic Function(dynamic oldValue) transformer,
+  }) async {
+    print('Transforming $fieldName values in $entityType');
+
+    final result = await db.queryOnce({entityType: {}});
+    final entities = (result.data?[entityType] as List? ?? [])
+        .cast<Map<String, dynamic>>();
+
+    final operations = <Operation>[];
+
+    for (final entity in entities) {
+      if (entity.containsKey(fieldName)) {
+        final oldValue = entity[fieldName];
+        final newValue = transformer(oldValue);
+        
+        if (oldValue != newValue) {
+          operations.add(
+            db.update(entity['id'], {fieldName: newValue}),
+          );
+        }
+      }
+    }
+
+    if (operations.isNotEmpty) {
+      await _processBatches(operations);
+      print('Transformed $fieldName in ${operations.length} entities');
+    }
+  }
+}
+
+// Usage examples
+Future<void> runSchemaMigrations(InstantDB db) async {
+  final migration = SchemaMigration(db);
+
+  // Add new field with default value
+  await migration.addFieldToEntity(
+    entityType: 'users',
+    fieldName: 'lastLoginAt',
+    defaultValue: 0,
+  );
+
+  // Transform existing data
+  await migration.transformFieldValues(
+    entityType: 'posts',
+    fieldName: 'createdAt',
+    transformer: (oldValue) {
+      // Convert string dates to timestamps
+      if (oldValue is String) {
+        return DateTime.parse(oldValue).millisecondsSinceEpoch;
+      }
+      return oldValue;
+    },
+  );
+
+  // Rename field
+  await migration.renameField(
+    entityType: 'todos',
+    oldFieldName: 'done',
+    newFieldName: 'completed',
+  );
+}
+```
+
+## Data Migrations
+
+### Complex Data Transformations
+
+Handle complex data structure changes:
+
+```dart
+class DataMigrationRunner {
+  final InstantDB db;
+
+  DataMigrationRunner(this.db);
+
+  Future<void> migrateUserProfiles() async {
+    // Example: Migrate from flat user structure to nested profile
+    print('Migrating user profiles to new structure');
+
+    final users = await db.queryOnce({'users': {}});
+    final userList = (users.data?['users'] as List? ?? [])
+        .cast<Map<String, dynamic>>();
+
+    final operations = <Operation>[];
+
+    for (final user in userList) {
+      // Check if migration is needed
+      if (user.containsKey('firstName') && !user.containsKey('profile')) {
+        final newProfile = {
+          'personal': {
+            'firstName': user['firstName'],
+            'lastName': user['lastName'],
+            'dateOfBirth': user['dateOfBirth'],
+          },
+          'contact': {
+            'email': user['email'],
+            'phone': user['phone'],
+          },
+          'preferences': {
+            'notifications': user['notifications'] ?? true,
+            'theme': user['theme'] ?? 'auto',
+            'language': user['language'] ?? 'en',
+          },
+        };
+
+        // Create new structure and remove old fields
+        final updatedUser = <String, dynamic>{
+          'profile': newProfile,
+          'updatedAt': DateTime.now().millisecondsSinceEpoch,
+        };
+
+        operations.add(db.update(user['id'], updatedUser));
+      }
+    }
+
+    if (operations.isNotEmpty) {
+      await _processBatchOperations(operations);
+      print('Migrated ${operations.length} user profiles');
+    }
+  }
+
+  Future<void> migratePostsWithTags() async {
+    // Example: Migrate from tag strings to tag objects
+    print('Migrating posts with tags');
+
+    final posts = await db.queryOnce({'posts': {}});
+    final postList = (posts.data?['posts'] as List? ?? [])
+        .cast<Map<String, dynamic>>();
+
+    final operations = <Operation>[];
+    final tagMap = <String, String>{}; // tagName -> tagId
+
+    for (final post in postList) {
+      final tags = post['tags'] as List?;
+      if (tags != null && tags.isNotEmpty && tags.first is String) {
+        // Convert string tags to tag objects
+        final newTags = <Map<String, dynamic>>[];
+
+        for (final tagName in tags.cast<String>()) {
+          // Get or create tag ID
+          if (!tagMap.containsKey(tagName)) {
+            tagMap[tagName] = db.id();
+            
+            // Create tag entity
+            operations.add(
+              ...db.create('tags', {
+                'id': tagMap[tagName]!,
+                'name': tagName,
+                'createdAt': DateTime.now().millisecondsSinceEpoch,
+              }),
+            );
+          }
+
+          newTags.add({
+            'id': tagMap[tagName]!,
+            'name': tagName,
+          });
+        }
+
+        // Update post with new tag structure
+        operations.add(
+          db.update(post['id'], {
+            'tags': newTags,
+            'updatedAt': DateTime.now().millisecondsSinceEpoch,
+          }),
+        );
+      }
+    }
+
+    if (operations.isNotEmpty) {
+      await _processBatchOperations(operations);
+      print('Migrated ${postList.length} posts and created ${tagMap.length} tags');
+    }
+  }
+
+  Future<void> _processBatchOperations(
+    List<Operation> operations, {
+    int batchSize = 25,
+  }) async {
+    for (int i = 0; i < operations.length; i += batchSize) {
+      final batch = operations.skip(i).take(batchSize).toList();
+      
+      try {
+        await db.transact(batch);
+        print('Processed batch ${(i / batchSize).floor() + 1}');
+      } catch (e) {
+        print('Batch failed: $e');
+        // Decide whether to continue or abort
+        rethrow;
+      }
+      
+      // Small delay to avoid overwhelming the system
+      await Future.delayed(const Duration(milliseconds: 200));
+    }
+  }
+}
+```
+
+## Rollback Strategies
+
+### Safe Migration with Rollback
+
+Implement rollback capabilities for failed migrations:
+
+```dart
+class SafeMigrationRunner {
+  final InstantDB db;
+  final List<MigrationStep> _steps = [];
+
+  SafeMigrationRunner(this.db);
+
+  void addStep(MigrationStep step) {
+    _steps.add(step);
+  }
+
+  Future<void> runWithRollback() async {
+    final completedSteps = <MigrationStep>[];
+
+    try {
+      for (final step in _steps) {
+        print('Running migration step: ${step.name}');
+        await step.execute(db);
+        completedSteps.add(step);
+        print('Completed: ${step.name}');
+      }
+    } catch (e) {
+      print('Migration failed at step: ${completedSteps.length + 1}');
+      print('Rolling back...');
+
+      // Rollback completed steps in reverse order
+      for (final step in completedSteps.reversed) {
+        try {
+          print('Rolling back: ${step.name}');
+          await step.rollback(db);
+        } catch (rollbackError) {
+          print('Rollback failed for ${step.name}: $rollbackError');
+          // Continue with other rollbacks
+        }
+      }
+
+      rethrow;
+    }
+  }
+}
+
+abstract class MigrationStep {
+  String get name;
+  Future<void> execute(InstantDB db);
+  Future<void> rollback(InstantDB db);
+}
+
+class AddFieldMigrationStep implements MigrationStep {
+  final String entityType;
+  final String fieldName;
+  final dynamic defaultValue;
+
+  AddFieldMigrationStep({
+    required this.entityType,
+    required this.fieldName,
+    required this.defaultValue,
+  });
+
+  @override
+  String get name => 'Add $fieldName to $entityType';
+
+  @override
+  Future<void> execute(InstantDB db) async {
+    final migration = SchemaMigration(db);
+    await migration.addFieldToEntity(
+      entityType: entityType,
+      fieldName: fieldName,
+      defaultValue: defaultValue,
+    );
+  }
+
+  @override
+  Future<void> rollback(InstantDB db) async {
+    final migration = SchemaMigration(db);
+    await migration.removeFieldFromEntity(
+      entityType: entityType,
+      fieldName: fieldName,
+    );
+  }
+}
+
+// Usage
+Future<void> runSafeMigration(InstantDB db) async {
+  final runner = SafeMigrationRunner(db);
+
+  runner.addStep(AddFieldMigrationStep(
+    entityType: 'users',
+    fieldName: 'profileVersion',
+    defaultValue: 2,
+  ));
+
+  runner.addStep(CustomMigrationStep(
+    name: 'Update user preferences',
+    executeAction: (db) => _updateUserPreferences(db),
+    rollbackAction: (db) => _revertUserPreferences(db),
+  ));
+
+  await runner.runWithRollback();
+}
+```
+
+## Testing Migrations
+
+### Migration Testing Framework
+
+Create comprehensive tests for your migrations:
+
+```dart
+class MigrationTestSuite {
+  late InstantDB testDb;
+
+  Future<void> setUp() async {
+    // Create test database instance
+    testDb = await InstantDB.init(
+      appId: 'test-app-id',
+      config: const InstantConfig(syncEnabled: false), // Offline for testing
+    );
+  }
+
+  Future<void> tearDown() async {
+    // Clean up test data
+    await testDb.dispose();
+  }
+
+  Future<void> testUserProfileMigration() async {
+    // 1. Create test data in old format
+    await _createOldFormatUsers();
+
+    // 2. Run migration
+    final migration = DataMigrationRunner(testDb);
+    await migration.migrateUserProfiles();
+
+    // 3. Verify migration results
+    await _verifyUserProfileMigration();
+  }
+
+  Future<void> _createOldFormatUsers() async {
+    final operations = [
+      ...testDb.create('users', {
+        'id': testDb.id(),
+        'firstName': 'John',
+        'lastName': 'Doe',
+        'email': 'john@example.com',
+        'phone': '+1234567890',
+        'notifications': true,
+        'theme': 'dark',
+      }),
+      ...testDb.create('users', {
+        'id': testDb.id(),
+        'firstName': 'Jane',
+        'lastName': 'Smith',
+        'email': 'jane@example.com',
+        'phone': '+0987654321',
+        'notifications': false,
+        'theme': 'light',
+      }),
+    ];
+
+    await testDb.transact(operations);
+  }
+
+  Future<void> _verifyUserProfileMigration() async {
+    final result = await testDb.queryOnce({'users': {}});
+    final users = (result.data?['users'] as List? ?? [])
+        .cast<Map<String, dynamic>>();
+
+    for (final user in users) {
+      // Verify new structure exists
+      expect(user['profile'], isNotNull);
+      expect(user['profile']['personal'], isNotNull);
+      expect(user['profile']['contact'], isNotNull);
+      expect(user['profile']['preferences'], isNotNull);
+
+      // Verify data was migrated correctly
+      final profile = user['profile'] as Map<String, dynamic>;
+      expect(profile['personal']['firstName'], isNotEmpty);
+      expect(profile['contact']['email'], contains('@'));
+
+      // Verify old fields are removed
+      expect(user.containsKey('firstName'), isFalse);
+      expect(user.containsKey('lastName'), isFalse);
+    }
+  }
+
+  Future<void> testMigrationRollback() async {
+    // Test that rollback works correctly
+    await _createOldFormatUsers();
+
+    final runner = SafeMigrationRunner(testDb);
+    runner.addStep(AddFieldMigrationStep(
+      entityType: 'users',
+      fieldName: 'testField',
+      defaultValue: 'test',
+    ));
+
+    // Force a failure in the second step to test rollback
+    runner.addStep(FailingMigrationStep());
+
+    try {
+      await runner.runWithRollback();
+      fail('Migration should have failed');
+    } catch (e) {
+      // Verify rollback occurred
+      final result = await testDb.queryOnce({'users': {}});
+      final users = (result.data?['users'] as List? ?? [])
+          .cast<Map<String, dynamic>>();
+
+      for (final user in users) {
+        expect(user.containsKey('testField'), isFalse);
+      }
+    }
+  }
+}
+
+class FailingMigrationStep implements MigrationStep {
+  @override
+  String get name => 'Failing step';
+
+  @override
+  Future<void> execute(InstantDB db) async {
+    throw Exception('Intentional failure for testing');
+  }
+
+  @override
+  Future<void> rollback(InstantDB db) async {
+    // Nothing to rollback
+  }
+}
+```
+
+## Best Practices
+
+### 1. Version Your Migrations
+
+```dart
+class VersionedMigration {
+  final String version;
+  final String description;
+  final Future<void> Function(InstantDB) migration;
+
+  VersionedMigration({
+    required this.version,
+    required this.description,
+    required this.migration,
+  });
+}
+
+final migrations = [
+  VersionedMigration(
+    version: '1.1.0',
+    description: 'Add user preferences',
+    migration: (db) => _addUserPreferences(db),
+  ),
+  VersionedMigration(
+    version: '1.2.0',
+    description: 'Migrate posts to new format',
+    migration: (db) => _migratePostFormat(db),
+  ),
+];
+```
+
+### 2. Make Migrations Idempotent
+
+```dart
+Future<void> idempotentMigration(InstantDB db) async {
+  // Check if migration already applied
+  final users = await db.queryOnce({'users': {'limit': 1}});
+  final userList = (users.data?['users'] as List? ?? []);
+  
+  if (userList.isNotEmpty) {
+    final firstUser = userList.first as Map<String, dynamic>;
+    if (firstUser.containsKey('profileVersion')) {
+      print('Migration already applied');
+      return;
+    }
+  }
+  
+  // Run migration
+  await _actualMigration(db);
+}
+```
+
+### 3. Monitor Migration Performance
+
+```dart
+Future<void> monitoredMigration(InstantDB db) async {
+  final stopwatch = Stopwatch()..start();
+  
+  try {
+    await _runMigration(db);
+    print('Migration completed in ${stopwatch.elapsedMilliseconds}ms');
+  } catch (e) {
+    print('Migration failed after ${stopwatch.elapsedMilliseconds}ms: $e');
+    rethrow;
+  }
+}
+```
+
+### 4. Document Migration Impact
+
+```dart
+/// Migration: Add user preferences
+/// Impact: All existing users will get default preferences
+/// Rollback: Remove preferences field from all users
+/// Estimated time: ~30 seconds for 10k users
+/// Dependencies: None
+Future<void> documentedMigration(InstantDB db) async {
+  // Implementation
+}
+```
+
+## Next Steps
+
+Learn more about maintaining robust InstantDB applications:
+
+- [Troubleshooting](../troubleshooting/) - Debug migration issues
+- [Performance Optimization](../performance/) - Optimize migration performance
+- [Offline Functionality](../offline/) - Handle migrations while offline
+- [API Reference](../../api/) - Complete API documentation for migrations

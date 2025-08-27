@@ -1,0 +1,985 @@
+---
+title: Permissions & Access Control
+description: Role-based access control and permission management in InstantDB Flutter
+sidebar:
+  order: 3
+---
+
+import { Code, Tabs, TabItem } from "@astrojs/starlight/components";
+
+InstantDB provides flexible permission systems through user roles, entity-level access control, and custom permission logic. Build secure applications with fine-grained access control that scales with your needs.
+
+## Understanding Permissions
+
+### Permission Concepts
+
+InstantDB permissions are based on several key concepts:
+
+- **User Roles**: Define what a user can do (admin, editor, viewer)
+- **Entity Access**: Control access to specific data entities
+- **Operation Permissions**: Control create, read, update, delete operations
+- **Attribute-level Access**: Control access to specific fields
+
+## User Roles
+
+### Basic Role System
+
+Implement a simple role-based system:
+
+```dart
+enum UserRole {
+  admin,
+  editor,
+  viewer,
+  guest,
+}
+
+extension UserRoleExtension on UserRole {
+  String get displayName {
+    switch (this) {
+      case UserRole.admin:
+        return 'Administrator';
+      case UserRole.editor:
+        return 'Editor';
+      case UserRole.viewer:
+        return 'Viewer';
+      case UserRole.guest:
+        return 'Guest';
+    }
+  }
+
+  bool get canWrite {
+    return this == UserRole.admin || this == UserRole.editor;
+  }
+
+  bool get canDelete {
+    return this == UserRole.admin;
+  }
+
+  bool get canManageUsers {
+    return this == UserRole.admin;
+  }
+}
+
+class UserPermissions {
+  final AuthUser user;
+  late final UserRole role;
+
+  UserPermissions(this.user) {
+    // Extract role from user metadata
+    final roleString = user.metadata?['role'] as String?;
+    role = UserRole.values.firstWhere(
+      (r) => r.name == roleString,
+      orElse: () => UserRole.guest,
+    );
+  }
+
+  bool canRead(String entityType) {
+    // All authenticated users can read
+    return true;
+  }
+
+  bool canCreate(String entityType) {
+    switch (entityType) {
+      case 'posts':
+      case 'comments':
+        return role.canWrite;
+      case 'users':
+        return role.canManageUsers;
+      default:
+        return role.canWrite;
+    }
+  }
+
+  bool canUpdate(String entityType, Map<String, dynamic> entity) {
+    // Users can update their own content
+    if (entity['authorId'] == user.id) return true;
+    
+    // Admins can update anything
+    if (role == UserRole.admin) return true;
+    
+    // Editors can update posts and comments
+    if (role == UserRole.editor && 
+        ['posts', 'comments'].contains(entityType)) {
+      return true;
+    }
+    
+    return false;
+  }
+
+  bool canDelete(String entityType, Map<String, dynamic> entity) {
+    // Only admins can delete, or users can delete their own content
+    return role == UserRole.admin || entity['authorId'] == user.id;
+  }
+}
+```
+
+### Role Management UI
+
+Create interfaces for managing user roles:
+
+```dart
+class RoleManagementScreen extends StatefulWidget {
+  @override
+  State<RoleManagementScreen> createState() => _RoleManagementScreenState();
+}
+
+class _RoleManagementScreenState extends State<RoleManagementScreen> {
+  @override
+  Widget build(BuildContext context) {
+    final db = InstantProvider.of(context);
+    final currentUser = db.auth.currentUser.value!;
+    final userPermissions = UserPermissions(currentUser);
+
+    if (!userPermissions.canManageUsers) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Access Denied')),
+        body: const Center(
+          child: Text('You do not have permission to manage users.'),
+        ),
+      );
+    }
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Role Management'),
+      ),
+      body: InstantBuilder(
+        query: {
+          'users': {
+            'orderBy': {'createdAt': 'desc'},
+          }
+        },
+        builder: (context, result) {
+          final users = (result.data?['users'] as List? ?? [])
+              .cast<Map<String, dynamic>>();
+
+          return ListView.builder(
+            itemCount: users.length,
+            itemBuilder: (context, index) {
+              final user = users[index];
+              return UserRoleCard(
+                user: user,
+                onRoleChanged: (newRole) => _updateUserRole(user['id'], newRole),
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+
+  Future<void> _updateUserRole(String userId, UserRole newRole) async {
+    final db = InstantProvider.of(context);
+    
+    await db.transact([
+      db.update(userId, {
+        'role': newRole.name,
+        'updatedAt': DateTime.now().millisecondsSinceEpoch,
+      }),
+    ]);
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('User role updated to ${newRole.displayName}'),
+      ),
+    );
+  }
+}
+
+class UserRoleCard extends StatelessWidget {
+  final Map<String, dynamic> user;
+  final Function(UserRole) onRoleChanged;
+
+  const UserRoleCard({
+    super.key,
+    required this.user,
+    required this.onRoleChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final currentRole = UserRole.values.firstWhere(
+      (r) => r.name == (user['role'] as String? ?? 'guest'),
+      orElse: () => UserRole.guest,
+    );
+
+    return Card(
+      margin: const EdgeInsets.all(8),
+      child: ListTile(
+        leading: CircleAvatar(
+          child: Text(user['email']?.toString().substring(0, 1).toUpperCase() ?? '?'),
+        ),
+        title: Text(user['email']?.toString() ?? 'Unknown'),
+        subtitle: Text('Role: ${currentRole.displayName}'),
+        trailing: DropdownButton<UserRole>(
+          value: currentRole,
+          onChanged: (newRole) {
+            if (newRole != null) {
+              onRoleChanged(newRole);
+            }
+          },
+          items: UserRole.values.map((role) {
+            return DropdownMenuItem(
+              value: role,
+              child: Text(role.displayName),
+            );
+          }).toList(),
+        ),
+      ),
+    );
+  }
+}
+```
+
+## Entity-Level Permissions
+
+### Ownership-Based Access
+
+Implement ownership-based permissions:
+
+```dart
+class OwnershipPermissions {
+  final AuthUser currentUser;
+
+  OwnershipPermissions(this.currentUser);
+
+  bool canAccess(Map<String, dynamic> entity, String operation) {
+    switch (operation) {
+      case 'read':
+        return _canRead(entity);
+      case 'update':
+        return _canUpdate(entity);
+      case 'delete':
+        return _canDelete(entity);
+      default:
+        return false;
+    }
+  }
+
+  bool _canRead(Map<String, dynamic> entity) {
+    // Public entities can be read by anyone
+    if (entity['isPublic'] == true) return true;
+    
+    // Private entities can only be read by owner
+    if (entity['ownerId'] == currentUser.id) return true;
+    
+    // Shared entities can be read by collaborators
+    final collaborators = entity['collaborators'] as List?;
+    if (collaborators?.contains(currentUser.id) == true) return true;
+    
+    return false;
+  }
+
+  bool _canUpdate(Map<String, dynamic> entity) {
+    // Only owner or collaborators with edit permission
+    if (entity['ownerId'] == currentUser.id) return true;
+    
+    final permissions = entity['permissions'] as Map<String, dynamic>?;
+    final userPermission = permissions?[currentUser.id] as String?;
+    
+    return userPermission == 'edit' || userPermission == 'admin';
+  }
+
+  bool _canDelete(Map<String, dynamic> entity) {
+    // Only owner can delete
+    return entity['ownerId'] == currentUser.id;
+  }
+}
+
+// Usage in widgets
+class SecurePostList extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final db = InstantProvider.of(context);
+    final currentUser = db.auth.currentUser.value!;
+    final permissions = OwnershipPermissions(currentUser);
+
+    return InstantBuilder(
+      query: {'posts': {}},
+      builder: (context, result) {
+        final posts = (result.data?['posts'] as List? ?? [])
+            .cast<Map<String, dynamic>>()
+            .where((post) => permissions.canAccess(post, 'read'))
+            .toList();
+
+        return ListView.builder(
+          itemCount: posts.length,
+          itemBuilder: (context, index) {
+            final post = posts[index];
+            return PostCard(
+              post: post,
+              canEdit: permissions.canAccess(post, 'update'),
+              canDelete: permissions.canAccess(post, 'delete'),
+            );
+          },
+        );
+      },
+    );
+  }
+}
+```
+
+### Team-Based Permissions
+
+Implement team-based access control:
+
+```dart
+class TeamPermissions {
+  final AuthUser currentUser;
+  final Map<String, dynamic> team;
+
+  TeamPermissions({required this.currentUser, required this.team});
+
+  UserRole get userRoleInTeam {
+    final members = team['members'] as Map<String, dynamic>? ?? {};
+    final roleString = members[currentUser.id] as String?;
+    return UserRole.values.firstWhere(
+      (r) => r.name == roleString,
+      orElse: () => UserRole.guest,
+    );
+  }
+
+  bool get isMember => userRoleInTeam != UserRole.guest;
+  bool get isAdmin => userRoleInTeam == UserRole.admin;
+  bool get canEdit => userRoleInTeam.canWrite;
+
+  bool canAccessProject(Map<String, dynamic> project) {
+    // Check if project belongs to team
+    if (project['teamId'] != team['id']) return false;
+    
+    // Check if user has access to team
+    return isMember;
+  }
+
+  bool canManageTeam() {
+    return isAdmin;
+  }
+
+  bool canInviteMembers() {
+    return userRoleInTeam == UserRole.admin || 
+           userRoleInTeam == UserRole.editor;
+  }
+}
+
+// Team access control widget
+class TeamAccessControl extends StatelessWidget {
+  final Map<String, dynamic> team;
+  final Widget child;
+
+  const TeamAccessControl({
+    super.key,
+    required this.team,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final db = InstantProvider.of(context);
+    final currentUser = db.auth.currentUser.value;
+
+    if (currentUser == null) {
+      return const Center(child: Text('Please sign in'));
+    }
+
+    final teamPermissions = TeamPermissions(
+      currentUser: currentUser,
+      team: team,
+    );
+
+    if (!teamPermissions.isMember) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Access Denied')),
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.lock, size: 64, color: Colors.grey),
+              const SizedBox(height: 16),
+              Text(
+                'You don\'t have access to this team',
+                style: Theme.of(context).textTheme.headlineSmall,
+              ),
+              const SizedBox(height: 24),
+              ElevatedButton(
+                onPressed: () => _requestAccess(context),
+                child: const Text('Request Access'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return child;
+  }
+
+  void _requestAccess(BuildContext context) {
+    // Implementation for requesting team access
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Access request sent to team admins')),
+    );
+  }
+}
+```
+
+## Field-Level Permissions
+
+### Attribute Access Control
+
+Control access to specific fields:
+
+```dart
+class AttributePermissions {
+  final AuthUser currentUser;
+  final UserRole role;
+
+  AttributePermissions(this.currentUser, this.role);
+
+  Map<String, dynamic> filterReadableFields(
+    String entityType,
+    Map<String, dynamic> entity,
+  ) {
+    final filtered = <String, dynamic>{};
+    
+    entity.forEach((key, value) {
+      if (canReadField(entityType, key, entity)) {
+        filtered[key] = value;
+      }
+    });
+    
+    return filtered;
+  }
+
+  bool canReadField(
+    String entityType,
+    String fieldName,
+    Map<String, dynamic> entity,
+  ) {
+    switch (entityType) {
+      case 'users':
+        return _canReadUserField(fieldName, entity);
+      case 'posts':
+        return _canReadPostField(fieldName, entity);
+      default:
+        return true; // Default allow read
+    }
+  }
+
+  bool canWriteField(
+    String entityType,
+    String fieldName,
+    Map<String, dynamic> entity,
+  ) {
+    switch (entityType) {
+      case 'users':
+        return _canWriteUserField(fieldName, entity);
+      case 'posts':
+        return _canWritePostField(fieldName, entity);
+      default:
+        return role.canWrite;
+    }
+  }
+
+  bool _canReadUserField(String fieldName, Map<String, dynamic> entity) {
+    // Public fields anyone can read
+    const publicFields = {'id', 'name', 'avatar', 'createdAt'};
+    if (publicFields.contains(fieldName)) return true;
+    
+    // Private fields only owner or admin can read
+    const privateFields = {'email', 'phone', 'address'};
+    if (privateFields.contains(fieldName)) {
+      return entity['id'] == currentUser.id || role == UserRole.admin;
+    }
+    
+    return true;
+  }
+
+  bool _canWriteUserField(String fieldName, Map<String, dynamic> entity) {
+    // Users can edit their own profile
+    if (entity['id'] == currentUser.id) {
+      const editableFields = {'name', 'avatar', 'bio'};
+      return editableFields.contains(fieldName);
+    }
+    
+    // Admins can edit role and status
+    if (role == UserRole.admin) {
+      const adminFields = {'role', 'status', 'permissions'};
+      return adminFields.contains(fieldName);
+    }
+    
+    return false;
+  }
+
+  bool _canReadPostField(String fieldName, Map<String, dynamic> entity) {
+    // Draft posts only visible to author
+    if (entity['status'] == 'draft') {
+      return entity['authorId'] == currentUser.id || role == UserRole.admin;
+    }
+    
+    return true;
+  }
+
+  bool _canWritePostField(String fieldName, Map<String, dynamic> entity) {
+    // Author can edit content fields
+    if (entity['authorId'] == currentUser.id) {
+      const contentFields = {'title', 'content', 'tags'};
+      return contentFields.contains(fieldName);
+    }
+    
+    // Admins can edit metadata
+    if (role == UserRole.admin) {
+      const metaFields = {'status', 'featured', 'priority'};
+      return metaFields.contains(fieldName);
+    }
+    
+    return false;
+  }
+}
+```
+
+### Secure Form Builder
+
+Build forms that respect field permissions:
+
+```dart
+class SecureFormBuilder extends StatelessWidget {
+  final String entityType;
+  final Map<String, dynamic>? initialData;
+  final Function(Map<String, dynamic>) onSubmit;
+
+  const SecureFormBuilder({
+    super.key,
+    required this.entityType,
+    this.initialData,
+    required this.onSubmit,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final db = InstantProvider.of(context);
+    final currentUser = db.auth.currentUser.value!;
+    final userPermissions = UserPermissions(currentUser);
+    final attributePermissions = AttributePermissions(
+      currentUser,
+      userPermissions.role,
+    );
+
+    return FormBuilder(
+      entityType: entityType,
+      initialData: initialData,
+      fieldBuilder: (fieldName, fieldData) {
+        final canRead = attributePermissions.canReadField(
+          entityType,
+          fieldName,
+          initialData ?? {},
+        );
+        final canWrite = attributePermissions.canWriteField(
+          entityType,
+          fieldName,
+          initialData ?? {},
+        );
+
+        if (!canRead) return const SizedBox.shrink();
+
+        return FormField(
+          name: fieldName,
+          data: fieldData,
+          enabled: canWrite,
+          readOnly: !canWrite,
+        );
+      },
+      onSubmit: onSubmit,
+    );
+  }
+}
+
+class FormBuilder extends StatefulWidget {
+  final String entityType;
+  final Map<String, dynamic>? initialData;
+  final Widget Function(String fieldName, dynamic fieldData) fieldBuilder;
+  final Function(Map<String, dynamic>) onSubmit;
+
+  const FormBuilder({
+    super.key,
+    required this.entityType,
+    this.initialData,
+    required this.fieldBuilder,
+    required this.onSubmit,
+  });
+
+  @override
+  State<FormBuilder> createState() => _FormBuilderState();
+}
+
+class _FormBuilderState extends State<FormBuilder> {
+  final _formKey = GlobalKey<FormState>();
+  final Map<String, dynamic> _formData = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _formData.addAll(widget.initialData ?? {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Form(
+      key: _formKey,
+      child: Column(
+        children: [
+          // Build form fields based on permissions
+          ...(_getFieldSchema()[widget.entityType] as Map<String, dynamic>)
+              .entries
+              .map((entry) => widget.fieldBuilder(entry.key, entry.value)),
+          
+          const SizedBox(height: 24),
+          
+          ElevatedButton(
+            onPressed: _submitForm,
+            child: Text(widget.initialData != null ? 'Update' : 'Create'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Map<String, dynamic> _getFieldSchema() {
+    // Define your entity field schemas here
+    return {
+      'posts': {
+        'title': {'type': 'string', 'required': true},
+        'content': {'type': 'text', 'required': true},
+        'tags': {'type': 'array'},
+        'status': {'type': 'select', 'options': ['draft', 'published']},
+      },
+      'users': {
+        'name': {'type': 'string', 'required': true},
+        'email': {'type': 'email', 'required': true},
+        'role': {'type': 'select', 'options': ['admin', 'editor', 'viewer']},
+        'bio': {'type': 'text'},
+      },
+    };
+  }
+
+  void _submitForm() {
+    if (_formKey.currentState!.validate()) {
+      widget.onSubmit(_formData);
+    }
+  }
+}
+```
+
+## Permission Middleware
+
+### Query-Level Permissions
+
+Apply permissions at the query level:
+
+```dart
+class PermissionMiddleware {
+  final AuthUser currentUser;
+  final UserPermissions permissions;
+
+  PermissionMiddleware(this.currentUser, this.permissions);
+
+  Map<String, dynamic> applyReadPermissions(Map<String, dynamic> query) {
+    final modifiedQuery = Map<String, dynamic>.from(query);
+
+    modifiedQuery.forEach((entityType, querySpec) {
+      if (!permissions.canRead(entityType)) {
+        // Remove entities user can't read
+        modifiedQuery.remove(entityType);
+        return;
+      }
+
+      // Add ownership filters for private data
+      final spec = querySpec as Map<String, dynamic>;
+      final where = spec['where'] as Map<String, dynamic>? ?? {};
+
+      switch (entityType) {
+        case 'private_posts':
+          where['authorId'] = currentUser.id;
+          break;
+        case 'team_documents':
+          where['teamMembers'] = {'\$contains': currentUser.id};
+          break;
+      }
+
+      if (where.isNotEmpty) {
+        spec['where'] = where;
+      }
+    });
+
+    return modifiedQuery;
+  }
+
+  List<Operation> applyWritePermissions(List<Operation> operations) {
+    return operations.where((op) {
+      switch (op.type) {
+        case 'create':
+          return permissions.canCreate(op.entityType);
+        case 'update':
+          return permissions.canUpdate(op.entityType, op.data);
+        case 'delete':
+          return permissions.canDelete(op.entityType, op.data);
+        default:
+          return false;
+      }
+    }).toList();
+  }
+}
+
+// Secure database wrapper
+class SecureInstantDB {
+  final InstantDB _db;
+  final PermissionMiddleware _middleware;
+
+  SecureInstantDB(this._db) : 
+    _middleware = PermissionMiddleware(
+      _db.auth.currentUser.value!,
+      UserPermissions(_db.auth.currentUser.value!),
+    );
+
+  Signal<QueryResult> subscribeQuery(Map<String, dynamic> query) {
+    final secureQuery = _middleware.applyReadPermissions(query);
+    return _db.subscribeQuery(secureQuery);
+  }
+
+  Future<TransactionResult> transact(List<Operation> operations) async {
+    final allowedOperations = _middleware.applyWritePermissions(operations);
+    
+    if (allowedOperations.isEmpty) {
+      throw InstantException(
+        message: 'No operations allowed for current user',
+        code: 'permission_denied',
+      );
+    }
+
+    return await _db.transact(allowedOperations);
+  }
+}
+```
+
+## Advanced Permissions
+
+### Dynamic Permission Rules
+
+Implement context-aware permissions:
+
+```dart
+class DynamicPermissions {
+  final AuthUser currentUser;
+  final DateTime currentTime;
+  final String userLocation;
+
+  DynamicPermissions({
+    required this.currentUser,
+    required this.currentTime,
+    required this.userLocation,
+  });
+
+  bool canAccess(String resource, Map<String, dynamic> context) {
+    // Time-based permissions
+    if (_hasTimeRestriction(resource)) {
+      if (!_isWithinAllowedTime(resource)) return false;
+    }
+
+    // Location-based permissions
+    if (_hasLocationRestriction(resource)) {
+      if (!_isInAllowedLocation(resource)) return false;
+    }
+
+    // Context-based permissions
+    if (_hasContextRestriction(resource)) {
+      if (!_contextAllows(resource, context)) return false;
+    }
+
+    return true;
+  }
+
+  bool _hasTimeRestriction(String resource) {
+    const timeRestrictedResources = {'admin_panel', 'financial_reports'};
+    return timeRestrictedResources.contains(resource);
+  }
+
+  bool _isWithinAllowedTime(String resource) {
+    // Example: Admin panel only accessible during business hours
+    if (resource == 'admin_panel') {
+      final hour = currentTime.hour;
+      return hour >= 9 && hour <= 17; // 9 AM to 5 PM
+    }
+    return true;
+  }
+
+  bool _hasLocationRestriction(String resource) {
+    const locationRestrictedResources = {'sensitive_data'};
+    return locationRestrictedResources.contains(resource);
+  }
+
+  bool _isInAllowedLocation(String resource) {
+    // Example: Sensitive data only accessible from office locations
+    const allowedLocations = ['office_ny', 'office_sf'];
+    return allowedLocations.contains(userLocation);
+  }
+
+  bool _hasContextRestriction(String resource) {
+    return true; // Most resources have context restrictions
+  }
+
+  bool _contextAllows(String resource, Map<String, dynamic> context) {
+    switch (resource) {
+      case 'edit_post':
+        // Can edit if owner or if granted explicit permission
+        return context['ownerId'] == currentUser.id ||
+               context['editors']?.contains(currentUser.id) == true;
+      
+      case 'view_analytics':
+        // Can view analytics if admin or if data relates to user's projects
+        final userRole = currentUser.metadata?['role'];
+        if (userRole == 'admin') return true;
+        
+        final projectIds = context['projectIds'] as List?;
+        final userProjects = currentUser.metadata?['projects'] as List?;
+        return projectIds?.any((id) => userProjects?.contains(id) == true) == true;
+      
+      default:
+        return true;
+    }
+  }
+}
+```
+
+## Best Practices
+
+### 1. Fail-Safe Defaults
+
+Always default to denying access:
+
+```dart
+class SecureByDefault {
+  static bool checkPermission(String action, {required bool explicit}) {
+    // Require explicit permission grants
+    return explicit;
+  }
+  
+  static List<T> filterByAccess<T>(
+    List<T> items,
+    bool Function(T item) canAccess,
+  ) {
+    return items.where(canAccess).toList();
+  }
+}
+```
+
+### 2. Audit Permission Changes
+
+Log all permission-related activities:
+
+```dart
+class PermissionAudit {
+  static void logPermissionChange({
+    required String userId,
+    required String action,
+    required String resource,
+    required bool granted,
+  }) {
+    final logEntry = {
+      'timestamp': DateTime.now().millisecondsSinceEpoch,
+      'userId': userId,
+      'action': action,
+      'resource': resource,
+      'granted': granted,
+    };
+    
+    print('Permission audit: $logEntry');
+    // Send to logging service
+  }
+}
+```
+
+### 3. Test Permission Logic
+
+Thoroughly test permission scenarios:
+
+```dart
+void testPermissions() {
+  final adminUser = AuthUser.test(role: 'admin');
+  final editorUser = AuthUser.test(role: 'editor');
+  final viewerUser = AuthUser.test(role: 'viewer');
+  
+  final adminPerms = UserPermissions(adminUser);
+  final editorPerms = UserPermissions(editorUser);
+  final viewerPerms = UserPermissions(viewerUser);
+  
+  // Test admin permissions
+  assert(adminPerms.canDelete('posts'));
+  assert(adminPerms.canManageUsers());
+  
+  // Test editor permissions
+  assert(editorPerms.canWrite);
+  assert(!editorPerms.canManageUsers());
+  
+  // Test viewer permissions
+  assert(!viewerPerms.canWrite);
+  assert(viewerPerms.canRead('posts'));
+}
+```
+
+### 4. Handle Permission Errors Gracefully
+
+Provide clear feedback for permission issues:
+
+```dart
+class PermissionErrorHandler {
+  static void handlePermissionError(
+    BuildContext context,
+    String action,
+    String resource,
+  ) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Access Denied'),
+        content: Text(
+          'You don\'t have permission to $action $resource. '
+          'Contact your administrator if you need access.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('OK'),
+          ),
+          TextButton(
+            onPressed: () => _requestPermission(context, action, resource),
+            child: const Text('Request Access'),
+          ),
+        ],
+      ),
+    );
+  }
+  
+  static void _requestPermission(
+    BuildContext context,
+    String action,
+    String resource,
+  ) {
+    // Implement permission request logic
+    Navigator.pop(context);
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Permission request sent to administrators'),
+      ),
+    );
+  }
+}
+```
+
+## Next Steps
+
+Learn more about authentication and security:
+
+- [User Management](../users/) - User authentication and profiles
+- [Session Management](../sessions/) - Session handling and security
+- [Advanced Security](../../advanced/troubleshooting/) - Advanced security patterns
+- [Data Validation](../../getting-started/schema/) - Schema-based validation

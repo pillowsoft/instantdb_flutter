@@ -1,0 +1,230 @@
+---
+title: Quick Start
+description: Build your first real-time app with InstantDB Flutter
+sidebar:
+  order: 2
+---
+
+import { Code, Tabs, TabItem } from "@astrojs/starlight/components";
+
+This guide will help you build a simple todo app with real-time synchronization in just a few minutes.
+
+## 1. Initialize InstantDB
+
+First, initialize your InstantDB instance in your app:
+
+```dart
+import 'package:flutter/material.dart';
+import 'package:instantdb_flutter/instantdb_flutter.dart';
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  
+  // Initialize InstantDB
+  final db = await InstantDB.init(
+    appId: 'your-app-id-here', // Get this from instantdb.com
+    config: const InstantConfig(
+      syncEnabled: true,
+    ),
+  );
+  
+  runApp(MyApp(db: db));
+}
+```
+
+## 2. Create Your App Widget
+
+Wrap your app with `InstantProvider` to make the database available throughout your widget tree:
+
+```dart
+class MyApp extends StatelessWidget {
+  final InstantDB db;
+  
+  const MyApp({super.key, required this.db});
+
+  @override
+  Widget build(BuildContext context) {
+    return InstantProvider(
+      db: db,
+      child: MaterialApp(
+        title: 'InstantDB Todo',
+        home: const TodoPage(),
+      ),
+    );
+  }
+}
+```
+
+## 3. Build Reactive UI
+
+Create a page that automatically updates when data changes:
+
+```dart
+class TodoPage extends StatefulWidget {
+  const TodoPage({super.key});
+
+  @override
+  State<TodoPage> createState() => _TodoPageState();
+}
+
+class _TodoPageState extends State<TodoPage> {
+  final _controller = TextEditingController();
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Todos')),
+      body: Column(
+        children: [
+          // Add todo input
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _controller,
+                    decoration: const InputDecoration(
+                      hintText: 'Add a todo...',
+                    ),
+                    onSubmitted: _addTodo,
+                  ),
+                ),
+                IconButton(
+                  onPressed: () => _addTodo(_controller.text),
+                  icon: const Icon(Icons.add),
+                ),
+              ],
+            ),
+          ),
+          
+          // Todo list - automatically updates in real-time!
+          Expanded(
+            child: InstantBuilderTyped<List<Map<String, dynamic>>>(
+              query: {'todos': {}},
+              transformer: (data) {
+                final todos = (data['todos'] as List).cast<Map<String, dynamic>>();
+                // Sort by creation time
+                todos.sort((a, b) => (b['createdAt'] ?? 0).compareTo(a['createdAt'] ?? 0));
+                return todos;
+              },
+              builder: (context, todos) {
+                if (todos.isEmpty) {
+                  return const Center(
+                    child: Text('No todos yet. Add one above!'),
+                  );
+                }
+                
+                return ListView.builder(
+                  itemCount: todos.length,
+                  itemBuilder: (context, index) {
+                    final todo = todos[index];
+                    return ListTile(
+                      title: Text(
+                        todo['text'] ?? '',
+                        style: TextStyle(
+                          decoration: todo['completed'] == true
+                              ? TextDecoration.lineThrough
+                              : null,
+                        ),
+                      ),
+                      leading: Checkbox(
+                        value: todo['completed'] == true,
+                        onChanged: (value) => _toggleTodo(todo),
+                      ),
+                      trailing: IconButton(
+                        icon: const Icon(Icons.delete),
+                        onPressed: () => _deleteTodo(todo['id']),
+                      ),
+                    );
+                  },
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _addTodo(String text) {
+    if (text.trim().isEmpty) return;
+    
+    final db = InstantProvider.of(context);
+    final todoId = db.id();
+    
+    db.transact([
+      ...db.create('todos', {
+        'id': todoId,
+        'text': text.trim(),
+        'completed': false,
+        'createdAt': DateTime.now().millisecondsSinceEpoch,
+      }),
+    ]);
+    
+    _controller.clear();
+  }
+
+  void _toggleTodo(Map<String, dynamic> todo) {
+    final db = InstantProvider.of(context);
+    
+    db.transact(
+      db.tx['todos'][todo['id']].update({
+        'completed': !(todo['completed'] == true),
+      }),
+    );
+  }
+
+  void _deleteTodo(String todoId) {
+    final db = InstantProvider.of(context);
+    
+    db.transact(
+      db.tx['todos'][todoId].delete(),
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+}
+```
+
+## 4. Test Real-time Sync
+
+That's it! Your app now has:
+
+- ✅ **Real-time synchronization** - Changes appear instantly across all connected clients
+- ✅ **Offline support** - Works offline and syncs when connection returns
+- ✅ **Reactive UI** - Widgets update automatically when data changes
+- ✅ **Type-safe operations** - Full Dart type safety
+
+## Try It Out
+
+1. Run your app on multiple devices or browser tabs
+2. Add, complete, or delete todos on one device
+3. Watch them sync in real-time on all other devices!
+
+## What's Next?
+
+Now that you have a working real-time app, explore more features:
+
+- [Schema Definition](../../concepts/schema/) - Add type safety and validation
+- [Authentication](../../auth/users/) - Add user accounts and permissions  
+- [Presence System](../../realtime/presence/) - Show who's online
+- [Advanced Queries](../../queries/advanced/) - Complex data fetching
+- [Offline Handling](../../advanced/offline/) - Handle network states
+
+## Common Issues
+
+### App ID Not Working?
+Make sure you've created an app at [instantdb.com](https://instantdb.com) and copied the correct App ID.
+
+### Not Syncing?
+Check your internet connection and ensure `syncEnabled: true` in your config.
+
+### Build Errors?
+Make sure you're using Flutter SDK >= 3.8.0 and have run `flutter pub get`.
+
+Need help? Check out our [troubleshooting guide](../../advanced/troubleshooting/) or ask in our [Discord community](https://discord.gg/instantdb).

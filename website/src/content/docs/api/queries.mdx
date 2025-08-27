@@ -1,0 +1,889 @@
+---
+title: Queries API
+description: Complete API reference for InstantDB queries and InstaQL syntax
+sidebar:
+  order: 3
+---
+
+import { Code, Tabs, TabItem } from "@astrojs/starlight/components";
+
+InstantDB uses InstaQL, a declarative query language that provides powerful filtering, sorting, and relationship traversal capabilities. All queries are reactive by default and automatically update when underlying data changes.
+
+## Query Methods
+
+### `subscribeQuery()`
+
+Create a reactive query that automatically updates when data changes.
+
+```dart
+Signal<QueryResult> subscribeQuery(Map<String, dynamic> query)
+```
+
+**Parameters:**
+- `query` (`Map<String, dynamic>`): InstaQL query object
+
+**Returns:** `Signal<QueryResult>` - Reactive signal containing query results
+
+**Example:**
+```dart
+final todosSignal = db.subscribeQuery({
+  'todos': {
+    'where': {'completed': false},
+    'orderBy': {'createdAt': 'desc'},
+    'limit': 10,
+  },
+});
+
+// Use in reactive widgets
+Watch((context) {
+  final result = todosSignal.value;
+  final todos = result.data?['todos'] ?? [];
+  return TodoList(todos: todos);
+});
+```
+
+### `queryOnce()`
+
+Execute a one-time query without creating a subscription.
+
+```dart
+Future<QueryResult> queryOnce(Map<String, dynamic> query)
+```
+
+**Parameters:**
+- `query` (`Map<String, dynamic>`): InstaQL query object
+
+**Returns:** `Future<QueryResult>` - Query result
+
+**Example:**
+```dart
+final result = await db.queryOnce({
+  'users': {
+    'where': {'role': 'admin'},
+    'limit': 5,
+  },
+});
+
+final adminUsers = result.data?['users'] ?? [];
+print('Found ${adminUsers.length} admin users');
+```
+
+## QueryResult
+
+Result object returned by query operations.
+
+```dart
+class QueryResult {
+  final Map<String, dynamic>? data;
+  final String? error;
+  final bool isLoading;
+}
+```
+
+**Properties:**
+- `data` (`Map<String, dynamic>?`): Query result data indexed by entity type
+- `error` (`String?`): Error message if query failed
+- `isLoading` (`bool`): Whether query is currently loading
+
+## InstaQL Syntax
+
+### Basic Query Structure
+
+```dart
+{
+  'entityType': {
+    'where': {...},      // Filtering conditions
+    'orderBy': {...},    // Sorting specification
+    'limit': 10,         // Maximum results
+    'offset': 20,        // Skip results (pagination)
+    'include': {...},    // Include related entities
+  }
+}
+```
+
+### Simple Queries
+
+```dart
+// Get all entities
+{'users': {}}
+
+// Get with limit
+{'posts': {'limit': 10}}
+
+// Get specific entity by ID
+{'users': {'where': {'id': 'user-123'}}}
+
+// Multiple entity types
+{
+  'users': {'limit': 5},
+  'posts': {'where': {'published': true}},
+}
+```
+
+## Where Conditions
+
+### Equality
+
+```dart
+// Exact match
+{'users': {'where': {'name': 'John Doe'}}}
+
+// Multiple conditions (AND)
+{
+  'posts': {
+    'where': {
+      'published': true,
+      'authorId': 'user-123',
+    }
+  }
+}
+```
+
+### Comparison Operators
+
+```dart
+{
+  'posts': {
+    'where': {
+      'createdAt': {
+        '\$gte': DateTime.now().subtract(Duration(days: 7)).millisecondsSinceEpoch,
+        '\$lt': DateTime.now().millisecondsSinceEpoch,
+      },
+      'viewCount': {'\$gt': 100},
+      'rating': {'\$lte': 5},
+    }
+  }
+}
+```
+
+**Available operators:**
+- `$gt`: Greater than
+- `$gte`: Greater than or equal
+- `$lt`: Less than  
+- `$lte`: Less than or equal
+- `$ne`: Not equal
+- `$eq`: Equal (explicit equality)
+
+### String Operators
+
+```dart
+{
+  'users': {
+    'where': {
+      'email': {'\$like': '%@gmail.com'},           // Contains pattern
+      'name': {'\$ilike': '%john%'},                // Case-insensitive like
+      'username': {'\$startsWith': 'admin_'},       // Starts with
+      'bio': {'\$endsWith': '...'},                 // Ends with
+      'status': {'\$regex': '^(active|pending)\$'}, // Regular expression
+    }
+  }
+}
+```
+
+### Array Operators
+
+```dart
+{
+  'posts': {
+    'where': {
+      'tags': {'\$contains': 'flutter'},            // Array contains value
+      'categories': {'\$containsAny': ['tech', 'programming']}, // Contains any
+      'skills': {'\$size': {'\$gte': 3}},          // Array size condition
+      'permissions': {'\$in': ['read', 'write']},  // Value in array
+      'blockedUsers': {'\$nin': ['user-123']},     // Value not in array
+    }
+  }
+}
+```
+
+### Existence Operators
+
+```dart
+{
+  'users': {
+    'where': {
+      'profilePicture': {'\$exists': true},         // Field exists
+      'deletedAt': {'\$isNull': true},              // Field is null
+      'verifiedAt': {'\$isNotNull': true},          // Field is not null
+    }
+  }
+}
+```
+
+### Logical Operators
+
+#### AND Operator
+
+```dart
+// Implicit AND (default)
+{
+  'users': {
+    'where': {
+      'active': true,
+      'role': 'user', // Both conditions must be true
+    }
+  }
+}
+
+// Explicit AND
+{
+  'users': {
+    'where': {
+      '\$and': [
+        {'age': {'\$gte': 18}},
+        {'status': 'verified'},
+      ]
+    }
+  }
+}
+```
+
+#### OR Operator
+
+```dart
+{
+  'users': {
+    'where': {
+      '\$or': [
+        {'role': 'admin'},
+        {'role': 'moderator'},
+        {'permissions': {'\$contains': 'admin'}},
+      ]
+    }
+  }
+}
+```
+
+#### NOT Operator
+
+```dart
+{
+  'posts': {
+    'where': {
+      '\$not': {
+        'status': 'deleted',
+      }
+    }
+  }
+}
+```
+
+#### Complex Logic
+
+```dart
+{
+  'users': {
+    'where': {
+      '\$and': [
+        {'active': true},
+        {
+          '\$or': [
+            {'role': 'admin'},
+            {
+              '\$and': [
+                {'role': 'user'},
+                {'permissions': {'\$contains': 'write'}},
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
+```
+
+## Sorting (orderBy)
+
+### Single Field
+
+```dart
+// Ascending order
+{'posts': {'orderBy': {'createdAt': 'asc'}}}
+
+// Descending order
+{'posts': {'orderBy': {'createdAt': 'desc'}}}
+```
+
+### Multiple Fields
+
+```dart
+{
+  'posts': {
+    'orderBy': [
+      {'priority': 'desc'},      // Primary sort
+      {'createdAt': 'asc'},      // Secondary sort
+      {'title': 'asc'},          // Tertiary sort
+    ]
+  }
+}
+```
+
+### Dynamic Sorting
+
+```dart
+// Sort by different fields based on conditions
+String sortField = userPreference == 'date' ? 'createdAt' : 'title';
+String sortDirection = ascending ? 'asc' : 'desc';
+
+final query = {
+  'posts': {
+    'orderBy': {sortField: sortDirection},
+  }
+};
+```
+
+## Pagination
+
+### Limit and Offset
+
+```dart
+{
+  'posts': {
+    'orderBy': {'createdAt': 'desc'},
+    'limit': 20,        // Maximum 20 results
+    'offset': 40,       // Skip first 40 results (page 3)
+  }
+}
+```
+
+### Cursor-Based Pagination
+
+```dart
+// First page
+{
+  'posts': {
+    'orderBy': {'createdAt': 'desc'},
+    'limit': 20,
+  }
+}
+
+// Next page using cursor
+{
+  'posts': {
+    'orderBy': {'createdAt': 'desc'},
+    'limit': 20,
+    'before': lastPostCreatedAt,    // Get posts before this timestamp
+  }
+}
+
+// Previous page
+{
+  'posts': {
+    'orderBy': {'createdAt': 'desc'},
+    'limit': 20,
+    'after': firstPostCreatedAt,    // Get posts after this timestamp
+  }
+}
+```
+
+### Pagination Helper
+
+```dart
+class PaginationHelper {
+  static Map<String, dynamic> buildQuery({
+    required String entityType,
+    required int page,
+    required int pageSize,
+    Map<String, dynamic>? where,
+    Map<String, String>? orderBy,
+  }) {
+    return {
+      entityType: {
+        if (where != null) 'where': where,
+        if (orderBy != null) 'orderBy': orderBy,
+        'limit': pageSize,
+        'offset': page * pageSize,
+      }
+    };
+  }
+}
+
+// Usage
+final query = PaginationHelper.buildQuery(
+  entityType: 'posts',
+  page: 2,           // Third page (0-indexed)
+  pageSize: 10,
+  where: {'published': true},
+  orderBy: {'createdAt': 'desc'},
+);
+```
+
+## Relationships and Includes
+
+### Basic Includes
+
+```dart
+{
+  'posts': {
+    'include': {
+      'author': {},              // Include author for each post
+      'comments': {              // Include comments for each post
+        'limit': 5,
+        'orderBy': {'createdAt': 'desc'},
+      },
+    }
+  }
+}
+```
+
+### Nested Includes
+
+```dart
+{
+  'posts': {
+    'include': {
+      'author': {
+        'include': {
+          'profile': {},         // Include author's profile
+        }
+      },
+      'comments': {
+        'include': {
+          'author': {},          // Include comment authors
+        },
+        'orderBy': {'createdAt': 'asc'},
+      },
+    }
+  }
+}
+```
+
+### Conditional Includes
+
+```dart
+{
+  'posts': {
+    'include': {
+      'author': {
+        'where': {'active': true},  // Only include if author is active
+      },
+      'comments': {
+        'where': {'approved': true}, // Only approved comments
+        'limit': 10,
+      },
+    }
+  }
+}
+```
+
+### Complex Relationship Queries
+
+```dart
+// Posts with their authors and latest comments
+{
+  'posts': {
+    'where': {'published': true},
+    'include': {
+      'author': {
+        'include': {
+          'profile': {},
+        }
+      },
+      'comments': {
+        'where': {'approved': true},
+        'orderBy': {'createdAt': 'desc'},
+        'limit': 3,
+        'include': {
+          'author': {
+            'include': {
+              'profile': {},
+            }
+          }
+        }
+      },
+      'tags': {},
+      'category': {},
+    },
+    'orderBy': {'publishedAt': 'desc'},
+    'limit': 10,
+  }
+}
+```
+
+## Lookups
+
+Use lookups to reference entities by attributes other than ID.
+
+### `lookup()` Function
+
+```dart
+LookupRef lookup(String entityType, String attribute, dynamic value)
+```
+
+**Parameters:**
+- `entityType` (`String`): Type of entity to lookup
+- `attribute` (`String`): Attribute to match against
+- `value` (`dynamic`): Value to match
+
+**Returns:** `LookupRef` - Lookup reference object
+
+### Lookup Examples
+
+```dart
+// Reference user by email instead of ID
+{
+  'posts': {
+    'where': {
+      'author': lookup('users', 'email', 'john@example.com'),
+    }
+  }
+}
+
+// Create post with author lookup
+await db.transact([
+  ...db.create('posts', {
+    'id': db.id(),
+    'title': 'My Post',
+    'authorId': lookup('users', 'email', 'author@example.com'),
+  }),
+]);
+
+// Multiple lookups
+{
+  'posts': {
+    'where': {
+      'author': lookup('users', 'username', 'john_doe'),
+      'category': lookup('categories', 'slug', 'technology'),
+    }
+  }
+}
+```
+
+## Advanced Query Patterns
+
+### Search Functionality
+
+```dart
+class SearchQueries {
+  static Map<String, dynamic> searchPosts(String searchTerm) {
+    return {
+      'posts': {
+        'where': {
+          '\$or': [
+            {'title': {'\$ilike': '%$searchTerm%'}},
+            {'content': {'\$ilike': '%$searchTerm%'}},
+            {'tags': {'\$contains': searchTerm.toLowerCase()}},
+          ]
+        },
+        'orderBy': {'relevanceScore': 'desc'},
+        'limit': 20,
+      }
+    };
+  }
+
+  static Map<String, dynamic> searchUsers(String query) {
+    return {
+      'users': {
+        'where': {
+          '\$or': [
+            {'name': {'\$ilike': '%$query%'}},
+            {'username': {'\$ilike': '%$query%'}},
+            {'email': {'\$like': '%$query%'}},
+          ],
+          'active': true, // Only active users
+        },
+        'orderBy': [
+          {'verified': 'desc'},  // Verified users first
+          {'name': 'asc'},       // Then by name
+        ],
+        'limit': 10,
+      }
+    };
+  }
+}
+```
+
+### Aggregation Queries
+
+```dart
+// Get user statistics
+{
+  'users': {
+    'where': {'active': true},
+    'include': {
+      'posts': {
+        'where': {'published': true},
+        // Count will be included in results
+      },
+      'comments': {
+        'where': {'approved': true},
+      },
+    }
+  }
+}
+
+// Posts with comment counts
+{
+  'posts': {
+    'where': {'published': true},
+    'include': {
+      'comments': {
+        'where': {'approved': true},
+      },
+      'likes': {},  // Will include like count
+    },
+    'orderBy': {'commentCount': 'desc'},
+  }
+}
+```
+
+### Time-Based Queries
+
+```dart
+class TimeQueries {
+  static Map<String, dynamic> getRecentPosts(Duration duration) {
+    final since = DateTime.now().subtract(duration).millisecondsSinceEpoch;
+    
+    return {
+      'posts': {
+        'where': {
+          'createdAt': {'\$gte': since},
+          'published': true,
+        },
+        'orderBy': {'createdAt': 'desc'},
+      }
+    };
+  }
+
+  static Map<String, dynamic> getPostsInRange(DateTime start, DateTime end) {
+    return {
+      'posts': {
+        'where': {
+          'createdAt': {
+            '\$gte': start.millisecondsSinceEpoch,
+            '\$lt': end.millisecondsSinceEpoch,
+          }
+        },
+        'orderBy': {'createdAt': 'asc'},
+      }
+    };
+  }
+
+  static Map<String, dynamic> getTrendingPosts() {
+    final lastWeek = DateTime.now().subtract(Duration(days: 7)).millisecondsSinceEpoch;
+    
+    return {
+      'posts': {
+        'where': {
+          'createdAt': {'\$gte': lastWeek},
+          'viewCount': {'\$gt': 100},
+        },
+        'orderBy': [
+          {'viewCount': 'desc'},
+          {'likeCount': 'desc'},
+          {'commentCount': 'desc'},
+        ],
+        'limit': 20,
+      }
+    };
+  }
+}
+```
+
+### Conditional Queries
+
+```dart
+class ConditionalQueries {
+  static Map<String, dynamic> buildUserQuery({
+    String? role,
+    bool? active,
+    DateTime? createdAfter,
+    List<String>? excludeIds,
+  }) {
+    final where = <String, dynamic>{};
+    
+    if (role != null) {
+      where['role'] = role;
+    }
+    
+    if (active != null) {
+      where['active'] = active;
+    }
+    
+    if (createdAfter != null) {
+      where['createdAt'] = {'\$gte': createdAfter.millisecondsSinceEpoch};
+    }
+    
+    if (excludeIds != null && excludeIds.isNotEmpty) {
+      where['id'] = {'\$nin': excludeIds};
+    }
+    
+    return {
+      'users': {
+        if (where.isNotEmpty) 'where': where,
+        'orderBy': {'createdAt': 'desc'},
+      }
+    };
+  }
+}
+
+// Usage
+final query = ConditionalQueries.buildUserQuery(
+  role: 'user',
+  active: true,
+  createdAfter: DateTime.now().subtract(Duration(days: 30)),
+  excludeIds: ['blocked-user-1', 'blocked-user-2'],
+);
+```
+
+## Query Optimization
+
+### Efficient Filtering
+
+```dart
+// ✅ Good: Filter at database level
+{
+  'posts': {
+    'where': {
+      'published': true,
+      'authorId': currentUserId,
+    },
+    'limit': 10,
+  }
+}
+
+// ❌ Avoid: Filter in application
+{
+  'posts': {} // Gets all posts, then filter in Dart code
+}
+```
+
+### Index-Friendly Queries
+
+```dart
+// ✅ Good: Use indexed fields for where conditions
+{
+  'posts': {
+    'where': {
+      'createdAt': {'\$gte': timestamp},  // Usually indexed
+      'published': true,                  // Simple equality
+    }
+  }
+}
+
+// ❌ Less efficient: Complex string operations
+{
+  'posts': {
+    'where': {
+      'content': {'\$regex': 'complex.*pattern'},  // Expensive
+    }
+  }
+}
+```
+
+### Limit Result Sets
+
+```dart
+// Always use appropriate limits
+{
+  'posts': {
+    'where': {'published': true},
+    'limit': 20,  // Prevent loading too much data
+    'orderBy': {'createdAt': 'desc'},
+  }
+}
+```
+
+## Error Handling
+
+Handle query errors appropriately:
+
+```dart
+Future<List<Map<String, dynamic>>> safeQuery(Map<String, dynamic> query) async {
+  try {
+    final result = await db.queryOnce(query);
+    
+    if (result.error != null) {
+      print('Query error: ${result.error}');
+      return [];
+    }
+    
+    // Extract first entity type from results
+    final entityType = query.keys.first;
+    return (result.data?[entityType] as List? ?? [])
+        .cast<Map<String, dynamic>>();
+    
+  } on InstantException catch (e) {
+    print('InstantDB error: ${e.message}');
+    return [];
+  } catch (e) {
+    print('Unexpected error: $e');
+    return [];
+  }
+}
+```
+
+## Query Builder Helper
+
+Create a query builder for complex queries:
+
+```dart
+class QueryBuilder {
+  final Map<String, dynamic> _query = {};
+  
+  QueryBuilder entity(String entityType) {
+    _query[entityType] = <String, dynamic>{};
+    return this;
+  }
+  
+  QueryBuilder where(Map<String, dynamic> conditions) {
+    final entityType = _query.keys.last;
+    _query[entityType]['where'] = conditions;
+    return this;
+  }
+  
+  QueryBuilder orderBy(Map<String, String> ordering) {
+    final entityType = _query.keys.last;
+    _query[entityType]['orderBy'] = ordering;
+    return this;
+  }
+  
+  QueryBuilder limit(int count) {
+    final entityType = _query.keys.last;
+    _query[entityType]['limit'] = count;
+    return this;
+  }
+  
+  QueryBuilder offset(int count) {
+    final entityType = _query.keys.last;
+    _query[entityType]['offset'] = count;
+    return this;
+  }
+  
+  QueryBuilder include(Map<String, dynamic> includes) {
+    final entityType = _query.keys.last;
+    _query[entityType]['include'] = includes;
+    return this;
+  }
+  
+  Map<String, dynamic> build() => Map<String, dynamic>.from(_query);
+}
+
+// Usage
+final query = QueryBuilder()
+    .entity('posts')
+    .where({
+      'published': true,
+      'createdAt': {'\$gte': DateTime.now().subtract(Duration(days: 7)).millisecondsSinceEpoch},
+    })
+    .orderBy({'createdAt': 'desc'})
+    .limit(10)
+    .include({
+      'author': {},
+      'comments': {'limit': 5},
+    })
+    .build();
+
+final result = await db.queryOnce(query);
+```
+
+## Next Steps
+
+Explore related APIs:
+
+- [InstantDB Core](../instantdb/) - Main database class and initialization
+- [Transactions API](../transactions/) - Creating and updating data
+- [Presence API](../presence-api/) - Real-time collaboration queries
+- [Flutter Widgets](../widgets/) - Reactive query widgets
+- [Types Reference](../types/) - Query result types and structures

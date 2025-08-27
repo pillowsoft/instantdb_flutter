@@ -1,0 +1,620 @@
+---
+title: Presence System
+description: Real-time collaboration with cursors, typing indicators, and reactions
+sidebar:
+  order: 2
+---
+
+import { Code, Tabs, TabItem } from "@astrojs/starlight/components";
+
+InstantDB's presence system enables real-time collaboration features like cursors, typing indicators, reactions, and user avatars. It's perfect for building collaborative applications.
+
+## Room-Based Presence
+
+The modern approach uses room-based APIs for better organization and scoping:
+
+### Joining a Room
+
+```dart
+class CollaborativeEditor extends StatefulWidget {
+  @override
+  State<CollaborativeEditor> createState() => _CollaborativeEditorState();
+}
+
+class _CollaborativeEditorState extends State<CollaborativeEditor> {
+  String? _userId;
+  String? _userName;
+  InstantRoom? _room;
+  
+  @override
+  void initState() {
+    super.initState();
+    _initializePresence();
+  }
+  
+  void _initializePresence() {
+    final db = InstantProvider.of(context);
+    final currentUser = db.auth.currentUser.value;
+    
+    // Use authenticated user or generate anonymous identity
+    if (currentUser != null) {
+      _userId = currentUser.id;
+      _userName = currentUser.email;
+    } else {
+      _userId = db.getAnonymousUserId();
+      _userName = 'Guest ${_userId!.substring(_userId!.length - 4)}';
+    }
+    
+    // Join room with initial presence data
+    _room = db.presence.joinRoom('editor-room', initialPresence: {
+      'userName': _userName,
+      'status': 'editing',
+      'avatar': _generateAvatar(_userName!),
+    });
+  }
+}
+```
+
+### Basic Presence Operations
+
+```dart
+// Update user presence
+await _room!.setPresence({
+  'status': 'typing',
+  'lastSeen': DateTime.now().millisecondsSinceEpoch,
+});
+
+// Update cursor position
+await _room!.updateCursor(x: 100, y: 200);
+
+// Set typing indicator
+await _room!.setTyping(true);
+
+// Send a reaction
+await _room!.sendReaction('👍', metadata: {
+  'x': mouseX,
+  'y': mouseY,
+  'message': 'Great idea!',
+});
+```
+
+## Displaying Presence Data
+
+### User Avatars
+
+Show all connected users in a room:
+
+```dart
+class UserAvatars extends StatelessWidget {
+  final InstantRoom room;
+  
+  const UserAvatars({super.key, required this.room});
+  
+  @override
+  Widget build(BuildContext context) {
+    return Watch((context) {
+      final presence = room.getPresence().value;
+      
+      final users = presence.entries
+          .where((entry) => entry.value.data['status'] == 'online')
+          .take(5)
+          .toList();
+      
+      return Row(
+        children: [
+          ...users.map((entry) {
+            final user = entry.value.data;
+            return Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: CircleAvatar(
+                radius: 16,
+                backgroundColor: _getUserColor(user['userName']),
+                child: Text(
+                  _getInitials(user['userName'] ?? '?'),
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+            );
+          }),
+          
+          if (presence.length > 5)
+            CircleAvatar(
+              radius: 16,
+              backgroundColor: Colors.grey,
+              child: Text(
+                '+${presence.length - 5}',
+                style: const TextStyle(fontSize: 10, color: Colors.white),
+              ),
+            ),
+        ],
+      );
+    });
+  }
+}
+```
+
+### Live Cursors
+
+Display real-time cursor positions:
+
+```dart
+class CursorOverlay extends StatelessWidget {
+  final InstantRoom room;
+  final Widget child;
+  
+  const CursorOverlay({super.key, required this.room, required this.child});
+  
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        child,
+        
+        // Cursor layer
+        Watch((context) {
+          final cursors = room.getCursors().value;
+          
+          return Stack(
+            children: cursors.entries.map((entry) {
+              final cursor = entry.value;
+              final userName = cursor.data['userName'] ?? 'Unknown';
+              
+              return Positioned(
+                left: cursor.x,
+                top: cursor.y,
+                child: _CursorWidget(
+                  userName: userName,
+                  color: _getUserColor(userName),
+                ),
+              );
+            }).toList(),
+          );
+        }),
+      ],
+    );
+  }
+}
+
+class _CursorWidget extends StatelessWidget {
+  final String userName;
+  final Color color;
+  
+  const _CursorWidget({required this.userName, required this.color});
+  
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Cursor pointer
+        CustomPaint(
+          size: const Size(20, 20),
+          painter: CursorPainter(color: color),
+        ),
+        
+        // User name label
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+          decoration: BoxDecoration(
+            color: color,
+            borderRadius: BorderRadius.circular(4),
+          ),
+          child: Text(
+            userName,
+            style: const TextStyle(
+              fontSize: 12,
+              color: Colors.white,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+```
+
+### Typing Indicators
+
+Show who's currently typing:
+
+```dart
+class TypingIndicator extends StatelessWidget {
+  final InstantRoom room;
+  
+  const TypingIndicator({super.key, required this.room});
+  
+  @override
+  Widget build(BuildContext context) {
+    return Watch((context) {
+      final typing = room.getTyping().value;
+      
+      if (typing.isEmpty) {
+        return const SizedBox.shrink();
+      }
+      
+      final typingUsers = typing.entries
+          .map((entry) => entry.value.data['userName'] as String? ?? 'Someone')
+          .toList();
+      
+      String text;
+      if (typingUsers.length == 1) {
+        text = '${typingUsers.first} is typing...';
+      } else if (typingUsers.length == 2) {
+        text = '${typingUsers.first} and ${typingUsers.last} are typing...';
+      } else {
+        text = '${typingUsers.length} people are typing...';
+      }
+      
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: Colors.grey.shade100,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                valueColor: AlwaysStoppedAnimation(Colors.grey.shade600),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              text,
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.grey.shade600,
+                fontStyle: FontStyle.italic,
+              ),
+            ),
+          ],
+        ),
+      );
+    });
+  }
+}
+```
+
+### Reactions
+
+Display floating reactions:
+
+```dart
+class ReactionsOverlay extends StatelessWidget {
+  final InstantRoom room;
+  final Widget child;
+  
+  const ReactionsOverlay({super.key, required this.room, required this.child});
+  
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        child,
+        
+        // Reactions layer
+        Watch((context) {
+          final reactions = room.getReactions().value;
+          
+          return Stack(
+            children: reactions.map((reaction) {
+              final metadata = reaction.data['metadata'] as Map<String, dynamic>?;
+              final x = metadata?['x']?.toDouble() ?? 0.0;
+              final y = metadata?['y']?.toDouble() ?? 0.0;
+              
+              return Positioned(
+                left: x,
+                top: y,
+                child: AnimatedReaction(
+                  emoji: reaction.data['reaction'] as String? ?? '❤️',
+                  onComplete: () {
+                    // Reaction animation completed
+                  },
+                ),
+              );
+            }).toList(),
+          );
+        }),
+      ],
+    );
+  }
+}
+
+class AnimatedReaction extends StatefulWidget {
+  final String emoji;
+  final VoidCallback onComplete;
+  
+  const AnimatedReaction({
+    super.key,
+    required this.emoji,
+    required this.onComplete,
+  });
+  
+  @override
+  State<AnimatedReaction> createState() => _AnimatedReactionState();
+}
+
+class _AnimatedReactionState extends State<AnimatedReaction>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _scaleAnimation;
+  late Animation<double> _opacityAnimation;
+  late Animation<Offset> _positionAnimation;
+  
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      duration: const Duration(seconds: 2),
+      vsync: this,
+    );
+    
+    _scaleAnimation = Tween<double>(begin: 0.5, end: 1.2).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.elasticOut),
+    );
+    
+    _opacityAnimation = Tween<double>(begin: 1.0, end: 0.0).animate(
+      CurvedAnimation(
+        parent: _controller,
+        curve: const Interval(0.7, 1.0, curve: Curves.easeOut),
+      ),
+    );
+    
+    _positionAnimation = Tween<Offset>(
+      begin: Offset.zero,
+      end: const Offset(0, -50),
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOut));
+    
+    _controller.forward().then((_) => widget.onComplete());
+  }
+  
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, child) {
+        return Transform.translate(
+          offset: _positionAnimation.value,
+          child: Transform.scale(
+            scale: _scaleAnimation.value,
+            child: Opacity(
+              opacity: _opacityAnimation.value,
+              child: Text(
+                widget.emoji,
+                style: const TextStyle(fontSize: 24),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+  
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+}
+```
+
+## Topic-Based Messaging
+
+Use topics for structured communication within rooms:
+
+```dart
+class ChatRoom extends StatefulWidget {
+  @override
+  State<ChatRoom> createState() => _ChatRoomState();
+}
+
+class _ChatRoomState extends State<ChatRoom> {
+  InstantRoom? _room;
+  final List<ChatMessage> _messages = [];
+  StreamSubscription? _chatSubscription;
+  
+  @override
+  void initState() {
+    super.initState();
+    _initializeRoom();
+  }
+  
+  void _initializeRoom() {
+    final db = InstantProvider.of(context);
+    
+    _room = db.presence.joinRoom('chat-room', initialPresence: {
+      'userName': 'Current User',
+      'status': 'online',
+    });
+    
+    // Subscribe to chat messages
+    _chatSubscription = _room!.subscribeTopic('chat').listen((data) {
+      final message = ChatMessage.fromJson(data);
+      setState(() {
+        _messages.add(message);
+      });
+    });
+  }
+  
+  void _sendMessage(String text) {
+    if (text.trim().isEmpty) return;
+    
+    final message = {
+      'id': DateTime.now().millisecondsSinceEpoch.toString(),
+      'text': text.trim(),
+      'userName': 'Current User',
+      'timestamp': DateTime.now().millisecondsSinceEpoch,
+    };
+    
+    _room!.publishTopic('chat', message);
+  }
+}
+```
+
+## Advanced Presence Features
+
+### Presence with Custom Data
+
+Store custom data in presence:
+
+```dart
+// Rich presence data
+await _room!.setPresence({
+  'userName': 'Alice',
+  'status': 'editing',
+  'currentDocument': documentId,
+  'tool': 'text',
+  'mood': '😊',
+  'location': {
+    'section': 'introduction',
+    'paragraph': 3,
+  },
+});
+```
+
+### Temporary Presence Events
+
+Send temporary events that don't persist:
+
+```dart
+// Temporary events (reactions, notifications)
+await _room!.sendReaction('🎉', metadata: {
+  'achievement': 'Document completed!',
+  'x': 200,
+  'y': 100,
+});
+
+// These disappear after a short time
+```
+
+### Presence Cleanup
+
+Always clean up presence when leaving:
+
+```dart
+@override
+void dispose() {
+  _room?.setPresence({'status': 'offline'});
+  _room = null;
+  _chatSubscription?.cancel();
+  super.dispose();
+}
+```
+
+## Best Practices
+
+### 1. Initialize Presence Early
+
+Set up presence as soon as users enter collaborative spaces:
+
+```dart
+@override
+void initState() {
+  super.initState();
+  // Initialize presence immediately
+  _initializePresence();
+}
+```
+
+### 2. Throttle Updates
+
+Avoid excessive presence updates:
+
+```dart
+Timer? _cursorTimer;
+
+void _updateCursor(double x, double y) {
+  _cursorTimer?.cancel();
+  _cursorTimer = Timer(const Duration(milliseconds: 100), () {
+    _room?.updateCursor(x: x, y: y);
+  });
+}
+```
+
+### 3. Handle Anonymous Users
+
+Provide good defaults for anonymous users:
+
+```dart
+String _generateGuestName(String userId) {
+  return 'Guest ${userId.substring(userId.length - 4)}';
+}
+```
+
+### 4. Cleanup Resources
+
+Always clean up when leaving:
+
+```dart
+void _leaveRoom() {
+  _room?.setPresence({'status': 'offline'});
+  db.presence.leaveRoom('room-id');
+}
+```
+
+## Presence UI Patterns
+
+### Status Indicators
+
+```dart
+Widget buildStatusIndicator(String status) {
+  Color color;
+  IconData icon;
+  
+  switch (status) {
+    case 'online':
+      color = Colors.green;
+      icon = Icons.circle;
+      break;
+    case 'typing':
+      color = Colors.blue;
+      icon = Icons.edit;
+      break;
+    case 'away':
+      color = Colors.orange;
+      icon = Icons.schedule;
+      break;
+    default:
+      color = Colors.grey;
+      icon = Icons.circle_outlined;
+  }
+  
+  return Icon(icon, color: color, size: 12);
+}
+```
+
+### User Count Badge
+
+```dart
+Widget buildUserCount(int count) {
+  return Container(
+    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+    decoration: BoxDecoration(
+      color: Colors.blue,
+      borderRadius: BorderRadius.circular(12),
+    ),
+    child: Text(
+      '$count online',
+      style: const TextStyle(color: Colors.white, fontSize: 12),
+    ),
+  );
+}
+```
+
+## Next Steps
+
+Learn more about building collaborative features:
+
+- [Collaborative Features](../collaboration/) - Complete collaboration patterns
+- [Real-time Sync](../sync/) - Understanding data synchronization
+- [Flutter Widgets](../../flutter/widgets/) - Reactive UI patterns
+- [Advanced Topics](../../advanced/performance/) - Optimizing presence performance
