@@ -93,8 +93,8 @@ void main() {
         }),
       ]);
 
-      // Update entity using tx namespace API
-      await db.transactChunk(
+      // Update entity using tx namespace API (aligned with React)
+      await db.transact(
         db.tx['users'][entityId].update({'name': 'Updated Name'})
       );
 
@@ -121,8 +121,8 @@ void main() {
         }),
       ]);
 
-      // Delete entity using tx namespace API
-      await db.transactChunk(
+      // Delete entity using tx namespace API (aligned with React)
+      await db.transact(
         db.tx['users'][entityId].delete()
       );
 
@@ -165,6 +165,38 @@ void main() {
       for (final post in posts) {
         expect(post['status'], equals('published'));
       }
+    });
+
+    test('should support React-style \$ query syntax', () async {
+      // Create test entities
+      for (int i = 0; i < 3; i++) {
+        await db.transact([
+          ...db.create('items', {
+            'id': db.id(),
+            'name': 'Item $i',
+            'value': i * 10,
+          }),
+        ]);
+      }
+
+      // Query using React-style $ syntax
+      final querySignal = db.query({
+        'items': {
+          '\$': {
+            'where': {'value': {'\$gte': 10}},
+            'order': {'value': 'asc'},
+          }
+        },
+      });
+
+      await Future.delayed(const Duration(milliseconds: 100));
+
+      final result = querySignal.value;
+      expect(result.hasData, isTrue);
+      final items = (result.data?['items'] as List?) ?? [];
+      expect(items.length, equals(2)); // Items with value >= 10
+      expect(items[0]['value'], equals(10));
+      expect(items[1]['value'], equals(20));
     });
 
     group('Schema validation', () {

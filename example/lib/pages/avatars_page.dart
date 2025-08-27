@@ -16,11 +16,13 @@ class _AvatarsPageState extends State<AvatarsPage> {
   String? _userName;
   Timer? _presenceTimer;
   InstantRoom? _room;
+  InstantDB? _db; // Cache DB reference to avoid context access in dispose
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     if (_userId == null) {
+      _db = InstantProvider.of(context); // Cache DB reference
       _initializeUser();
       _joinRoom();
       _startPresence();
@@ -35,24 +37,25 @@ class _AvatarsPageState extends State<AvatarsPage> {
   }
 
   void _initializeUser() {
-    final db = InstantProvider.of(context);
-    final currentUser = db.auth.currentUser.value;
+    if (_db == null) return;
+    
+    final currentUser = _db!.auth.currentUser.value;
     
     // Use authenticated user or generate temporary identity
     if (currentUser != null) {
       _userId = currentUser.id;
       _userName = currentUser.email;
     } else {
-      final db = InstantProvider.of(context);
-      _userId = db.getAnonymousUserId(); // Use consistent anonymous user ID
+      _userId = _db!.getAnonymousUserId(); // Use consistent anonymous user ID
       _userName = 'Guest ${_userId!.substring(_userId!.length - 4)}';
     }
   }
 
   void _joinRoom() {
-    final db = InstantProvider.of(context);
+    if (_db == null) return;
+    
     // Join the avatars room using the new room-based API
-    _room = db.presence.joinRoom('avatars-room', initialPresence: {
+    _room = _db!.presence.joinRoom('avatars-room', initialPresence: {
       'userName': _userName,
       'status': 'online',
     });
@@ -81,12 +84,10 @@ class _AvatarsPageState extends State<AvatarsPage> {
   }
 
   void _removePresence() {
-    if (_userId == null) return;
+    if (_userId == null || _db == null) return;
     
-    final db = InstantProvider.of(context);
-    
-    // Remove presence using presence API
-    db.presence.leaveRoom('avatars-room');
+    // Use cached DB reference to avoid context access in dispose
+    _db!.presence.leaveRoom('avatars-room');
   }
 
   @override

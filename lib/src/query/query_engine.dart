@@ -115,7 +115,19 @@ class QueryEngine {
       // Handle different types of query values
       Map<String, dynamic> entityQuery = {};
       if (entry.value is Map) {
-        entityQuery = Map<String, dynamic>.from(entry.value as Map);
+        final queryValue = entry.value as Map;
+        
+        // Check for React-style $ syntax
+        if (queryValue.containsKey('\$')) {
+          // Extract query from $ clause (React API compatibility)
+          final dollarClause = queryValue['\$'];
+          if (dollarClause is Map) {
+            entityQuery = Map<String, dynamic>.from(dollarClause);
+          }
+        } else {
+          // Direct query format (backward compatibility)
+          entityQuery = Map<String, dynamic>.from(queryValue);
+        }
       }
 
       // Execute entity query
@@ -132,7 +144,30 @@ class QueryEngine {
   ) async {
     // Extract query parameters
     final where = query['where'] as Map<String, dynamic>?;
-    final orderBy = query['orderBy'];
+    
+    // Support both 'order' (React/server style) and 'orderBy' (Flutter style)
+    final orderByInput = query['order'] ?? query['orderBy'];
+    
+    // Convert orderBy to expected List<String> format if it's a Map
+    List<String>? orderBy;
+    if (orderByInput is Map) {
+      // Convert {'field': 'direction'} to ['field direction'] format
+      orderBy = orderByInput.entries.map((e) => '${e.key} ${e.value}').toList();
+    } else if (orderByInput is List) {
+      // Handle List<Map> format like [{'createdAt': 'desc'}]
+      final listItems = orderByInput as List;
+      orderBy = listItems.map((item) {
+        if (item is Map) {
+          // Convert {'field': 'direction'} to 'field direction'
+          return item.entries.map((e) => '${e.key} ${e.value}').join(' ');
+        } else {
+          return item.toString();
+        }
+      }).toList();
+    } else if (orderByInput is String) {
+      orderBy = [orderByInput];
+    }
+    
     final limit = query['limit'] as int?;
     final offset = query['offset'] as int?;
     final include = query['include'] as Map<String, dynamic>?;

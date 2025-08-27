@@ -180,16 +180,29 @@ class InstantDB {
     return querySignal.value;
   }
 
-  /// Execute a transaction with multiple operations
-  Future<TransactionResult> transact(List<Operation> operations) async {
+  /// Execute a transaction with operations or transaction chunk
+  /// Accepts either List<Operation> or TransactionChunk for React API compatibility
+  Future<TransactionResult> transact(dynamic transaction) async {
     if (!_isReady.value) {
       throw InstantException(message: 'InstantDB not ready. Call init() first.');
+    }
+
+    // Handle both List<Operation> and TransactionChunk
+    final List<Operation> operations;
+    if (transaction is TransactionChunk) {
+      operations = transaction.operations;
+    } else if (transaction is List<Operation>) {
+      operations = transaction;
+    } else {
+      throw InstantException(
+        message: 'transact() expects either List<Operation> or TransactionChunk, got ${transaction.runtimeType}'
+      );
     }
 
     final txId = id();
     InstantDBLogging.root.debug('InstantDB: Creating transaction $txId with ${operations.length} operations - StorageBackend: SQLite');
     
-    final transaction = Transaction(
+    final tx = Transaction(
       id: txId,
       operations: operations,
       timestamp: DateTime.now(),
@@ -199,14 +212,14 @@ class InstantDB {
       // Apply optimistically to local store
       InstantDBLogging.root.debug('InstantDB: Applying transaction $txId to local storage (${_store.runtimeType})');
       final applyStopwatch = Stopwatch()..start();
-      await _store.applyTransaction(transaction);
+      await _store.applyTransaction(tx);
       applyStopwatch.stop();
       InstantDBLogging.root.debug('InstantDB: Local storage apply completed in ${applyStopwatch.elapsedMilliseconds}ms');
 
       // Send to sync engine
       InstantDBLogging.root.debug('InstantDB: Sending transaction $txId to sync engine');
       final syncStopwatch = Stopwatch()..start();
-      final result = await _syncEngine.sendTransaction(transaction);
+      final result = await _syncEngine.sendTransaction(tx);
       syncStopwatch.stop();
       InstantDBLogging.root.debug('InstantDB: Sync engine send completed in ${syncStopwatch.elapsedMilliseconds}ms - Status: ${result.status}');
 
@@ -219,9 +232,11 @@ class InstantDB {
     }
   }
 
-  /// Execute a transaction chunk (from tx namespace API)
+  /// @Deprecated - Use transact() instead
+  /// Kept for backward compatibility
+  @Deprecated('Use transact() instead - it now accepts TransactionChunk directly')
   Future<TransactionResult> transactChunk(TransactionChunk chunk) async {
-    return transact(chunk.operations);
+    return transact(chunk);
   }
 
   /// Alias for query - for API compatibility

@@ -49,8 +49,8 @@ class _TodosPageState extends State<TodosPage> {
     final db = InstantProvider.of(context);
     
     try {
-      // Using the new tx namespace API for updating
-      await db.transactChunk(
+      // Using the tx namespace API (aligned with React)
+      await db.transact(
         db.tx['todos'][todo['id']].update({
           'completed': !todo['completed'],
         })
@@ -68,8 +68,8 @@ class _TodosPageState extends State<TodosPage> {
     final db = InstantProvider.of(context);
     
     try {
-      // Use the new tx namespace API for delete operations
-      await db.transactChunk(
+      // Use the tx namespace API for delete operations (aligned with React)
+      await db.transact(
         db.tx['todos'][todoId].delete()
       );
     } catch (e) {
@@ -125,10 +125,10 @@ class _TodosPageState extends State<TodosPage> {
           return;
         }
         
-        // Delete all todos using tx namespace API
+        // Delete all todos using tx namespace API (aligned with React)
         for (final todo in todos) {
           if (todo['id'] != null) {
-            await db.transactChunk(
+            await db.transact(
               db.tx['todos'][todo['id']].delete()
             );
           }
@@ -299,7 +299,16 @@ class _TodosPageState extends State<TodosPage> {
             query: {
               'todos': {},
             },
-            transformer: (data) => (data['todos'] as List).cast<Map<String, dynamic>>(),
+            transformer: (data) {
+              final todos = (data['todos'] as List).cast<Map<String, dynamic>>();
+              // Sort client-side by createdAt in descending order
+              todos.sort((a, b) {
+                final aTime = a['createdAt'] as int? ?? 0;
+                final bTime = b['createdAt'] as int? ?? 0;
+                return bTime.compareTo(aTime); // Descending order
+              });
+              return todos;
+            },
             loadingBuilder: (context) => const Center(
               child: CircularProgressIndicator(),
             ),
