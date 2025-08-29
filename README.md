@@ -483,6 +483,21 @@ flutter pub get
 flutter run
 ```
 
+### Web Platform Setup
+
+When deploying to web, you need to copy the SQLite web worker files to your `web/` directory:
+
+1. Copy the required files from the example:
+   ```bash
+   cp example/web/sqflite_sw.js web/
+   cp example/web/sqlite3.wasm web/
+   ```
+
+2. Or manually download them from the sqflite_common_ffi_web package:
+   - Follow the setup instructions at: https://github.com/tekartik/sqflite/tree/master/packages_web/sqflite_common_ffi_web#setup-binaries
+
+Without these files, you'll see an error: "An error occurred while initializing the web worker. This is likely due to a failure to find the worker javascript file at sqflite_sw.js"
+
 ## Testing
 
 The package includes comprehensive tests. To run them:

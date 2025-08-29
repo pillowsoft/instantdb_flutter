@@ -1,3 +1,10 @@
+## 0.1.2
+
+### 📚 Documentation & Web Support
+- Added web platform setup documentation with SQLite web worker configuration
+- Added documentation link to pub.dev pointing to https://instantdb-flutter-docs.pages.dev
+- Improved setup instructions to prevent web worker initialization errors
+
 ## 0.1.1
 
 ### 🔧 Fixes
