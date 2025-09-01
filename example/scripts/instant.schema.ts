@@ -2,6 +2,15 @@ import { i } from '@instantdb/react';
 
 const schema = i.schema({
   entities: {
+    // System entities - required by InstantDB
+    "$files": i.entity({
+      "path": i.string().unique().indexed(),
+      "url": i.string().optional(),
+    }),
+    "$users": i.entity({
+      "email": i.string().unique().indexed().optional(),
+    }),
+    
     // Todo items - for the TodosPage
     todos: i.entity({
       id: i.string().unique(),
@@ -32,6 +41,7 @@ const schema = i.schema({
   },
   
   links: {},
+  rooms: {},
 });
 
 // Export type for use in permissions

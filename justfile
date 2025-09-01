@@ -983,9 +983,12 @@ validate:
 
 # Push schema and permissions to InstantDB server
 schema-push:
-    @echo "🚀 Pushing schema to InstantDB server..."
-    cd example/scripts && npx instant-cli@latest push --app $$(grep INSTANTDB_API_ID ../.env | cut -d= -f2) --yes
-    @echo "✅ Schema pushed successfully"
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "🚀 Pushing schema to InstantDB server..."
+    APP_ID=$(grep INSTANTDB_API_ID example/.env | cut -d= -f2)
+    cd example/scripts && npx instant-cli@latest push --app "$APP_ID"
+    echo "✅ Schema pushed successfully"
 
 # Pull current schema from InstantDB server
 schema-pull:

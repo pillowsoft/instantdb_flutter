@@ -1,0 +1,9 @@
+{
+  "name": "instantdb-flutter-example-scripts",
+  "version": "1.0.0",
+  "description": "InstantDB schema for Flutter example app",
+  "private": true,
+  "dependencies": {
+    "@instantdb/react": "^0.21.9"
+  }
+}
