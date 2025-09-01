@@ -1,17 +1,4 @@
-## 0.1.2
-
-### 📚 Documentation & Web Support
-- Added web platform setup documentation with SQLite web worker configuration
-- Added documentation link to pub.dev pointing to https://instantdb-flutter-docs.pages.dev
-- Improved setup instructions to prevent web worker initialization errors
-
-## 0.1.1
-
-### 🔧 Fixes
-- Fixed incorrect GitHub repository links in pubspec.yaml and CONTRIBUTING.md
-- Repository links now correctly point to https://github.com/pillowsoft/instantdb_flutter
-
-## 0.2.0 (Unreleased)
+## 0.2.0
 
 ### 🚀 Major Features - React/JS SDK Feature Parity
 
@@ -83,6 +70,19 @@
 * **Optional**: Migration provides better performance and developer experience but is not required
 
 ---
+
+## 0.1.2
+
+### 📚 Documentation & Web Support
+- Added web platform setup documentation with SQLite web worker configuration
+- Added documentation link to pub.dev pointing to https://instantdb-flutter-docs.pages.dev
+- Improved setup instructions to prevent web worker initialization errors
+
+## 0.1.1
+
+### 🔧 Fixes
+- Fixed incorrect GitHub repository links in pubspec.yaml and CONTRIBUTING.md
+- Repository links now correctly point to https://github.com/pillowsoft/instantdb_flutter
 
 ## 0.1.0
 
