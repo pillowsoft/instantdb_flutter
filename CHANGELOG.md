@@ -1,3 +1,32 @@
+## 0.2.4
+
+### 🎯 Critical Fix: Entity Type Resolution in Datalog Conversion
+
+**Fixed Entity Type Mismatch Bug**
+* ✅ **Fixed entities being cached under wrong collection name** - Queries for 'conversations' no longer return 0 documents when entities lack __type field
+* ✅ **Proper entity type detection** - Extract query entity type from response `data['q']` field and use it throughout conversion pipeline
+* ✅ **Correct cache key resolution** - Entities are now cached under their query type instead of defaulting to 'todos'
+
+**Technical Solution**
+* ✅ **Query type extraction** - Parse the original query from response to determine intended entity type
+* ✅ **Type propagation** - Pass entity type through entire datalog conversion pipeline
+* ✅ **Smart grouping** - Use query type when grouping entities, fallback to __type field, then 'todos'
+* ✅ **Cache alignment** - Ensure cached collection names match query collection names
+
+### 📚 Impact
+
+This release completes the datalog conversion fix trilogy. The critical bug was:
+
+1. App queries for `{'conversations': {}}`
+2. Server returns datalog with conversation entities
+3. Entities lack __type field, so they default to 'todos'
+4. Cache stores them under 'todos' key
+5. Query engine looks for 'conversations' and finds nothing
+
+**Now fixed**: Entities are cached under the correct collection name matching the original query.
+
+---
+
 ## 0.2.3
 
 ### 🔥 Critical Fix: Race Condition in Query Execution

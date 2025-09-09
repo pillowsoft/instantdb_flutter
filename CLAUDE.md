@@ -101,6 +101,13 @@ lib/
 
 ### Recent Improvements
 
+#### v0.2.4 - Fixed Entity Type Resolution in Datalog Conversion
+- **Entity type resolution**: Fixed critical bug where entities were cached under wrong collection name
+- **Query type extraction**: Extract entity type from response `data['q']` field to determine correct collection
+- **Type propagation**: Pass entity type through entire datalog conversion pipeline
+- **Smart grouping**: Use query type when grouping entities, with proper fallback chain
+- **Cache alignment**: Entities now cached under correct collection name matching the query
+
 #### v0.2.3 - Fixed Race Condition in Query Execution
 - **Eliminated race condition**: Fixed critical issue where queries returned empty results before cache was populated
 - **Synchronous cache checking**: Queries now check cache synchronously before returning Signal
