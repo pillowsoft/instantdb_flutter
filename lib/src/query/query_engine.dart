@@ -85,8 +85,55 @@ class QueryEngine {
 
     InstantDBLogging.logQueryEvent('NEW_QUERY', queryKey);
 
-    // Create new reactive query
-    final resultSignal = signal(QueryResult.loading());
+    // Check sync engine cache SYNCHRONOUSLY for immediate data availability
+    QueryResult initialResult = QueryResult.loading();
+    if (_syncEngine != null) {
+      // Try to get initial data from cache synchronously
+      final cachedResults = <String, dynamic>{};
+      bool hasAnyData = false;
+      
+      for (final entry in query.entries) {
+        final entityType = entry.key;
+        final cachedData = _syncEngine!.getCachedQueryResult(entityType);
+        
+        if (cachedData != null && cachedData.isNotEmpty) {
+          InstantDBLogging.root.info(
+            'QueryEngine: Found cached data for $entityType: ${cachedData.length} documents (sync check)',
+          );
+          
+          // Apply filters if query has conditions
+          Map<String, dynamic> entityQuery = {};
+          if (entry.value is Map) {
+            final queryValue = entry.value as Map;
+            if (queryValue.containsKey('\$')) {
+              final dollarClause = queryValue['\$'];
+              if (dollarClause is Map) {
+                entityQuery = Map<String, dynamic>.from(dollarClause);
+              }
+            } else {
+              entityQuery = Map<String, dynamic>.from(queryValue);
+            }
+          }
+          
+          final filteredData = _applyQueryFilters(cachedData, entityQuery);
+          cachedResults[entityType] = filteredData;
+          hasAnyData = true;
+        } else {
+          // Even if no cached data, include empty array to match expected format
+          cachedResults[entityType] = [];
+        }
+      }
+      
+      if (hasAnyData) {
+        InstantDBLogging.root.info(
+          'QueryEngine: Initializing query with cached data for immediate availability',
+        );
+        initialResult = QueryResult.success(cachedResults);
+      }
+    }
+
+    // Create new reactive query with initial cached data if available
+    final resultSignal = signal(initialResult);
     _queryCache[queryKey] = resultSignal;
 
     // Send query to InstantDB to establish subscription

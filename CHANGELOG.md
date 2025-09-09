@@ -1,3 +1,30 @@
+## 0.2.3
+
+### 🔥 Critical Fix: Race Condition in Query Execution
+
+**Fixed Critical Race Condition**
+* ✅ **Fixed queries returning 0 documents despite successful datalog conversion** - Eliminated race condition where queries returned empty results before cache was populated
+* ✅ **Synchronous cache checking** - Queries now check cache synchronously before returning Signal, ensuring immediate data availability
+* ✅ **Added "Reconstructed X entities" logging** - Clear logging confirms entities are successfully parsed from join-rows
+
+**Technical Improvements**
+* ✅ **Synchronous initialization** - Query Signals are now initialized with cached data if available, preventing empty initial results
+* ✅ **Enhanced logging pipeline** - Added comprehensive logging throughout datalog conversion: parsing, reconstruction, grouping, and caching
+* ✅ **Immediate data availability** - Applications receive data immediately when cache is populated, no async delays
+
+### 📚 Impact
+
+This release fixes the final piece of the datalog conversion issue. While v0.2.2 added caching, there was still a race condition causing queries to return empty results. Now:
+
+1. Cache is checked synchronously BEFORE creating the query Signal
+2. Query results are initialized with cached data immediately
+3. Applications receive data without any race conditions
+4. Full visibility into datalog processing with enhanced logging
+
+**The complete fix ensures**: No more "0 documents" when data exists. The package now properly converts datalog, caches it, AND returns it immediately to applications.
+
+---
+
 ## 0.2.2
 
 ### 🚀 Major Fix: Query Result Caching for Datalog Format

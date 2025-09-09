@@ -99,9 +99,16 @@ lib/
 - **Debug Tools**: Example app includes debug toggle for runtime log level control
 - **Testing**: Comprehensive test suite with example applications demonstrating all features
 
-### Recent Improvements (v0.2.2)
+### Recent Improvements
 
-#### Query Result Caching System
+#### v0.2.3 - Fixed Race Condition in Query Execution
+- **Eliminated race condition**: Fixed critical issue where queries returned empty results before cache was populated
+- **Synchronous cache checking**: Queries now check cache synchronously before returning Signal
+- **Immediate data initialization**: Query Signals are initialized with cached data if available
+- **Enhanced logging pipeline**: Added "Reconstructed X entities" log and comprehensive datalog conversion logging
+- **Complete datalog fix**: The package now properly converts datalog, caches it, AND returns it immediately to applications
+
+#### v0.2.2 - Query Result Caching System
 - **Fixed datalog to collection format conversion**: Applications now receive properly formatted collection data instead of raw datalog
 - **Query result caching**: Converted datalog results are cached for immediate access, solving the "0 documents" issue
 - **Cache-first query strategy**: Queries check cache before storage for instant data availability

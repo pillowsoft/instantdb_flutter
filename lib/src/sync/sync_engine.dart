@@ -1436,6 +1436,7 @@ class SyncEngine {
   /// Parse join-rows into entity objects
   List<Map<String, dynamic>> _parseJoinRowsToEntities(List<List<dynamic>> joinRows) {
     final entityMap = <String, Map<String, dynamic>>{};
+    _wsLogger.info('Parsing ${joinRows.length} join-rows into entities');
 
     for (final row in joinRows) {
       if (row.length >= 3) {
@@ -1486,7 +1487,9 @@ class SyncEngine {
       }
     }
 
-    return entityMap.values.toList();
+    final entities = entityMap.values.toList();
+    _wsLogger.info('Reconstructed ${entities.length} entities from join-rows');
+    return entities;
   }
 
   /// Group entities by type for collection format
@@ -1494,10 +1497,16 @@ class SyncEngine {
     List<Map<String, dynamic>> entities,
     Map<String, List<Map<String, dynamic>>> convertedData,
   ) {
+    final typeCount = <String, int>{};
     for (final entity in entities) {
       final entityType = entity['__type'] as String? ?? 'todos';
       convertedData.putIfAbsent(entityType, () => []);
       convertedData[entityType]!.add(entity);
+      typeCount[entityType] = (typeCount[entityType] ?? 0) + 1;
+    }
+    
+    if (typeCount.isNotEmpty) {
+      _wsLogger.info('📊 Grouped entities by type: ${typeCount.entries.map((e) => '${e.key}(${e.value})').join(', ')}');
     }
   }
 
@@ -1675,13 +1684,22 @@ class SyncEngine {
       final documents = entry.value;
       
       _queryResultCache[collection] = documents;
-      _wsLogger.debug('Cached ${documents.length} documents for collection: $collection');
+      _wsLogger.info('✅ Cached ${documents.length} documents for collection: $collection - Cache now available for queries');
+    }
+    if (data.isNotEmpty) {
+      _wsLogger.info('📦 Total cached collections: ${data.length} with ${data.values.fold(0, (sum, list) => sum + list.length)} total documents');
     }
   }
 
   /// Get cached query results for a collection
   List<Map<String, dynamic>>? getCachedQueryResult(String collection) {
-    return _queryResultCache[collection];
+    final cached = _queryResultCache[collection];
+    if (cached != null) {
+      _wsLogger.debug('🎯 Cache hit for collection: $collection - returning ${cached.length} documents');
+    } else {
+      _wsLogger.debug('❌ Cache miss for collection: $collection');
+    }
+    return cached;
   }
 
   /// Clear cached query results for a collection
