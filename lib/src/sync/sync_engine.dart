@@ -1018,9 +1018,7 @@ class SyncEngine {
     final affectedCollections = <String>{};
     for (final operation in transaction.operations) {
       final entityType = operation.entityType;
-      if (entityType != null) {
-        affectedCollections.add(entityType);
-      }
+      affectedCollections.add(entityType);
     }
     
     for (final collection in affectedCollections) {
