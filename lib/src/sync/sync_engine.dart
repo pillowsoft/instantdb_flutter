@@ -1020,7 +1020,7 @@ class SyncEngine {
       final entityType = operation.entityType;
       affectedCollections.add(entityType);
     }
-    
+
     for (final collection in affectedCollections) {
       clearCachedQueryResult(collection);
     }
@@ -1311,6 +1311,17 @@ class SyncEngine {
       InstantDBLogging.root.debug('Processing query response');
     }
 
+    // Extract the query to determine entity type
+    String? queryEntityType;
+    if (data['q'] is Map) {
+      final query = data['q'] as Map<String, dynamic>;
+      // Get the first (and usually only) entity type from the query
+      if (query.isNotEmpty) {
+        queryEntityType = query.keys.first;
+        _wsLogger.debug('Query is for entity type: $queryEntityType');
+      }
+    }
+
     // InstantDB returns data in a specific format with nested result structure
     dynamic resultData;
 
@@ -1330,7 +1341,10 @@ class SyncEngine {
     }
 
     // Enhanced datalog detection and conversion
-    final convertedData = _tryConvertDatalogToCollectionFormat(resultData);
+    final convertedData = _tryConvertDatalogToCollectionFormat(
+      resultData,
+      queryEntityType: queryEntityType,
+    );
     if (convertedData.isNotEmpty) {
       await _processCollectionData(convertedData, skipDuplicateCheck);
       return;
@@ -1345,10 +1359,11 @@ class SyncEngine {
 
   /// Enhanced datalog conversion method that handles multiple format variations
   Map<String, List<Map<String, dynamic>>> _tryConvertDatalogToCollectionFormat(
-    dynamic resultData,
-  ) {
+    dynamic resultData, {
+    String? queryEntityType,
+  }) {
     final convertedData = <String, List<Map<String, dynamic>>>{};
-    
+
     if (resultData is! Map<String, dynamic>) {
       _wsLogger.debug('ResultData is not a Map, cannot process');
       return convertedData;
@@ -1366,11 +1381,15 @@ class SyncEngine {
 
     for (final datalogCandidate in possibleDatalogPaths) {
       if (datalogCandidate == null) continue;
-      
+
       final joinRows = _extractJoinRows(datalogCandidate);
       if (joinRows.isNotEmpty) {
         final entities = _parseJoinRowsToEntities(joinRows);
-        _groupEntitiesByType(entities, convertedData);
+        _groupEntitiesByType(
+          entities,
+          convertedData,
+          defaultType: queryEntityType,
+        );
         _wsLogger.debug(
           'Successfully converted datalog format to ${convertedData.length} entity types',
         );
@@ -1378,7 +1397,16 @@ class SyncEngine {
       }
     }
 
-    // Try simple collection format as fallback
+    // Try simple collection format as fallback - check for the query entity type first
+    if (queryEntityType != null && resultMap[queryEntityType] is List) {
+      convertedData[queryEntityType] = List<Map<String, dynamic>>.from(
+        resultMap[queryEntityType] as List,
+      );
+      _wsLogger.debug('Using simple $queryEntityType format fallback');
+      return convertedData;
+    }
+
+    // Legacy fallback for todos
     if (resultMap['todos'] is List) {
       convertedData['todos'] = List<Map<String, dynamic>>.from(
         resultMap['todos'] as List,
@@ -1393,7 +1421,9 @@ class SyncEngine {
         final list = entry.value as List;
         if (list.first is Map) {
           convertedData[entry.key] = List<Map<String, dynamic>>.from(list);
-          _wsLogger.debug('Found collection format for entity type: ${entry.key}');
+          _wsLogger.debug(
+            'Found collection format for entity type: ${entry.key}',
+          );
         }
       }
     }
@@ -1404,37 +1434,45 @@ class SyncEngine {
   /// Robust join-rows extraction that handles multiple format variations
   List<List<dynamic>> _extractJoinRows(dynamic datalogCandidate) {
     if (datalogCandidate is! Map<String, dynamic>) {
-      _wsLogger.debug('Datalog candidate is not a Map: ${datalogCandidate.runtimeType}');
+      _wsLogger.debug(
+        'Datalog candidate is not a Map: ${datalogCandidate.runtimeType}',
+      );
       return [];
     }
-    
+
     final joinRowsCandidates = [
       datalogCandidate['join-rows'],
-      datalogCandidate['joinRows'], 
+      datalogCandidate['joinRows'],
       datalogCandidate['rows'],
     ];
 
     for (final candidate in joinRowsCandidates) {
       if (candidate is List) {
         // Handle nested array structures: [[[row1], [row2]]] vs [[row1], [row2]]
-        if (candidate.isNotEmpty && 
-            candidate[0] is List && 
-            candidate[0].isNotEmpty && 
+        if (candidate.isNotEmpty &&
+            candidate[0] is List &&
+            candidate[0].isNotEmpty &&
             candidate[0][0] is List) {
-          _wsLogger.debug('Found nested join-rows structure with ${candidate[0].length} rows');
+          _wsLogger.debug(
+            'Found nested join-rows structure with ${candidate[0].length} rows',
+          );
           return List<List<dynamic>>.from(candidate[0]);
         }
-        _wsLogger.debug('Found direct join-rows structure with ${candidate.length} rows');
+        _wsLogger.debug(
+          'Found direct join-rows structure with ${candidate.length} rows',
+        );
         return List<List<dynamic>>.from(candidate);
       }
     }
-    
+
     _wsLogger.debug('No valid join-rows found in datalog candidate');
     return [];
   }
 
   /// Parse join-rows into entity objects
-  List<Map<String, dynamic>> _parseJoinRowsToEntities(List<List<dynamic>> joinRows) {
+  List<Map<String, dynamic>> _parseJoinRowsToEntities(
+    List<List<dynamic>> joinRows,
+  ) {
     final entityMap = <String, Map<String, dynamic>>{};
     _wsLogger.info('Parsing ${joinRows.length} join-rows into entities');
 
@@ -1495,18 +1533,22 @@ class SyncEngine {
   /// Group entities by type for collection format
   void _groupEntitiesByType(
     List<Map<String, dynamic>> entities,
-    Map<String, List<Map<String, dynamic>>> convertedData,
-  ) {
+    Map<String, List<Map<String, dynamic>>> convertedData, {
+    String? defaultType,
+  }) {
     final typeCount = <String, int>{};
     for (final entity in entities) {
-      final entityType = entity['__type'] as String? ?? 'todos';
+      // Use __type field if present, otherwise use the query's entity type, fallback to 'todos'
+      final entityType = entity['__type'] as String? ?? defaultType ?? 'todos';
       convertedData.putIfAbsent(entityType, () => []);
       convertedData[entityType]!.add(entity);
       typeCount[entityType] = (typeCount[entityType] ?? 0) + 1;
     }
-    
+
     if (typeCount.isNotEmpty) {
-      _wsLogger.info('📊 Grouped entities by type: ${typeCount.entries.map((e) => '${e.key}(${e.value})').join(', ')}');
+      _wsLogger.info(
+        '📊 Grouped entities by type: ${typeCount.entries.map((e) => '${e.key}(${e.value})').join(', ')}',
+      );
     }
   }
 
@@ -1516,13 +1558,19 @@ class SyncEngine {
     bool skipDuplicateCheck,
   ) async {
     if (!skipDuplicateCheck || _refreshOkCount <= 3) {
-      final totalEntities = collectionData.values.fold<int>(0, (sum, list) => sum + list.length);
-      _wsLogger.debug('Processing $totalEntities entities across ${collectionData.length} entity types');
+      final totalEntities = collectionData.values.fold<int>(
+        0,
+        (sum, list) => sum + list.length,
+      );
+      _wsLogger.debug(
+        'Processing $totalEntities entities across ${collectionData.length} entity types',
+      );
     }
 
     // Check for duplicate data processing
     final dataHash = collectionData.toString().hashCode.toString();
-    if (!skipDuplicateCheck && _lastProcessedData['collection-data'] == dataHash) {
+    if (!skipDuplicateCheck &&
+        _lastProcessedData['collection-data'] == dataHash) {
       _wsLogger.debug('Skipping duplicate collection data');
       return;
     }
@@ -1537,15 +1585,21 @@ class SyncEngine {
     for (final entry in collectionData.entries) {
       final entityType = entry.key;
       final entities = entry.value;
-      
-      _wsLogger.debug('Processing ${entities.length} entities of type: $entityType');
+
+      _wsLogger.debug(
+        'Processing ${entities.length} entities of type: $entityType',
+      );
 
       // Get current local entities of this type for delete detection
       Set<String> localEntityIds = {};
       try {
-        final localEntities = await _store.queryEntities(entityType: entityType);
+        final localEntities = await _store.queryEntities(
+          entityType: entityType,
+        );
         localEntityIds = localEntities.map((e) => e['id'] as String).toSet();
-        _wsLogger.debug('Found ${localEntityIds.length} existing local $entityType entities');
+        _wsLogger.debug(
+          'Found ${localEntityIds.length} existing local $entityType entities',
+        );
       } catch (e) {
         _wsLogger.warning('Failed to query local $entityType entities: $e');
       }
@@ -1571,7 +1625,9 @@ class SyncEngine {
           final createdTime = _recentlyCreatedEntities[entityId]!;
           final age = DateTime.now().difference(createdTime);
           if (age.inSeconds < 10) {
-            _wsLogger.debug('Skipping recently created entity: $entityId (age: ${age.inMilliseconds}ms)');
+            _wsLogger.debug(
+              'Skipping recently created entity: $entityId (age: ${age.inMilliseconds}ms)',
+            );
             continue;
           }
           _recentlyCreatedEntities.remove(entityId);
@@ -1621,7 +1677,9 @@ class SyncEngine {
         status: TransactionStatus.synced,
       );
 
-      _wsLogger.debug('Applying transaction with ${allOperations.length} operations');
+      _wsLogger.debug(
+        'Applying transaction with ${allOperations.length} operations',
+      );
       await _applyRemoteTransaction(transaction);
     } else {
       _wsLogger.debug('No operations to apply from collection data');
@@ -1682,12 +1740,16 @@ class SyncEngine {
     for (final entry in data.entries) {
       final collection = entry.key;
       final documents = entry.value;
-      
+
       _queryResultCache[collection] = documents;
-      _wsLogger.info('✅ Cached ${documents.length} documents for collection: $collection - Cache now available for queries');
+      _wsLogger.info(
+        '✅ Cached ${documents.length} documents for collection: $collection - Cache now available for queries',
+      );
     }
     if (data.isNotEmpty) {
-      _wsLogger.info('📦 Total cached collections: ${data.length} with ${data.values.fold(0, (sum, list) => sum + list.length)} total documents');
+      _wsLogger.info(
+        '📦 Total cached collections: ${data.length} with ${data.values.fold(0, (sum, list) => sum + list.length)} total documents',
+      );
     }
   }
 
@@ -1695,7 +1757,9 @@ class SyncEngine {
   List<Map<String, dynamic>>? getCachedQueryResult(String collection) {
     final cached = _queryResultCache[collection];
     if (cached != null) {
-      _wsLogger.debug('🎯 Cache hit for collection: $collection - returning ${cached.length} documents');
+      _wsLogger.debug(
+        '🎯 Cache hit for collection: $collection - returning ${cached.length} documents',
+      );
     } else {
       _wsLogger.debug('❌ Cache miss for collection: $collection');
     }

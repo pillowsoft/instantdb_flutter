@@ -91,16 +91,16 @@ class QueryEngine {
       // Try to get initial data from cache synchronously
       final cachedResults = <String, dynamic>{};
       bool hasAnyData = false;
-      
+
       for (final entry in query.entries) {
         final entityType = entry.key;
         final cachedData = _syncEngine!.getCachedQueryResult(entityType);
-        
+
         if (cachedData != null && cachedData.isNotEmpty) {
           InstantDBLogging.root.info(
             'QueryEngine: Found cached data for $entityType: ${cachedData.length} documents (sync check)',
           );
-          
+
           // Apply filters if query has conditions
           Map<String, dynamic> entityQuery = {};
           if (entry.value is Map) {
@@ -114,7 +114,7 @@ class QueryEngine {
               entityQuery = Map<String, dynamic>.from(queryValue);
             }
           }
-          
+
           final filteredData = _applyQueryFilters(cachedData, entityQuery);
           cachedResults[entityType] = filteredData;
           hasAnyData = true;
@@ -123,7 +123,7 @@ class QueryEngine {
           cachedResults[entityType] = [];
         }
       }
-      
+
       if (hasAnyData) {
         InstantDBLogging.root.info(
           'QueryEngine: Initializing query with cached data for immediate availability',
@@ -418,7 +418,9 @@ class QueryEngine {
       // Convert orderBy to expected format
       List<String>? orderBy;
       if (orderByInput is Map) {
-        orderBy = orderByInput.entries.map((e) => '${e.key} ${e.value}').toList();
+        orderBy = orderByInput.entries
+            .map((e) => '${e.key} ${e.value}')
+            .toList();
       } else if (orderByInput is List) {
         orderBy = orderByInput.map((item) {
           if (item is Map) {
@@ -440,12 +442,15 @@ class QueryEngine {
           filteredData.sort((a, b) {
             final aValue = a[field];
             final bValue = b[field];
-            
+
             if (aValue == null && bValue == null) return 0;
             if (aValue == null) return isDesc ? 1 : -1;
             if (bValue == null) return isDesc ? -1 : 1;
 
-            final comparison = Comparable.compare(aValue as Comparable, bValue as Comparable);
+            final comparison = Comparable.compare(
+              aValue as Comparable,
+              bValue as Comparable,
+            );
             return isDesc ? -comparison : comparison;
           });
         }
@@ -468,7 +473,10 @@ class QueryEngine {
   }
 
   /// Evaluate where conditions for filtering cached data
-  bool _evaluateWhereCondition(Map<String, dynamic> doc, Map<String, dynamic> where) {
+  bool _evaluateWhereCondition(
+    Map<String, dynamic> doc,
+    Map<String, dynamic> where,
+  ) {
     for (final entry in where.entries) {
       final field = entry.key;
       final condition = entry.value;
@@ -488,29 +496,43 @@ class QueryEngine {
               if (fieldValue == compareValue) return false;
               break;
             case '\$gt':
-              if (fieldValue == null || (fieldValue as Comparable).compareTo(compareValue) <= 0) return false;
+              if (fieldValue == null ||
+                  (fieldValue as Comparable).compareTo(compareValue) <= 0)
+                return false;
               break;
             case '\$gte':
-              if (fieldValue == null || (fieldValue as Comparable).compareTo(compareValue) < 0) return false;
+              if (fieldValue == null ||
+                  (fieldValue as Comparable).compareTo(compareValue) < 0)
+                return false;
               break;
             case '\$lt':
-              if (fieldValue == null || (fieldValue as Comparable).compareTo(compareValue) >= 0) return false;
+              if (fieldValue == null ||
+                  (fieldValue as Comparable).compareTo(compareValue) >= 0)
+                return false;
               break;
             case '\$lte':
-              if (fieldValue == null || (fieldValue as Comparable).compareTo(compareValue) > 0) return false;
+              if (fieldValue == null ||
+                  (fieldValue as Comparable).compareTo(compareValue) > 0)
+                return false;
               break;
             case '\$in':
-              if (compareValue is List && !compareValue.contains(fieldValue)) return false;
+              if (compareValue is List && !compareValue.contains(fieldValue))
+                return false;
               break;
             case '\$nin':
-              if (compareValue is List && compareValue.contains(fieldValue)) return false;
+              if (compareValue is List && compareValue.contains(fieldValue))
+                return false;
               break;
             case '\$exists':
               final exists = doc.containsKey(field);
-              if ((compareValue == true && !exists) || (compareValue == false && exists)) return false;
+              if ((compareValue == true && !exists) ||
+                  (compareValue == false && exists))
+                return false;
               break;
             case '\$isNull':
-              if ((compareValue == true && fieldValue != null) || (compareValue == false && fieldValue == null)) return false;
+              if ((compareValue == true && fieldValue != null) ||
+                  (compareValue == false && fieldValue == null))
+                return false;
               break;
             default:
               // Unknown operator, skip
@@ -522,7 +544,7 @@ class QueryEngine {
         if (fieldValue != condition) return false;
       }
     }
-    
+
     return true;
   }
 
