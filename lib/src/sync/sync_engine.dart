@@ -1315,311 +1315,290 @@ class SyncEngine {
       return;
     }
 
-    // Check if this is a datalog-result format
-    if (resultData['datalog-result'] != null) {
-      final datalogResult = resultData['datalog-result'];
-      InstantDBLogging.root.debug('Processing datalog-result format');
+    // Enhanced datalog detection and conversion
+    final convertedData = _tryConvertDatalogToCollectionFormat(resultData);
+    if (convertedData.isNotEmpty) {
+      await _processCollectionData(convertedData, skipDuplicateCheck);
+      return;
+    }
 
-      if (datalogResult['join-rows'] is List) {
-        final joinRowsOuter = datalogResult['join-rows'] as List;
-        // Check if this is a nested array structure
-        List joinRows;
-        if (joinRowsOuter.isNotEmpty &&
-            joinRowsOuter[0] is List &&
-            joinRowsOuter[0].isNotEmpty &&
-            joinRowsOuter[0][0] is List) {
-          // Nested structure: [[[row1], [row2], ...]]
-          joinRows = joinRowsOuter[0] as List;
-        } else {
-          // Direct structure: [[row1], [row2], ...]
-          joinRows = joinRowsOuter;
+    // Explicit warning for unhandled formats
+    _wsLogger.warning(
+      'Query response in unrecognized format. Keys: ${resultData is Map ? resultData.keys.toList() : 'not a map'}',
+    );
+    _wsLogger.debug('Raw unhandled data: ${jsonEncode(resultData)}');
+  }
+
+  /// Enhanced datalog conversion method that handles multiple format variations
+  Map<String, List<Map<String, dynamic>>> _tryConvertDatalogToCollectionFormat(
+    dynamic resultData,
+  ) {
+    final convertedData = <String, List<Map<String, dynamic>>>{};
+    
+    if (resultData is! Map<String, dynamic>) {
+      _wsLogger.debug('ResultData is not a Map, cannot process');
+      return convertedData;
+    }
+
+    final resultMap = resultData;
+
+    // Try multiple datalog format variations
+    final possibleDatalogPaths = [
+      resultMap['datalog-result'],
+      resultMap['datalog'],
+      (resultMap['result'] as Map<String, dynamic>?)?['datalog-result'],
+      (resultMap['data'] as Map<String, dynamic>?)?['datalog-result'],
+    ];
+
+    for (final datalogCandidate in possibleDatalogPaths) {
+      if (datalogCandidate == null) continue;
+      
+      final joinRows = _extractJoinRows(datalogCandidate);
+      if (joinRows.isNotEmpty) {
+        final entities = _parseJoinRowsToEntities(joinRows);
+        _groupEntitiesByType(entities, convertedData);
+        _wsLogger.debug(
+          'Successfully converted datalog format to ${convertedData.length} entity types',
+        );
+        return convertedData;
+      }
+    }
+
+    // Try simple collection format as fallback
+    if (resultMap['todos'] is List) {
+      convertedData['todos'] = List<Map<String, dynamic>>.from(
+        resultMap['todos'] as List,
+      );
+      _wsLogger.debug('Using simple todos format fallback');
+      return convertedData;
+    }
+
+    // Try any other collection-like arrays
+    for (final entry in resultMap.entries) {
+      if (entry.value is List && (entry.value as List).isNotEmpty) {
+        final list = entry.value as List;
+        if (list.first is Map) {
+          convertedData[entry.key] = List<Map<String, dynamic>>.from(list);
+          _wsLogger.debug('Found collection format for entity type: ${entry.key}');
         }
-        InstantDBLogging.root.debug('Found ${joinRows.length} join-rows');
+      }
+    }
 
-        // Parse join-rows to reconstruct entities
-        // Join-rows format: [[entityId, attributeId, value, timestamp], ...]
-        final entityMap = <String, Map<String, dynamic>>{};
+    return convertedData;
+  }
 
-        for (final row in joinRows) {
-          if (row is List && row.length >= 3) {
-            // Entity ID might be a string or an array - handle both cases
-            String entityId;
-            if (row[0] is List) {
-              // If entity ID is an array, use the first element as the actual ID
-              entityId = (row[0] as List)[0].toString();
-            } else {
-              entityId = row[0].toString();
-            }
+  /// Robust join-rows extraction that handles multiple format variations
+  List<List<dynamic>> _extractJoinRows(dynamic datalogCandidate) {
+    if (datalogCandidate is! Map<String, dynamic>) {
+      _wsLogger.debug('Datalog candidate is not a Map: ${datalogCandidate.runtimeType}');
+      return [];
+    }
+    
+    final joinRowsCandidates = [
+      datalogCandidate['join-rows'],
+      datalogCandidate['joinRows'], 
+      datalogCandidate['rows'],
+    ];
 
-            final attributeId = row[1].toString();
-            final value = row[2];
+    for (final candidate in joinRowsCandidates) {
+      if (candidate is List) {
+        // Handle nested array structures: [[[row1], [row2]]] vs [[row1], [row2]]
+        if (candidate.isNotEmpty && 
+            candidate[0] is List && 
+            candidate[0].isNotEmpty && 
+            candidate[0][0] is List) {
+          _wsLogger.debug('Found nested join-rows structure with ${candidate[0].length} rows');
+          return List<List<dynamic>>.from(candidate[0]);
+        }
+        _wsLogger.debug('Found direct join-rows structure with ${candidate.length} rows');
+        return List<List<dynamic>>.from(candidate);
+      }
+    }
+    
+    _wsLogger.debug('No valid join-rows found in datalog candidate');
+    return [];
+  }
 
-            // Initialize entity map if needed
-            entityMap.putIfAbsent(entityId, () => {'id': entityId});
+  /// Parse join-rows into entity objects
+  List<Map<String, dynamic>> _parseJoinRowsToEntities(List<List<dynamic>> joinRows) {
+    final entityMap = <String, Map<String, dynamic>>{};
 
-            // Find attribute name from cache
-            String? attrName;
-            for (final nsEntry in _attributeCache.entries) {
-              for (final attrEntry in nsEntry.value.entries) {
-                if (attrEntry.value == attributeId) {
-                  attrName = attrEntry.key;
-                  break;
-                }
-              }
-              if (attrName != null) break;
-            }
+    for (final row in joinRows) {
+      if (row.length >= 3) {
+        // Entity ID might be a string or an array - handle both cases
+        String entityId;
+        if (row[0] is List) {
+          // If entity ID is an array, use the first element as the actual ID
+          entityId = (row[0] as List)[0].toString();
+        } else {
+          entityId = row[0].toString();
+        }
 
-            if (attrName != null) {
-              entityMap[entityId]![attrName] = value;
-            } else {
-              // For unknown attribute IDs, try to infer based on common patterns
-              // This is a workaround for missing attribute definitions
-              if (value is bool) {
-                // Boolean values are likely 'completed' for todos
-                entityMap[entityId]!['completed'] = value;
-                InstantDBLogging.root.debug(
-                  'Inferred attribute "completed" for unknown ID: $attributeId',
-                );
-              } else {
-                InstantDBLogging.root.debug(
-                  'Unknown attribute ID in query response: $attributeId with value: $value',
-                );
-              }
+        final attributeId = row[1].toString();
+        final value = row[2];
+
+        // Initialize entity map if needed
+        entityMap.putIfAbsent(entityId, () => {'id': entityId});
+
+        // Find attribute name from cache
+        String? attrName;
+        for (final nsEntry in _attributeCache.entries) {
+          for (final attrEntry in nsEntry.value.entries) {
+            if (attrEntry.value == attributeId) {
+              attrName = attrEntry.key;
+              break;
             }
           }
+          if (attrName != null) break;
         }
 
-        // Now process each entity
-        if (!skipDuplicateCheck || _refreshOkCount <= 3) {
-          InstantDBLogging.root.debug(
-            'Reconstructed ${entityMap.length} entities from join-rows',
-          );
-        }
-
-        // Check if we've already processed this exact data set
-        final entitiesHash = entityMap.toString().hashCode.toString();
-        if (!skipDuplicateCheck &&
-            _lastProcessedData['query-entities'] == entitiesHash) {
-          return; // Skip duplicate data
-        }
-        _lastProcessedData['query-entities'] = entitiesHash;
-
-        // Create a single transaction for all entities (including deletes)
-        final allOperations = <Operation>[];
-
-        // First, get current local entities to detect deletions
-        // Note: We need to do this even if entityMap is empty (all entities deleted)
-        Set<String> localEntityIds = {};
-        String? detectedEntityType;
-
-        // Detect entity type from first entity, or default to 'todos' if empty
-        if (entityMap.isNotEmpty) {
-          final firstEntity = entityMap.values.first;
-          detectedEntityType = firstEntity['__type'] as String? ?? 'todos';
+        if (attrName != null) {
+          entityMap[entityId]![attrName] = value;
         } else {
-          // If no entities from server, we still need to check for deletes
-          // Default to 'todos' as the most common entity type
-          detectedEntityType = 'todos';
-          InstantDBLogging.root.debug(
-            'Empty entity map from server - checking for deletes in todos',
-          );
+          // For unknown attribute IDs, try to infer based on common patterns
+          // This is a workaround for missing attribute definitions
+          if (value is bool) {
+            // Boolean values are likely 'completed' for todos
+            entityMap[entityId]!['completed'] = value;
+            _wsLogger.debug(
+              'Inferred attribute "completed" for unknown ID: $attributeId',
+            );
+          } else {
+            _wsLogger.debug(
+              'Unknown attribute ID in query response: $attributeId with value: $value',
+            );
+          }
+        }
+      }
+    }
+
+    return entityMap.values.toList();
+  }
+
+  /// Group entities by type for collection format
+  void _groupEntitiesByType(
+    List<Map<String, dynamic>> entities,
+    Map<String, List<Map<String, dynamic>>> convertedData,
+  ) {
+    for (final entity in entities) {
+      final entityType = entity['__type'] as String? ?? 'todos';
+      convertedData.putIfAbsent(entityType, () => []);
+      convertedData[entityType]!.add(entity);
+    }
+  }
+
+  /// Process collection data with enhanced delete detection
+  Future<void> _processCollectionData(
+    Map<String, List<Map<String, dynamic>>> collectionData,
+    bool skipDuplicateCheck,
+  ) async {
+    if (!skipDuplicateCheck || _refreshOkCount <= 3) {
+      final totalEntities = collectionData.values.fold<int>(0, (sum, list) => sum + list.length);
+      _wsLogger.debug('Processing $totalEntities entities across ${collectionData.length} entity types');
+    }
+
+    // Check for duplicate data processing
+    final dataHash = collectionData.toString().hashCode.toString();
+    if (!skipDuplicateCheck && _lastProcessedData['collection-data'] == dataHash) {
+      _wsLogger.debug('Skipping duplicate collection data');
+      return;
+    }
+    _lastProcessedData['collection-data'] = dataHash;
+
+    final allOperations = <Operation>[];
+
+    // Process each entity type separately for better delete detection
+    for (final entry in collectionData.entries) {
+      final entityType = entry.key;
+      final entities = entry.value;
+      
+      _wsLogger.debug('Processing ${entities.length} entities of type: $entityType');
+
+      // Get current local entities of this type for delete detection
+      Set<String> localEntityIds = {};
+      try {
+        final localEntities = await _store.queryEntities(entityType: entityType);
+        localEntityIds = localEntities.map((e) => e['id'] as String).toSet();
+        _wsLogger.debug('Found ${localEntityIds.length} existing local $entityType entities');
+      } catch (e) {
+        _wsLogger.warning('Failed to query local $entityType entities: $e');
+      }
+
+      // Track server entity IDs for this type
+      final serverEntityIds = <String>{};
+
+      // Process entities from server
+      for (final entity in entities) {
+        final entityId = entity['id']?.toString();
+        if (entityId == null) {
+          _wsLogger.warning('Entity missing ID, skipping: $entity');
+          continue;
         }
 
-        try {
-          // Query current local entities of this type
-          final localEntities = await _store.queryEntities(
-            entityType: detectedEntityType,
-          );
+        serverEntityIds.add(entityId);
 
-          localEntityIds = localEntities.map((e) => e['id'] as String).toSet();
-          InstantDBLogging.root.debug(
-            'Found ${localEntityIds.length} existing local entities of type $detectedEntityType',
-          );
-        } catch (e) {
-          InstantDBLogging.root.warning(
-            'Failed to query local entities for delete detection: $e',
-          );
-        }
+        // Skip system entities
+        if (entityId.startsWith('__')) continue;
 
-        // Track which entities we see from server
-        Set<String> serverEntityIds = {};
-
-        for (final entity in entityMap.values) {
-          final entityId = entity['id'] as String;
-          serverEntityIds.add(entityId);
-
-          // Skip if this looks like a system entity or invalid ID
-          if (entityId.startsWith('__') || entityId == '__query_invalidation') {
+        // Skip recently created entities to avoid duplicates
+        if (_recentlyCreatedEntities.containsKey(entityId)) {
+          final createdTime = _recentlyCreatedEntities[entityId]!;
+          final age = DateTime.now().difference(createdTime);
+          if (age.inSeconds < 10) {
+            _wsLogger.debug('Skipping recently created entity: $entityId (age: ${age.inMilliseconds}ms)');
             continue;
           }
-
-          // Skip entities we recently created locally to avoid duplicates
-          if (_recentlyCreatedEntities.containsKey(entityId)) {
-            final createdTime = _recentlyCreatedEntities[entityId]!;
-            final age = DateTime.now().difference(createdTime);
-
-            // Skip if created within the last 10 seconds
-            if (age.inSeconds < 10) {
-              InstantDBLogging.root.debug(
-                'Skipping recently created entity to avoid duplicate: $entityId (age: ${age.inMilliseconds}ms)',
-              );
-              continue;
-            } else {
-              // Remove old entries to prevent memory leak
-              _recentlyCreatedEntities.remove(entityId);
-            }
-          }
-
-          // Detect entity type from the data or default to 'todos'
-          final entityType = entity['__type'] as String? ?? 'todos';
-          InstantDBLogging.root.debug(
-            'Creating operation for entity $entityId with type: $entityType',
-          );
-
-          // Create a single operation with all the entity data
-          final entityData = Map<String, dynamic>.from(entity);
-          entityData['__type'] = entityType;
-
-          allOperations.add(
-            Operation(
-              type: OperationType.add,
-              entityType: entityType,
-              entityId: entityId,
-              data: entityData,
-            ),
-          );
+          _recentlyCreatedEntities.remove(entityId);
         }
 
-        // Generate delete operations for entities that exist locally but not in server response
-        if (localEntityIds.isNotEmpty) {
-          final deletedEntityIds = localEntityIds.difference(serverEntityIds);
+        // Ensure entity has type information
+        final entityData = Map<String, dynamic>.from(entity);
+        entityData['__type'] = entityType;
 
-          if (deletedEntityIds.isNotEmpty) {
-            InstantDBLogging.root.debug(
-              'Detected ${deletedEntityIds.length} deleted entities: ${deletedEntityIds.take(5).toList()}${deletedEntityIds.length > 5 ? '...' : ''}',
-            );
-
-            for (final deletedId in deletedEntityIds) {
-              // Skip recently created entities to avoid race conditions
-              if (!_recentlyCreatedEntities.containsKey(deletedId)) {
-                InstantDBLogging.root.debug(
-                  'Creating delete operation for missing entity: $deletedId',
-                );
-                allOperations.add(
-                  Operation(
-                    type: OperationType.delete,
-                    entityType: detectedEntityType,
-                    entityId: deletedId,
-                  ),
-                );
-              } else {
-                InstantDBLogging.root.debug(
-                  'Skipping delete for recently created entity: $deletedId',
-                );
-              }
-            }
-          }
-        }
-
-        if (allOperations.isNotEmpty) {
-          // Apply as a single transaction
-          final transaction = Transaction(
-            id: _generateEventId(),
-            operations: allOperations,
-            timestamp: DateTime.now(),
-            status: TransactionStatus.synced,
-          );
-
-          await _applyRemoteTransaction(transaction);
-        }
-      }
-    } else if (resultData['todos'] is List) {
-      // Fallback to simple format if available
-      final todos = resultData['todos'] as List;
-      InstantDBLogging.root.debug('Received todos from server (simple format)');
-
-      // Get current local todos to detect deletions
-      Set<String> localTodoIds = {};
-      try {
-        final localTodos = await _store.queryEntities(entityType: 'todos');
-        localTodoIds = localTodos.map((e) => e['id'] as String).toSet();
-        InstantDBLogging.root.debug(
-          'Found ${localTodoIds.length} existing local todos',
-        );
-      } catch (e) {
-        InstantDBLogging.root.warning(
-          'Failed to query local todos for delete detection: $e',
+        allOperations.add(
+          Operation(
+            type: OperationType.add,
+            entityType: entityType,
+            entityId: entityId,
+            data: entityData,
+          ),
         );
       }
 
-      // Track server todo IDs
-      Set<String> serverTodoIds = {};
-      final allOperations = <Operation>[];
+      // Generate delete operations for missing entities
+      final deletedEntityIds = localEntityIds.difference(serverEntityIds);
+      if (deletedEntityIds.isNotEmpty) {
+        _wsLogger.debug(
+          'Detected ${deletedEntityIds.length} deleted $entityType entities: ${deletedEntityIds.take(3).join(', ')}${deletedEntityIds.length > 3 ? '...' : ''}',
+        );
 
-      for (final todo in todos) {
-        if (todo is Map<String, dynamic>) {
-          final entityId = todo['id']?.toString();
-          if (entityId != null) {
-            serverTodoIds.add(entityId);
-
-            // Create new format operation with all data
-            final todoData = Map<String, dynamic>.from(todo);
-            todoData['__type'] = 'todos';
-
+        for (final deletedId in deletedEntityIds) {
+          if (!_recentlyCreatedEntities.containsKey(deletedId)) {
             allOperations.add(
               Operation(
-                type: OperationType.add,
-                entityType: 'todos',
-                entityId: entityId,
-                data: todoData,
+                type: OperationType.delete,
+                entityType: entityType,
+                entityId: deletedId,
               ),
             );
           }
         }
       }
+    }
 
-      // Generate delete operations for missing todos
-      if (localTodoIds.isNotEmpty) {
-        final deletedTodoIds = localTodoIds.difference(serverTodoIds);
+    // Apply all operations as a single transaction
+    if (allOperations.isNotEmpty) {
+      final transaction = Transaction(
+        id: _generateEventId(),
+        operations: allOperations,
+        timestamp: DateTime.now(),
+        status: TransactionStatus.synced,
+      );
 
-        if (deletedTodoIds.isNotEmpty) {
-          InstantDBLogging.root.debug(
-            'Detected ${deletedTodoIds.length} deleted todos: ${deletedTodoIds.take(5).toList()}${deletedTodoIds.length > 5 ? '...' : ''}',
-          );
-
-          for (final deletedId in deletedTodoIds) {
-            // Skip recently created entities to avoid race conditions
-            if (!_recentlyCreatedEntities.containsKey(deletedId)) {
-              InstantDBLogging.root.debug(
-                'Creating delete operation for missing todo: $deletedId',
-              );
-              allOperations.add(
-                Operation(
-                  type: OperationType.delete,
-                  entityType: 'todos',
-                  entityId: deletedId,
-                ),
-              );
-            } else {
-              InstantDBLogging.root.debug(
-                'Skipping delete for recently created todo: $deletedId',
-              );
-            }
-          }
-        }
-      }
-
-      // Apply all operations as a single transaction
-      if (allOperations.isNotEmpty) {
-        final transaction = Transaction(
-          id: _generateEventId(),
-          operations: allOperations,
-          timestamp: DateTime.now(),
-          status: TransactionStatus.synced,
-        );
-
-        await _applyRemoteTransaction(transaction);
-      }
+      _wsLogger.debug('Applying transaction with ${allOperations.length} operations');
+      await _applyRemoteTransaction(transaction);
+    } else {
+      _wsLogger.debug('No operations to apply from collection data');
     }
   }
 

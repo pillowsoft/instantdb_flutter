@@ -1,3 +1,36 @@
+## 0.2.1
+
+### 🐛 Critical Bug Fixes
+
+**Enhanced Datalog Processing**
+* ✅ **Fixed datalog-result format edge cases** - Resolved scenarios where malformed join-rows or unexpected data structures could cause silent failures, leading to empty query results despite data existing in the response
+* ✅ **Added robust format detection** - Implemented comprehensive datalog format detection that handles multiple variations including nested structures and different datalog path locations
+* ✅ **Enhanced error logging** - Added detailed logging for unrecognized query response formats to aid debugging instead of failing silently
+* ✅ **Multiple fallback paths** - Added systematic fallback logic that tries various datalog extraction methods before falling back to simple collection format
+* ✅ **Improved delete detection** - Better handling of entity deletions across different data formats and connection states
+
+**Connection & Timing Improvements**
+* ✅ **Fixed connection timing race conditions** - Resolved timing-dependent format detection failures during connection initialization that could cause datalog responses to be ignored
+* ✅ **Enhanced message type handling** - Improved processing of different query response message types (`add-query-ok`, `refresh-ok`, `query-invalidation`) with varying data structure expectations
+* ✅ **Added explicit failure warnings** - Replaced silent failures with explicit warnings when query responses don't match expected formats
+
+### 🔧 Technical Improvements
+
+**Code Quality**
+* ✅ **Modularized datalog processing** - Refactored datalog handling into focused, testable methods for better maintainability
+* ✅ **Enhanced type safety** - Improved type checking and reduced unnecessary casts in datalog processing logic
+* ✅ **Better error reporting** - Added comprehensive logging at different levels to help debug datalog processing issues
+
+**Architecture**
+* ✅ **Robust conversion pipeline** - Implemented a systematic approach to converting datalog-result format to collection format with multiple validation points
+* ✅ **Improved data flow** - Enhanced the data processing pipeline to handle edge cases gracefully while maintaining performance
+
+### 📚 Documentation
+* ✅ Updated CLAUDE.md with detailed information about datalog processing improvements
+* ✅ Added documentation for debugging datalog format detection issues
+
+---
+
 ## 0.2.0
 
 ### 🚀 Major Features - React/JS SDK Feature Parity

@@ -51,6 +51,7 @@ This is a fully functional InstantDB Flutter implementation with feature parity 
 - ✅ **Complete Core Implementation**: Full InstantDB client with initialization and configuration
 - ✅ **SQLite Triple Store**: Robust local storage with full pattern query support 
 - ✅ **Real-time Sync Engine**: WebSocket-based synchronization with conflict resolution
+- ✅ **Enhanced Datalog Processing**: Robust datalog-result format handling with comprehensive edge case coverage
 - ✅ **Reactive Query System**: Signal-based reactive queries with Flutter widget integration
 - ✅ **Transaction System**: Full CRUD operations with optimistic updates and rollback
 - ✅ **Authentication**: User authentication and session management
@@ -91,11 +92,27 @@ lib/
 - Uses flutter_lints for code quality enforcement
 - **Storage Backend**: Uses SQLite for local persistence across all platforms
 - **Real-time Sync**: WebSocket connection to InstantDB cloud for data synchronization
+- **Enhanced Datalog Processing**: Robust handling of multiple datalog-result format variations with comprehensive edge case coverage
 - **Reactive Architecture**: Built on signals_flutter for efficient UI updates
 - **Platform Support**: Conditional imports handle platform-specific implementations
 - **Logging System**: Uses standard Dart `logging` package with hierarchical loggers for each component
 - **Debug Tools**: Example app includes debug toggle for runtime log level control
 - **Testing**: Comprehensive test suite with example applications demonstrating all features
+
+### Recent Improvements (v0.2.1)
+
+#### Enhanced Datalog Processing
+- **Robust Format Detection**: Handles multiple datalog-result format variations including nested structures
+- **Comprehensive Edge Case Coverage**: Addresses scenarios where malformed join-rows or unexpected data structures could cause silent failures
+- **Enhanced Error Logging**: Detailed logging for unrecognized query response formats to aid debugging
+- **Multiple Fallback Paths**: Tries various datalog extraction methods before falling back to simple collection format
+- **Improved Delete Detection**: Better handling of entity deletions across different data formats
+
+#### Bug Fixes
+- Fixed edge cases where datalog-result format could bypass conversion, leading to empty query results
+- Resolved timing-dependent format detection failures during connection initialization
+- Enhanced handling of different message types with varying data structure expectations
+- Added explicit warnings for unhandled data formats instead of silent failures
 
 ### Debugging and Development
 
