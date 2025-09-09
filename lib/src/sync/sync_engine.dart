@@ -61,6 +61,9 @@ class SyncEngine {
   final Map<String, String> _lastProcessedData = {};
   int _refreshOkCount = 0;
 
+  // Cache for query results from datalog conversion
+  final Map<String, List<Map<String, dynamic>>> _queryResultCache = {};
+
   /// Connection status signal
   ReadonlySignal<bool> get connectionStatus => _connectionStatus.readonly();
 
@@ -1011,6 +1014,19 @@ class SyncEngine {
       );
     }
 
+    // Clear cache for affected collections when a local transaction is sent
+    final affectedCollections = <String>{};
+    for (final operation in transaction.operations) {
+      final entityType = operation.entityType;
+      if (entityType != null) {
+        affectedCollections.add(entityType);
+      }
+    }
+    
+    for (final collection in affectedCollections) {
+      clearCachedQueryResult(collection);
+    }
+
     // Add to sync queue
     InstantDBLogging.root.debug(
       'SyncEngine: Adding transaction ${transaction.id} to sync queue (current queue size: ${_syncQueue.length})',
@@ -1505,6 +1521,9 @@ class SyncEngine {
     }
     _lastProcessedData['collection-data'] = dataHash;
 
+    // Cache the converted collection data for immediate query access
+    _cacheQueryResults(collectionData);
+
     final allOperations = <Operation>[];
 
     // Process each entity type separately for better delete detection
@@ -1649,5 +1668,33 @@ class SyncEngine {
         stackTrace,
       );
     }
+  }
+
+  /// Cache query results from datalog conversion for immediate access
+  void _cacheQueryResults(Map<String, List<Map<String, dynamic>>> data) {
+    for (final entry in data.entries) {
+      final collection = entry.key;
+      final documents = entry.value;
+      
+      _queryResultCache[collection] = documents;
+      _wsLogger.debug('Cached ${documents.length} documents for collection: $collection');
+    }
+  }
+
+  /// Get cached query results for a collection
+  List<Map<String, dynamic>>? getCachedQueryResult(String collection) {
+    return _queryResultCache[collection];
+  }
+
+  /// Clear cached query results for a collection
+  void clearCachedQueryResult(String collection) {
+    _queryResultCache.remove(collection);
+    _wsLogger.debug('Cleared cache for collection: $collection');
+  }
+
+  /// Clear all cached query results
+  void clearAllCachedResults() {
+    _queryResultCache.clear();
+    _wsLogger.debug('Cleared all cached query results');
   }
 }

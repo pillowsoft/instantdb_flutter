@@ -157,6 +157,18 @@ class QueryEngine {
     String entityType,
     Map<String, dynamic> query,
   ) async {
+    // Check sync engine cache first for immediate data availability
+    if (_syncEngine != null) {
+      final cachedData = _syncEngine!.getCachedQueryResult(entityType);
+      if (cachedData != null && cachedData.isNotEmpty) {
+        InstantDBLogging.root.debug(
+          'Using cached query result for $entityType: ${cachedData.length} documents',
+        );
+        // Apply query filters to cached data if needed
+        return _applyQueryFilters(cachedData, query);
+      }
+    }
+
     // Extract query parameters
     final where = query['where'] as Map<String, dynamic>?;
 
@@ -336,6 +348,135 @@ class QueryEngine {
       }
       _pendingQueryUpdates.clear();
     });
+  }
+
+  /// Apply query filters to cached data
+  List<Map<String, dynamic>> _applyQueryFilters(
+    List<Map<String, dynamic>> data,
+    Map<String, dynamic> query,
+  ) {
+    var filteredData = List<Map<String, dynamic>>.from(data);
+
+    // Apply where clause filters if present
+    final where = query['where'] as Map<String, dynamic>?;
+    if (where != null) {
+      filteredData = filteredData.where((doc) {
+        return _evaluateWhereCondition(doc, where);
+      }).toList();
+    }
+
+    // Apply orderBy if present
+    final orderByInput = query['order'] ?? query['orderBy'];
+    if (orderByInput != null) {
+      // Convert orderBy to expected format
+      List<String>? orderBy;
+      if (orderByInput is Map) {
+        orderBy = orderByInput.entries.map((e) => '${e.key} ${e.value}').toList();
+      } else if (orderByInput is List) {
+        orderBy = orderByInput.map((item) {
+          if (item is Map) {
+            return item.entries.map((e) => '${e.key} ${e.value}').join(' ');
+          }
+          return item.toString();
+        }).toList();
+      } else if (orderByInput is String) {
+        orderBy = [orderByInput];
+      }
+
+      if (orderBy != null) {
+        // Apply sorting
+        for (final orderClause in orderBy.reversed) {
+          final parts = orderClause.split(' ');
+          final field = parts[0];
+          final isDesc = parts.length > 1 && parts[1].toLowerCase() == 'desc';
+
+          filteredData.sort((a, b) {
+            final aValue = a[field];
+            final bValue = b[field];
+            
+            if (aValue == null && bValue == null) return 0;
+            if (aValue == null) return isDesc ? 1 : -1;
+            if (bValue == null) return isDesc ? -1 : 1;
+
+            final comparison = Comparable.compare(aValue as Comparable, bValue as Comparable);
+            return isDesc ? -comparison : comparison;
+          });
+        }
+      }
+    }
+
+    // Apply limit if present
+    final limit = query['limit'] as int?;
+    if (limit != null && limit > 0) {
+      filteredData = filteredData.take(limit).toList();
+    }
+
+    // Apply offset if present
+    final offset = query['offset'] as int?;
+    if (offset != null && offset > 0) {
+      filteredData = filteredData.skip(offset).toList();
+    }
+
+    return filteredData;
+  }
+
+  /// Evaluate where conditions for filtering cached data
+  bool _evaluateWhereCondition(Map<String, dynamic> doc, Map<String, dynamic> where) {
+    for (final entry in where.entries) {
+      final field = entry.key;
+      final condition = entry.value;
+      final fieldValue = doc[field];
+
+      if (condition is Map) {
+        // Handle operators like $eq, $ne, $gt, $lt, etc.
+        for (final op in condition.entries) {
+          final operator = op.key;
+          final compareValue = op.value;
+
+          switch (operator) {
+            case '\$eq':
+              if (fieldValue != compareValue) return false;
+              break;
+            case '\$ne':
+              if (fieldValue == compareValue) return false;
+              break;
+            case '\$gt':
+              if (fieldValue == null || (fieldValue as Comparable).compareTo(compareValue) <= 0) return false;
+              break;
+            case '\$gte':
+              if (fieldValue == null || (fieldValue as Comparable).compareTo(compareValue) < 0) return false;
+              break;
+            case '\$lt':
+              if (fieldValue == null || (fieldValue as Comparable).compareTo(compareValue) >= 0) return false;
+              break;
+            case '\$lte':
+              if (fieldValue == null || (fieldValue as Comparable).compareTo(compareValue) > 0) return false;
+              break;
+            case '\$in':
+              if (compareValue is List && !compareValue.contains(fieldValue)) return false;
+              break;
+            case '\$nin':
+              if (compareValue is List && compareValue.contains(fieldValue)) return false;
+              break;
+            case '\$exists':
+              final exists = doc.containsKey(field);
+              if ((compareValue == true && !exists) || (compareValue == false && exists)) return false;
+              break;
+            case '\$isNull':
+              if ((compareValue == true && fieldValue != null) || (compareValue == false && fieldValue == null)) return false;
+              break;
+            default:
+              // Unknown operator, skip
+              break;
+          }
+        }
+      } else {
+        // Direct equality check
+        if (fieldValue != condition) return false;
+      }
+    }
+    
+    return true;
   }
 
   bool _queryAffectedByChange(Map<String, dynamic> query, TripleChange change) {

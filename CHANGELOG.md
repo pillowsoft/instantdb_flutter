@@ -1,3 +1,36 @@
+## 0.2.2
+
+### 🚀 Major Fix: Query Result Caching for Datalog Format
+
+**Fixed Critical Issue**
+* ✅ **Fixed datalog format not being returned as collection format** - Applications now receive properly converted collection data instead of raw datalog format
+* ✅ **Added query result caching** - Converted datalog results are cached for immediate access, solving the "0 documents" issue
+* ✅ **Improved data availability** - Queries now return cached results immediately after datalog conversion, without waiting for async storage operations
+
+**Technical Improvements**
+* ✅ **Query result cache in SyncEngine** - Stores converted collection data from datalog processing
+* ✅ **Cache-first query strategy** - QueryEngine checks cache before querying storage
+* ✅ **Smart cache invalidation** - Cache clears when local transactions affect collections
+* ✅ **Enhanced query filtering** - Apply where, orderBy, limit, and offset to cached data
+
+**Architecture Enhancements**
+* ✅ **Direct data path** - Datalog conversion results are immediately available to queries
+* ✅ **Reduced latency** - No dependency on async storage operations for query results
+* ✅ **Better synchronization** - Ensures data consistency between datalog processing and query results
+
+### 📚 Impact
+
+This release fixes a critical issue where applications using the InstantDB Flutter package would receive 0 documents from queries, even though the package successfully processed datalog internally. The fix ensures that:
+
+1. Datalog format is properly converted to collection format
+2. Converted data is immediately available to applications
+3. No data loss occurs during the conversion process
+4. Applications no longer need workarounds to parse datalog manually
+
+**For AppShell Users**: While AppShell v0.7.19+ includes a workaround, updating to InstantDB Flutter v0.2.2 provides the proper fix at the package level.
+
+---
+
 ## 0.2.1
 
 ### 🐛 Critical Bug Fixes

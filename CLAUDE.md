@@ -99,9 +99,15 @@ lib/
 - **Debug Tools**: Example app includes debug toggle for runtime log level control
 - **Testing**: Comprehensive test suite with example applications demonstrating all features
 
-### Recent Improvements (v0.2.1)
+### Recent Improvements (v0.2.2)
 
-#### Enhanced Datalog Processing
+#### Query Result Caching System
+- **Fixed datalog to collection format conversion**: Applications now receive properly formatted collection data instead of raw datalog
+- **Query result caching**: Converted datalog results are cached for immediate access, solving the "0 documents" issue
+- **Cache-first query strategy**: Queries check cache before storage for instant data availability
+- **Smart cache invalidation**: Cache automatically clears when transactions affect collections
+
+#### v0.2.1 - Enhanced Datalog Processing
 - **Robust Format Detection**: Handles multiple datalog-result format variations including nested structures
 - **Comprehensive Edge Case Coverage**: Addresses scenarios where malformed join-rows or unexpected data structures could cause silent failures
 - **Enhanced Error Logging**: Detailed logging for unrecognized query response formats to aid debugging
@@ -109,6 +115,7 @@ lib/
 - **Improved Delete Detection**: Better handling of entity deletions across different data formats
 
 #### Bug Fixes
+- Fixed critical issue where datalog format wasn't converted to collection format for applications
 - Fixed edge cases where datalog-result format could bypass conversion, leading to empty query results
 - Resolved timing-dependent format detection failures during connection initialization
 - Enhanced handling of different message types with varying data structure expectations
