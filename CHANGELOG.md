@@ -1,3 +1,36 @@
+## 0.2.5
+
+### 🎯 API Enhancement: Documents Getter for Better Developer Experience
+
+**Added Convenience API**
+* ✅ **Added `documents` getter to QueryResult** - Provides direct access to query results using familiar API pattern
+* ✅ **Enhanced developer experience** - Developers can now use `result.documents.length` as expected
+* ✅ **Backward compatibility** - Existing `result.data?['collection']` API continues to work unchanged
+* ✅ **Smart collection detection** - Automatically returns documents from the first collection in query result
+
+**Technical Implementation**
+* ✅ **First collection fallback** - Returns documents from the first collection when multiple collections exist
+* ✅ **Safe empty list handling** - Returns empty list for loading, error, or null data states
+* ✅ **Type safety** - Ensures all returned items are properly typed as `Map<String, dynamic>`
+
+### 📚 Impact
+
+This release solves an API discrepancy where developers expected a `documents` field on QueryResult but had to use the more verbose `result.data?['collection']` pattern. Now both approaches work:
+
+**New convenient API**:
+```dart
+final result = db.query({'conversations': {}}).value;
+print('Returned ${result.documents.length} documents');
+```
+
+**Existing API (still works)**:
+```dart
+final conversations = result.data?['conversations'] as List? ?? [];
+print('Returned ${conversations.length} conversations');
+```
+
+---
+
 ## 0.2.4
 
 ### 🎯 Critical Fix: Entity Type Resolution in Datalog Conversion

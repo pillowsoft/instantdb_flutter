@@ -121,6 +121,22 @@ class QueryResult {
 
   bool get hasData => data != null;
   bool get hasError => error != null;
+
+  /// Convenience getter to access documents from the first collection in the result
+  /// This provides compatibility with expected API patterns
+  List<Map<String, dynamic>> get documents {
+    if (data == null || isLoading || hasError) return [];
+    
+    // Find the first collection in the data
+    for (final value in data!.values) {
+      if (value is List) {
+        return List<Map<String, dynamic>>.from(
+          value.where((item) => item is Map<String, dynamic>),
+        );
+      }
+    }
+    return [];
+  }
 }
 
 /// Storage backend options
